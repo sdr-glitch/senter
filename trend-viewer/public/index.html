@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>📈 트렌드 뷰어 — 센터 로컬 도구</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:#f7f6f3; --surface:#fff; --surface-2:#f1efe9; --text:#262522; --text-soft:#6f6c64;
+  --line:#e5e2d9; --accent:#2e7d5b; --accent-strong:#1f5c42; --accent-soft:#e3f0e9; --danger:#c0392b;
+}
+body { font-family:"Pretendard","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif; background:var(--bg); color:var(--text); line-height:1.6; }
+.wrap { max-width: 920px; margin: 0 auto; padding: 20px 16px 60px; }
+h1 { font-size: 1.3rem; display:flex; align-items:center; gap:8px; }
+.sub { color: var(--text-soft); font-size: .88rem; margin-bottom: 18px; }
+.card { background: var(--surface); border:1px solid var(--line); border-radius:14px; padding:18px; box-shadow:0 1px 3px rgba(0,0,0,.06); margin-bottom:14px; }
+.card h2 { font-size: 1rem; margin-bottom: 4px; }
+.desc { font-size:.84rem; color:var(--text-soft); margin-bottom:12px; }
+.row { display:flex; gap:8px; }
+input[type=text] { flex:1; padding:10px 13px; border:1px solid var(--line); border-radius:10px; font-family:inherit; font-size:.95rem; }
+button { font-family:inherit; font-weight:600; cursor:pointer; border:none; border-radius:10px; }
+.btn { background:var(--accent); color:#fff; padding:10px 18px; font-size:.9rem; }
+.btn:hover { filter:brightness(1.08); }
+.btn-sm { background:var(--accent-soft); color:var(--accent-strong); padding:5px 11px; font-size:.78rem; }
+.trend-list { display:flex; flex-wrap:wrap; gap:8px; }
+.trend-item { background:var(--surface-2); border-radius:999px; padding:6px 14px; font-size:.88rem; }
+.trend-item b { color:var(--accent-strong); margin-right:4px; }
+.trend-item .tr { font-size:.72rem; color:var(--text-soft); margin-left:5px; }
+.note { font-size:.82rem; color:#8a5f1e; background:#f6e9d5; border-radius:8px; padding:9px 12px; }
+.kw-card { border:1px solid var(--line); border-radius:12px; padding:14px 15px; margin-bottom:10px; background:var(--surface); }
+.kw-head { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+.kw-name { font-weight:800; font-size:1rem; flex:1; }
+.kw-links { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+.kw-links a { font-size:.76rem; text-decoration:none; color:var(--accent-strong); background:var(--accent-soft); padding:4px 10px; border-radius:999px; }
+.news-item { padding:8px 2px; border-bottom:1px dashed var(--line); font-size:.88rem; }
+.news-item:last-child { border-bottom:none; }
+.news-item a { color:var(--text); text-decoration:none; }
+.news-item a:hover { color:var(--accent-strong); text-decoration:underline; }
+.news-meta { font-size:.74rem; color:var(--text-soft); }
+.del { background:none; color:var(--text-soft); font-size:1rem; padding:2px 6px; }
+.del:hover { color:var(--danger); }
+.empty { text-align:center; color:var(--text-soft); font-size:.88rem; padding:26px; background:var(--surface-2); border-radius:12px; }
+.updated { font-size:.76rem; color:var(--text-soft); }
+.spin { display:inline-block; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📈 트렌드 뷰어 <span class="updated" id="updated"></span></h1>
+  <p class="sub">관심 키워드의 최신 뉴스와 실시간 급상승 검색어를 한 화면에서. 이 도구는 내 컴퓨터에서만 돌아가요.</p>
+
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+      <h2>🔥 실시간 급상승 (구글 트렌드 · 한국)</h2>
+      <button class="btn-sm" id="refresh">↻ 전체 새로고침</button>
+    </div>
+    <div class="desc">지금 사람들이 검색하는 것 — 내 주제와 연결할 틈새를 찾아보세요.</div>
+    <div id="trending" class="trend-list"><span class="spin">⏳</span></div>
+  </div>
+
+  <div class="card">
+    <h2>🔍 관심 키워드</h2>
+    <div class="desc">키워드를 등록하면 최신 뉴스와 바로가기(데이터랩·인스타·유튜브)를 모아줘요. 예: 리빙, 수납, 원룸 인테리어</div>
+    <div class="row">
+      <input type="text" id="kw-input" placeholder="키워드 입력 후 Enter" maxlength="30">
+      <button class="btn" id="kw-add">추가</button>
+    </div>
+  </div>
+
+  <div id="kw-list"></div>
+</div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const esc = s => String(s||"").replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  return r.json();
+}
+
+function quickLinks(word) {
+  const w = encodeURIComponent(word);
+  const tag = encodeURIComponent(word.replace(/\s/g, ""));
+  return [
+    ["네이버 데이터랩", `https://datalab.naver.com/keyword/trendSearch.naver?keyword=${w}`],
+    ["구글 트렌드", `https://trends.google.com/trends/explore?geo=KR&q=${w}`],
+    ["인스타 태그", `https://www.instagram.com/explore/tags/${tag}/`],
+    ["유튜브 검색", `https://www.youtube.com/results?search_query=${w}`],
+    ["네이버 쇼핑", `https://search.shopping.naver.com/search/all?query=${w}`]
+  ].map(([n, u]) => `<a href="${u}" target="_blank" rel="noopener">${n} ↗</a>`).join("");
+}
+
+async function loadTrending() {
+  const box = $("#trending");
+  box.innerHTML = '<span class="spin">⏳</span>';
+  const d = await api("/api/trending");
+  if (!d.ok || !d.items.length) {
+    box.innerHTML = `<div class="note">⚠️ ${esc(d.note || "급상승 검색어를 가져오지 못했어요.")}</div>`;
+    return;
+  }
+  box.innerHTML = d.items.map((it, i) =>
+    `<span class="trend-item"><b>${i + 1}</b>${esc(it.title)}${it.traffic ? `<span class="tr">${esc(it.traffic)}</span>` : ""}</span>`).join("");
+}
+
+async function loadKeywords() {
+  const list = await api("/api/keywords");
+  const wrap = $("#kw-list");
+  if (!list.length) {
+    wrap.innerHTML = `<div class="empty">아직 키워드가 없어요. 위에서 첫 키워드를 추가해보세요! (예: 리빙)</div>`;
+    return;
+  }
+  wrap.innerHTML = list.map(k => `
+    <div class="kw-card" data-id="${k.id}">
+      <div class="kw-head">
+        <span class="kw-name">🔍 ${esc(k.word)}</span>
+        <button class="del" title="삭제" onclick="removeKw('${k.id}')">🗑</button>
+      </div>
+      <div class="kw-links">${quickLinks(k.word)}</div>
+      <div class="news" id="news-${k.id}"><span class="spin">⏳</span> 뉴스 불러오는 중...</div>
+    </div>`).join("");
+  for (const k of list) loadNews(k);
+}
+
+async function loadNews(k) {
+  const box = document.getElementById("news-" + k.id);
+  if (!box) return;
+  const d = await api("/api/news?q=" + encodeURIComponent(k.word));
+  if (!d.ok || !d.items.length) {
+    box.innerHTML = `<div class="note">⚠️ ${esc(d.note || "관련 뉴스가 없어요.")}</div>`;
+    return;
+  }
+  box.innerHTML = d.items.map(it => `
+    <div class="news-item">
+      <a href="${it.link}" target="_blank" rel="noopener">${esc(it.title)}</a>
+      <div class="news-meta">${esc(it.source || "")} · ${it.date ? new Date(it.date).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</div>
+    </div>`).join("");
+}
+
+async function addKw() {
+  const input = $("#kw-input");
+  const word = input.value.trim();
+  if (!word) { input.focus(); return; }
+  const r = await api("/api/keywords", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ word }) });
+  if (r.error) { alert(r.error); return; }
+  input.value = "";
+  loadKeywords();
+}
+
+async function removeKw(id) {
+  await api("/api/keywords/" + id, { method: "DELETE" });
+  loadKeywords();
+}
+
+function stamp() {
+  $("#updated").textContent = "· " + new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) + " 기준";
+}
+
+$("#kw-add").addEventListener("click", addKw);
+$("#kw-input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) addKw(); });
+$("#refresh").addEventListener("click", () => { loadTrending(); loadKeywords(); stamp(); });
+
+loadTrending();
+loadKeywords();
+stamp();
+setInterval(() => { loadTrending(); stamp(); }, 10 * 60 * 1000); // 10분마다 급상승 갱신
+</script>
+</body>
+</html>

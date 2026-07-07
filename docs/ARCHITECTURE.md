@@ -40,7 +40,7 @@ studio.html─ 크리에이터 스튜디오(허브/패턴/이모티콘/템플릿
 |---|---|
 | 정적 SPA + localStorage | 사용자가 비개발자. 서버·DB·배포 파이프라인은 유지 불가능. 트레이드오프: 기기 간 동기화 없음(백업 파일로 대체) |
 | 자율 근무 `autoPilotTick()` | 사용자가 자료만 올리면 스터디 회의→초안→보고까지 자동. AI 없으면 `templateDraft()` 오프라인 초안 엔진이 실제 결과물 생성 |
-| 직원 스킬 시스템 | 오픈소스 PM 방법론(github.com/phuryn/pm-skills, github.com/garrytan/gstack — 둘 다 MIT)을 SKILLS 레지스트리로 이식. STAFF_SKILLS로 직원별 장착 → staffPrompt()가 지시서·자동작업·검증패널에 주입. 스킬 초안 4종(페르소나/포지셔닝/북극성/회고) + 자율 체인(bench→personas→positioning→northstar) + 완료 8건마다 gstack Retro. trend-viewer(파이썬 서버)는 정적 앱에 이식 불가로 제외 |
+| 직원 스킬 시스템 | 오픈소스 PM 방법론(phuryn/pm-skills, garrytan/gstack, coreyhaines31/marketingskills — 모두 MIT)을 SKILLS 레지스트리로 이식. STAFF_SKILLS로 직원별 장착 → staffPrompt()가 지시서·자동작업·검증패널에 주입. 스킬 초안 4종(페르소나/포지셔닝/북극성/회고) + 자율 체인(bench→personas→positioning→northstar) + 완료 8건마다 gstack Retro. trend-viewer(파이썬 서버)는 정적 앱에 이식 불가로 제외 |
 | 리서치 자동화 | 벤치마킹 보고서(`benchDraft`)·카카오 이모티콘 시장 분석(`emoticonKakaoDraft`)·멀티 플랫폼 기획(`emoticonMultiDraft`)을 자율 이니셔티브로 생성. 실시간 크롤링은 불가하므로 검증된 패턴 지식 + "10분 직접 확인 체크리스트" + AI 연결 시 심화 분석의 3층 구조. 7일마다 주간 벤치마킹 갱신 |
 | AI 3단계 체인 `aiChat()` | 사용자가 API 결제 실패(카드 문제). ① Anthropic(브라우저 직접, `anthropic-dangerous-direct-browser-access`) → ② Puter.js 무료(키 불필요, 첫 사용 시 무료계정 팝업 1회) → ③ 오프라인 템플릿(미션=로드맵 기반, 우선순위=마감순, 보고서·회의=데이터 조립) + "지시서 복사→무료 챗봇" 수동 흐름 |
 | 자동 실행은 **버튼**으로 (키 없을 때) | Puter 첫 인증 팝업은 사용자 제스처 필요 + 예상 못 한 백그라운드 호출 방지 |
@@ -75,6 +75,13 @@ node --check app.js                    # 문법
 1. **클라우드 동기화** — localStorage 한계(기기 간 이동은 백업 파일). 무료로는 어려워 보류 중
 2. **스크럼 회의 AI 대사** — 현재 회의는 데이터 기반 템플릿. AI 연결 시 자유 대화형 회의 검토
 3. **스튜디오 자산 ↔ 업무 연결** — 이모티콘 기획 승인 시 스튜디오에 프로젝트 자동 생성
+
+### 로컬 도구 (웹 배포와 별개, Node 필요)
+- `trend-viewer/` — 관심 키워드 뉴스(구글 뉴스 RSS) + 실시간 급상승(구글 트렌드 RSS) 대시보드.
+  무의존성 Node, 더블클릭 실행(시작하기.command/bat), HTTPS_PROXY 자동 인식(CONNECT+Basic 인증),
+  엔드포인트 env 오버라이드(TV_NEWS_BASE/TV_TRENDING_URL — 테스트·구글 주소 변경 대비).
+  **주의: 샌드박스에선 구글 호스트가 정책 차단이라 모의 RSS로 전 구간 E2E 검증함. 일반 PC에선 표준 경로.**
+- `claude-desk/` — 팀용 Claude Code 웹 데스크 (기존)
 
 ### 완료됨 (기록)
 - ~~회의록 열람 UI~~ → 사무실 탭 [📜 회의록] 보관함 (최근 10개, 펼쳐보기)

@@ -131,7 +131,7 @@ function staffContext() {
 
 /* ==================================================
    직원 스킬 시스템 — 오픈소스 PM 방법론 이식
-   출처: github.com/phuryn/pm-skills (MIT), github.com/garrytan/gstack (MIT)
+   출처: github.com/phuryn/pm-skills, github.com/garrytan/gstack, github.com/coreyhaines31/marketingskills (모두 MIT)
    ================================================== */
 const SKILLS = {
   positioning: {
@@ -165,6 +165,23 @@ const SKILLS = {
 ②북극성 1개 선정 (7기준: 전원 이해·고객가치·지속습관·비전정렬·정량측정·직접영향·선행지표) — 팔로워 수보다 "주간 저장수" 같은 가치 지표 우선
 ③인풋 지표 3~5개: 단기 개선 가능 + 북극성에 직결.`
   },
+  socialContent: {
+    name: "소셜 콘텐츠 전략", src: "marketingskills",
+    method: `[스킬: 소셜 콘텐츠 전략]
+① 콘텐츠 기둥 3~5개 설정 (예: 꿀팁 30%·비포애프터 25%·일상공감 20%·자료기반 15%·소통 10%)
+② 원자화: 긴 콘텐츠 1개 → 플랫폼별 5~10개 조각으로 (각 조각은 맥락 없이도 독립 작동)
+③ 후킹 4유형: 호기심("통념은 틀렸다") / 스토리("지난주 예상 밖의 일이") / 가치("이렇게 하되 흔한 실수는 피해") / 반전("인기 있는 조언이 잘못된 이유")
+④ 영상 구조: 0-3초 후킹(결과 먼저)→3-8초 개요→단계 설명(5~8초당 1개)→CTA. 무음 시청 대비 자막 필수
+⑤ 주간 리뷰: 상위 3개 원인 분석 / 하위 3개 학습 / 다음 주 배치 조정. 외부 링크 남발 금지(도달 하락)`
+  },
+  marketingPsych: {
+    name: "마케팅 심리학", src: "marketingskills",
+    method: `[스킬: 마케팅 심리학 — 진단→개입→검증]
+진단: 반응 없음→선택지 과다(줄이기)/신뢰 부족→사회적 증거(실제 후기·숫자)/행동 안 함→진입장벽(첫걸음을 극단적으로 작게)
+개입 원칙: 타깃이 이미 믿는 것에 메시지를 정렬 / 손실 프레이밍("모르면 손해")이 이득 프레이밍보다 강함 / 선택지는 3개 이내
+출력 형식: 【문제】【원인(심리 모델)】【개입】【측정】【윤리체크】
+윤리 필수: 거짓 희소성·과장 후기 금지 — 진짜 제약과 진짜 데이터만. 심리학은 좋은 콘텐츠를 더 쉽게 발견되게 할 뿐.`
+  },
   gstackFlow: {
     name: "에이전트 워크플로", src: "gstack",
     method: `[스킬: 에이전트 워크플로 — Plan→Build→Review→QA→Ship→Retro]
@@ -175,12 +192,12 @@ QA 게이트: 지시 충족? 바로 사용 가능? 빠진 필수 요소? Ship �
 
 const STAFF_SKILLS = {
   pm: ["gstackFlow", "northStar"],
-  planner: ["marketingIdeas", "northStar"],
-  copywriter: ["positioning", "marketingIdeas"],
-  reels: ["marketingIdeas"],
+  planner: ["marketingIdeas", "northStar", "socialContent"],
+  copywriter: ["positioning", "marketingIdeas", "marketingPsych"],
+  reels: ["marketingIdeas", "socialContent"],
   analyst: ["competitor", "personas"],
-  review: ["personas"],
-  brand: ["positioning", "personas"],
+  review: ["personas", "marketingPsych"],
+  brand: ["positioning", "personas", "marketingPsych"],
   emoti: ["competitor", "positioning"],
   digest: ["gstackFlow"]
 };
