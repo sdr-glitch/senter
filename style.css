@@ -461,6 +461,8 @@ body {
 }
 .staff-fire { margin-left: auto; flex-shrink: 0; }
 
+.directive-suggestions { margin-top: 10px; }
+
 /* ===== 업무 보드 ===== */
 .kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .kanban-col { background: var(--surface-2); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 120px; }

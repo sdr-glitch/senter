@@ -1109,7 +1109,7 @@ function updateOfficeStatuses() {
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 function wanderTick() {
-  if (officeState.meeting) return;
+  if (officeState.meeting || document.hidden) return;
   OFFICE_AGENTS.forEach(a => {
     const [wx, wy] = WORK_POS[a.id];
 
@@ -1569,10 +1569,25 @@ function reviewersFor(assignee) {
   return [others[0], others[1] || others[0]];
 }
 
+/* 자료실의 강의 자료를 직원 업무에 반영 (발췌) */
+function staffKnowledge(limit = 6000) {
+  const enabled = docs.filter(d => d.enabled);
+  if (!enabled.length) return "";
+  let budget = limit;
+  const parts = [];
+  for (const d of enabled) {
+    if (budget <= 0) break;
+    const slice = d.content.slice(0, Math.min(budget, 2500));
+    parts.push(`▸ ${d.title}\n${slice}`);
+    budget -= slice.length;
+  }
+  return `\n\n[참고 자료 — 사장님이 학습시킨 강의/노트 발췌. 업무에 적극 활용할 것]\n${parts.join("\n\n")}`;
+}
+
 function taskBrief(task) {
   const st = STAFF.find(s => s.id === task.assignee);
   if (!st) return `업무: ${task.title}\n위 업무의 결과물(초안)을 만들어줘.`;
-  return `${st.prompt()}
+  return `${st.prompt()}${staffKnowledge()}
 
 ──────────────
 [오늘의 업무 지시]
@@ -1585,7 +1600,7 @@ function verifyBrief(task) {
   const [r1, r2] = reviewersFor(task.assignee);
   return `너는 SNS 마케팅 팀의 검증 패널이다. ${r1.name}(${r1.role})와 ${r2.name}(${r2.role}) 두 전문가의 관점을 모두 갖고 있다.
 
-${staffContext()}
+${staffContext()}${staffKnowledge(3000)}
 
 아래는 「${task.title}」 업무의 초안이다. 다음 3단계를 순서대로 수행하라:
 1단계 (1차 교차검증): 두 전문가 관점에서 각각 오류, 빠진 것, 보완할 점을 찾는다.
@@ -1629,8 +1644,24 @@ async function huddleTheater(task, critiqueSummary) {
   }
 }
 
+function isQuickMode() {
+  return (settings && settings.workMode) === "quick";
+}
+
 /* 단계 제출 처리 (수동 모드) */
 function submitDraft(t, text) {
+  if (isQuickMode()) {
+    // 빠른 모드: 검증 없이 바로 보고
+    t.result = text;
+    t.status = "review";
+    t.stage = "";
+    store.set("tasks", tasks);
+    logActivity(`${staffEmoji(t.assignee)} ${staffName(t.assignee)}: 「${t.title}」 결과물 제출 → 검토 대기 (빠른 모드)`);
+    postChat(t.assignee, `「${t.title}」 결과물 올렸습니다. 검토 부탁드려요 👀`);
+    speak(t.assignee, "결과물 올렸습니다! 검토 부탁드려요 👀");
+    renderBoard(); updateOfficeStatuses();
+    return;
+  }
   t.draft = text;
   t.stage = "verify";
   store.set("tasks", tasks);
@@ -1695,10 +1726,27 @@ async function autoWork(task) {
   };
 
   try {
+    // 빠른 모드: 한 번의 호출로 바로 보고
+    if (isQuickMode()) {
+      task.stage = "draft"; renderBoard();
+      speak(task.assignee, "작업 시작합니다... 🔨", 2500);
+      task.result = await callClaudeSystem(cleanPrompt(st) + staffKnowledge(),
+        [{ role: "user", content: `인사나 질문 없이, 이 업무의 결과물을 바로 쓸 수 있는 완성된 형태로 만들어줘:\n${task.title}${task.note ? `\n(보완 요청: ${task.note})` : ""}` }], () => {});
+      task.status = "review";
+      task.stage = "";
+      task.autoWorking = false;
+      store.set("tasks", tasks);
+      logActivity(`${staffEmoji(task.assignee)} ${staffName(task.assignee)}: 「${task.title}」 결과물 제출 → 검토 대기 (빠른 모드)`);
+      postChat(task.assignee, `「${task.title}」 결과물 올렸습니다. 검토 부탁드려요 👀`);
+      speak(task.assignee, "결과물 올렸습니다! 검토 부탁드려요 👀");
+      renderBoard(); updateOfficeStatuses();
+      return;
+    }
+
     // ① 초안
     task.stage = "draft"; renderBoard();
     speak(task.assignee, "초안 작업 시작합니다... 🔨", 2500);
-    task.draft = await callClaudeSystem(cleanPrompt(st),
+    task.draft = await callClaudeSystem(cleanPrompt(st) + staffKnowledge(),
       [{ role: "user", content: `인사나 질문 없이, 이 업무의 결과물 초안을 바로 쓸 수 있는 완성된 형태로 만들어줘:\n${task.title}${task.note ? `\n(보완 요청: ${task.note})` : ""}` }], () => {});
     task.stage = "verify";
     store.set("tasks", tasks);
@@ -1829,13 +1877,16 @@ function renderBoard() {
           w.textContent = "🧐 매니저 3차 최종 검토 중...";
           actions.appendChild(w);
         } else {
-          addBtn("📋 초안 지시서 복사", "btn-small", async () => {
+          const quick = isQuickMode();
+          addBtn(quick ? "📋 지시서 복사" : "📋 초안 지시서 복사", "btn-small", async () => {
             try {
               await copyText(taskBrief(t));
-              toast("복사됨! 무료 AI(Gemini 등) 새 대화에 붙여넣고, 나온 초안을 [초안 제출]로 가져오세요.");
+              toast(quick
+                ? "복사됨! 무료 AI(Gemini 등) 새 대화에 붙여넣고, 결과물을 제출하세요."
+                : "복사됨! 무료 AI(Gemini 등) 새 대화에 붙여넣고, 나온 초안을 [초안 제출]로 가져오세요.");
             } catch { toast("⚠️ 복사 실패 — 다시 시도해주세요."); }
           });
-          addBtn("📥 초안 제출", "btn-small", () => {
+          addBtn(quick ? "📥 결과물 제출" : "📥 초안 제출", "btn-small", () => {
             const form = card.querySelector(".task-form");
             form.classList.toggle("hidden");
             form.querySelector("textarea").focus();
@@ -1878,8 +1929,8 @@ function renderBoard() {
 
       card.append(head, title);
 
-      // 진행 단계 표시 (파이프라인)
-      if (status === "doing" && t.stage) {
+      // 진행 단계 표시 (파이프라인 — 꼼꼼 모드에서만)
+      if (status === "doing" && t.stage && !isQuickMode()) {
         const stageEl = document.createElement("div");
         stageEl.className = "task-stage";
         const steps = ["draft", "verify", "final"];
@@ -1928,6 +1979,7 @@ function renderBoard() {
         ta.rows = 4;
         ta.placeholder = t.stage === "verify"
           ? "검증 지시서 결과(검증 의견 + 최종 결과물)를 통째로 붙여넣으세요"
+          : isQuickMode() ? "무료 AI가 만들어준 결과물을 여기에 붙여넣으세요"
           : "무료 AI가 만들어준 초안을 여기에 붙여넣으세요";
         const save = document.createElement("button");
         save.className = "btn-small";
@@ -2169,26 +2221,42 @@ function renderLibrary() {
   $("#lib-usage").textContent = note;
 }
 
-function addDocByPaste() {
-  const title = prompt("자료 이름을 정해주세요 (예: 인스타 강의 3강 노트)");
-  if (title === null) return;
-  const content = prompt("자료 내용을 붙여넣어 주세요 (노션에서 복사한 내용 등)");
-  if (content === null || !content.trim()) return;
-  docs.push({ id: Date.now() + "", title: title.trim() || "이름 없는 자료", content: content.trim(), enabled: true });
-  if (store.set("docs", docs)) toast("📚 자료가 추가됐어요!");
+let editingDocId = null;
+
+function openDocModal(doc) {
+  editingDocId = doc ? doc.id : null;
+  $("#dm-title").textContent = doc ? "📚 자료 수정" : "📚 자료 추가";
+  $("#dm-name").value = doc ? doc.title : "";
+  $("#dm-content").value = doc ? doc.content : "";
+  updateDocModalSize();
+  $("#doc-modal").classList.remove("hidden");
+  (doc ? $("#dm-content") : $("#dm-name")).focus();
+}
+
+function updateDocModalSize() {
+  const len = $("#dm-content").value.length;
+  $("#dm-size").textContent = len ? `현재 ${(len / 1000).toFixed(1)}천 자` : "";
+}
+
+function saveDocModal() {
+  const title = $("#dm-name").value.trim();
+  const content = $("#dm-content").value.trim();
+  if (!content) { $("#dm-content").focus(); toast("⚠️ 내용을 붙여넣어 주세요!"); return; }
+  if (editingDocId) {
+    const d = docs.find(x => x.id === editingDocId);
+    if (d) { d.title = title || d.title; d.content = content; }
+  } else {
+    docs.push({ id: Date.now() + "", title: title || "이름 없는 자료", content, enabled: true });
+  }
+  if (store.set("docs", docs)) toast(editingDocId ? "📚 자료가 수정됐어요!" : "📚 자료가 추가됐어요! 이제 멘토와 직원들이 이 내용을 참고해요.");
+  $("#doc-modal").classList.add("hidden");
+  editingDocId = null;
   renderLibrary();
   renderChat();
 }
 
-function editDoc(d) {
-  const title = prompt("자료 이름", d.title);
-  if (title === null) return;
-  const content = prompt("자료 내용 (수정해서 확인을 누르세요)", d.content.slice(0, 2000) + (d.content.length > 2000 ? "\n...(내용이 길어 앞부분만 표시. 수정하면 전체가 이 내용으로 바뀌어요. 취소를 누르면 원본 유지)" : ""));
-  d.title = title.trim() || d.title;
-  if (content !== null && !content.includes("...(내용이 길어 앞부분만 표시")) d.content = content;
-  store.set("docs", docs);
-  renderLibrary();
-}
+function addDocByPaste() { openDocModal(null); }
+function editDoc(d) { openDocModal(d); }
 
 function addDocsByFiles(files) {
   let added = 0;
@@ -2222,6 +2290,7 @@ function renderSettings() {
   const s = settings;
   $("#set-key").value = s.apiKey || "";
   $("#set-model").value = s.model || "claude-sonnet-5";
+  $("#set-workmode").value = s.workMode || "thorough";
   $("#set-name").value = s.name || "";
   $("#set-topic").value = s.topic || "";
   $("#set-platforms").value = (s.platforms || []).join(", ");
@@ -2232,6 +2301,7 @@ function renderSettings() {
 function saveSettings() {
   settings.apiKey = $("#set-key").value.trim();
   settings.model = $("#set-model").value;
+  settings.workMode = $("#set-workmode").value;
   settings.name = $("#set-name").value.trim() || "크리에이터";
   settings.topic = $("#set-topic").value.trim() || "리빙";
   settings.platforms = $("#set-platforms").value.split(",").map(x => x.trim()).filter(Boolean);
@@ -2240,6 +2310,7 @@ function saveSettings() {
   store.set("settings", settings);
   renderKeyStatus();
   renderHome();
+  renderBoard();
   const note = $("#set-saved");
   note.classList.remove("hidden");
   setTimeout(() => note.classList.add("hidden"), 2000);
@@ -2373,6 +2444,31 @@ function bindEvents() {
   $("#staff-modal").addEventListener("click", e => { if (e.target === $("#staff-modal")) $("#staff-modal").classList.add("hidden"); });
   $("#hire-go").addEventListener("click", hireStaff);
 
+  // 자료 입력 모달
+  $("#dm-save").addEventListener("click", saveDocModal);
+  $("#dm-cancel").addEventListener("click", () => { $("#doc-modal").classList.add("hidden"); editingDocId = null; });
+  $("#dm-content").addEventListener("input", updateDocModalSize);
+
+  // 지시 예시 칩
+  const examples = [
+    "계정 컨셉과 닉네임 정해줘",
+    "이번 주 콘텐츠 캘린더 짜줘",
+    "주방 정리 릴스 대본 써줘",
+    "체험단 지원 문구 만들어줘",
+    "프로필 소개글 3줄 써줘"
+  ];
+  const sugWrap = $("#directive-suggestions");
+  examples.forEach(ex => {
+    const b = document.createElement("button");
+    b.className = "suggestion";
+    b.textContent = ex;
+    b.addEventListener("click", () => {
+      $("#directive-input").value = ex;
+      handleDirective();
+    });
+    sugWrap.appendChild(b);
+  });
+
   // 아이디어 변환기
   const ideaGo = () => {
     const v = $("#idea-input").value.trim();
@@ -2448,4 +2544,4 @@ function init() {
 init();
 
 // 자동 테스트용 훅 (앱 동작에는 영향 없음)
-window.__senter = { chatterTick, holdScrum, rebuildStaff };
+window.__senter = { chatterTick, holdScrum, rebuildStaff, taskBrief, verifyBrief };

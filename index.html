@@ -127,6 +127,7 @@
         <input type="text" id="directive-input" placeholder="예: 주방 수납 릴스 대본 만들어줘">
         <button class="btn-primary" id="directive-go">지시 →</button>
       </div>
+      <div class="chip-row directive-suggestions" id="directive-suggestions"></div>
     </section>
 
     <section class="card">
@@ -270,6 +271,13 @@
           <option value="claude-opus-4-8">Claude Opus 4.8 — 가장 똑똑함 (비용 높음)</option>
         </select>
       </label>
+      <label class="field">
+        <span>업무 처리 방식</span>
+        <select id="set-workmode">
+          <option value="thorough">꼼꼼 모드 — 초안 → 교차검증·보완 → 최종검토 (품질 우선)</option>
+          <option value="quick">빠른 모드 — 담당자가 만든 결과물을 바로 보고 (속도 우선)</option>
+        </select>
+      </label>
     </section>
 
     <section class="card">
@@ -295,6 +303,20 @@
       </div>
     </section>
   </main>
+</div>
+
+<!-- ===== 자료 입력 모달 ===== -->
+<div id="doc-modal" class="modal-backdrop hidden">
+  <div class="modal">
+    <h2 id="dm-title">📚 자료 추가</h2>
+    <label class="field"><span>자료 이름</span><input type="text" id="dm-name" placeholder="예: 인스타 강의 3강 노트" maxlength="60"></label>
+    <label class="field"><span>내용 (길어도 괜찮아요 — 통째로 붙여넣으세요)</span><textarea id="dm-content" rows="12" placeholder="노션 페이지에서 전체 선택(Ctrl+A) → 복사(Ctrl+C) 후 여기에 붙여넣기(Ctrl+V)"></textarea></label>
+    <div id="dm-size" class="modal-note"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="dm-cancel">취소</button>
+      <button class="btn-primary" id="dm-save">저장</button>
+    </div>
+  </div>
 </div>
 
 <!-- ===== 직원 상세 팝업 ===== -->
