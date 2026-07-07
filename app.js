@@ -441,6 +441,10 @@ function buildSystemPrompt(persona) {
 /* ---------- Claude API 호출 (스트리밍) ---------- */
 async function callClaude(personaId, messages, onDelta) {
   const persona = PERSONAS.find(p => p.id === personaId);
+  return callClaudeSystem(buildSystemPrompt(persona), messages, onDelta);
+}
+
+async function callClaudeSystem(system, messages, onDelta) {
   const apiKey = (settings && settings.apiKey || "").trim();
   if (!apiKey) throw new Error("NO_KEY");
 
@@ -455,7 +459,7 @@ async function callClaude(personaId, messages, onDelta) {
     body: JSON.stringify({
       model: (settings && settings.model) || "claude-sonnet-5",
       max_tokens: 2048,
-      system: buildSystemPrompt(persona),
+      system,
       messages: messages.map(m => ({ role: m.role, content: m.content })),
       stream: true
     })
@@ -761,6 +765,516 @@ function renderStaff() {
   });
 }
 
+/* ==================================================
+   사무실 — AI 에이전트 오피스 & 업무 보드
+   ================================================== */
+let tasks = store.get("tasks", []);
+let activity = store.get("activity", []);
+let meetings = store.get("meetings", []);
+
+const OFFICE_AGENTS = [
+  { id: "pm", emoji: "🧑‍💼", name: "매니저" },
+  ...STAFF.map(s => ({ id: s.id, emoji: s.emoji, name: s.name }))
+];
+
+const DESKS = {
+  pm: [47, 12], planner: [11, 22], copywriter: [11, 50], reels: [11, 78],
+  analyst: [85, 22], review: [85, 50], brand: [85, 78], digest: [47, 86]
+};
+const SEATS = [[47, 30], [59, 35], [64, 49], [59, 63], [47, 68], [35, 63], [30, 49], [35, 35]];
+
+const officeState = { built: false, meeting: false, agents: {} };
+
+function staffName(id) {
+  const a = OFFICE_AGENTS.find(x => x.id === id);
+  return a ? a.name : id;
+}
+function staffEmoji(id) {
+  const a = OFFICE_AGENTS.find(x => x.id === id);
+  return a ? a.emoji : "🙂";
+}
+
+/* ----- 사무실 렌더링 & 애니메이션 ----- */
+function buildOffice() {
+  if (officeState.built) return;
+  const office = $("#office");
+  office.innerHTML = "";
+
+  const table = document.createElement("div");
+  table.className = "o-table";
+  table.innerHTML = `<span>회의 테이블</span>`;
+  office.appendChild(table);
+
+  OFFICE_AGENTS.forEach(a => {
+    const [dx, dy] = DESKS[a.id];
+    const desk = document.createElement("div");
+    desk.className = "o-desk";
+    desk.style.left = dx + "%";
+    desk.style.top = dy + "%";
+    desk.textContent = a.name;
+    office.appendChild(desk);
+
+    const el = document.createElement("div");
+    el.className = "agent";
+    el.style.left = dx + "%";
+    el.style.top = (dy - 8) + "%";
+    el.innerHTML = `
+      <div class="bubble hidden"></div>
+      <div class="agent-emoji">${a.emoji}</div>
+      <div class="agent-tag"><span class="agent-dot"></span>${a.name}</div>`;
+    office.appendChild(el);
+    officeState.agents[a.id] = { el, bubble: el.querySelector(".bubble"), dot: el.querySelector(".agent-dot"), x: dx, y: dy - 8, bubbleTimer: null };
+  });
+
+  officeState.built = true;
+  setInterval(wanderTick, 4200);
+  setInterval(() => {
+    const el = $("#office-clock");
+    if (el) el.textContent = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+  }, 1000);
+}
+
+function moveAgent(id, x, y) {
+  const a = officeState.agents[id];
+  if (!a) return;
+  a.x = x; a.y = y;
+  a.el.style.left = x + "%";
+  a.el.style.top = y + "%";
+}
+
+function speak(id, text, ms = 3200) {
+  const a = officeState.agents[id];
+  if (!a) return;
+  a.bubble.textContent = text;
+  a.bubble.classList.remove("hidden");
+  clearTimeout(a.bubbleTimer);
+  a.bubbleTimer = setTimeout(() => a.bubble.classList.add("hidden"), ms);
+}
+
+function agentActiveTask(id) {
+  return tasks.find(t => t.assignee === id && t.status === "doing");
+}
+
+function updateOfficeStatuses() {
+  OFFICE_AGENTS.forEach(a => {
+    const st = officeState.agents[a.id];
+    if (!st) return;
+    if (a.id === "pm") {
+      const open = tasks.filter(t => t.status !== "done").length;
+      st.dot.className = "agent-dot " + (open ? "dot-work" : "dot-idle");
+      return;
+    }
+    const active = agentActiveTask(a.id);
+    const review = tasks.find(t => t.assignee === a.id && t.status === "review");
+    st.dot.className = "agent-dot " + (active ? "dot-work" : review ? "dot-review" : "dot-idle");
+  });
+}
+
+function wanderTick() {
+  if (officeState.meeting) return;
+  OFFICE_AGENTS.forEach(a => {
+    const [dx, dy] = DESKS[a.id];
+    const active = a.id !== "pm" && agentActiveTask(a.id);
+    if (active) {
+      moveAgent(a.id, dx + (Math.random() * 3 - 1.5), dy - 8 + (Math.random() * 2 - 1));
+      if (Math.random() < 0.22) speak(a.id, `「${active.title.slice(0, 16)}${active.title.length > 16 ? "…" : ""}」 작업 중 🔨`);
+    } else if (Math.random() < 0.35) {
+      moveAgent(a.id, 18 + Math.random() * 60, 22 + Math.random() * 55);
+    } else {
+      moveAgent(a.id, dx + (Math.random() * 4 - 2), dy - 8 + (Math.random() * 3 - 1.5));
+    }
+  });
+}
+
+/* ----- 스크럼 미팅 ----- */
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+function agentReportLines(id) {
+  const mine = tasks.filter(t => t.assignee === id);
+  const doing = mine.filter(t => t.status === "doing");
+  const queued = mine.filter(t => t.status === "todo");
+  const inReview = mine.filter(t => t.status === "review");
+  const doneRecent = mine.filter(t => t.status === "done" && Date.now() - (t.doneAt || 0) < 86400000 * 2);
+
+  const lines = [];
+  doneRecent.forEach(t => lines.push(`「${t.title}」 완료했습니다 ✅`));
+  doing.forEach(t => lines.push(`「${t.title}」 진행 중입니다. 결과물 나오는 대로 검토 올릴게요.`));
+  inReview.forEach(t => lines.push(`「${t.title}」 검토 대기 중이에요. 확인 부탁드립니다 👀`));
+  if (queued.length) lines.push(`대기 업무 ${queued.length}건은 현재 건 마치고 바로 시작하겠습니다.`);
+  if (!lines.length) lines.push("배정된 업무가 없습니다. 새 지시 기다리는 중입니다!");
+  return lines;
+}
+
+async function holdScrum() {
+  if (officeState.meeting) return;
+  officeState.meeting = true;
+  const btn = $("#scrum-btn");
+  btn.disabled = true; btn.textContent = "회의 중...";
+
+  const logWrap = $("#meeting-log-wrap");
+  const log = $("#meeting-log");
+  logWrap.classList.remove("hidden");
+  log.innerHTML = "";
+  $("#meeting-log-date").textContent = new Date().toLocaleString("ko-KR", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
+
+  const minutes = [];
+  const record = (id, text) => {
+    minutes.push({ speaker: staffName(id), text });
+    const line = document.createElement("div");
+    line.className = "meeting-line";
+    line.innerHTML = `<b>${staffEmoji(id)} ${staffName(id)}</b> ${escapeHtml(text)}`;
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
+  };
+  const say = async (id, text, ms = 2600) => {
+    speak(id, text, ms);
+    record(id, text);
+    await sleep(ms + 300);
+  };
+
+  OFFICE_AGENTS.forEach((a, i) => moveAgent(a.id, SEATS[i % SEATS.length][0], SEATS[i % SEATS.length][1]));
+  await sleep(2100);
+
+  const open = tasks.filter(t => t.status === "doing" || t.status === "todo").length;
+  const review = tasks.filter(t => t.status === "review").length;
+  await say("pm", `스크럼 시작할게요! 📣 현재 열린 업무 ${open}건, 검토 대기 ${review}건입니다. 돌아가면서 공유해주세요.`);
+
+  for (const a of OFFICE_AGENTS) {
+    if (a.id === "pm") continue;
+    for (const line of agentReportLines(a.id)) {
+      await say(a.id, line);
+    }
+  }
+
+  const done = tasks.filter(t => t.status === "done").length;
+  const boss = (settings && settings.name) || "사장님";
+  await say("pm", review
+    ? `공유 감사합니다. ${boss}님, 검토 대기 ${review}건 확인 부탁드려요! 오늘도 화이팅 🔥`
+    : `공유 감사합니다. 누적 완료 ${done}건! ${boss}님, 새 지시 있으면 언제든 내려주세요. 오늘도 화이팅 🔥`);
+
+  meetings.unshift({ date: Date.now(), minutes });
+  meetings = meetings.slice(0, 10);
+  store.set("meetings", meetings);
+  logActivity("📝 스크럼 미팅 완료 — 회의록 저장됨");
+
+  officeState.meeting = false;
+  btn.disabled = false; btn.textContent = "📣 스크럼 미팅 소집";
+  OFFICE_AGENTS.forEach(a => {
+    const [dx, dy] = DESKS[a.id];
+    moveAgent(a.id, dx, dy - 8);
+  });
+}
+
+/* ----- 활동 로그 ----- */
+function logActivity(text) {
+  activity.unshift({ at: Date.now(), text });
+  activity = activity.slice(0, 30);
+  store.set("activity", activity);
+  renderActivity();
+}
+
+function renderActivity() {
+  const el = $("#activity");
+  if (!el) return;
+  if (!activity.length) {
+    el.innerHTML = `<div class="mission-empty">아직 활동이 없어요. 위에서 첫 지시를 내려보세요!</div>`;
+    return;
+  }
+  el.innerHTML = activity.slice(0, 10).map(a => {
+    const t = new Date(a.at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    return `<div class="activity-line"><span class="activity-time">${t}</span> ${escapeHtml(a.text)}</div>`;
+  }).join("");
+}
+
+/* ----- 지시 → 배정 ----- */
+const ROUTES = [
+  [/릴스|영상|쇼츠|대본|촬영/, "reels"],
+  [/캡션|해시태그|카피|문구|제목/, "copywriter"],
+  [/컨셉|닉네임|프로필|브랜딩|소개글/, "brand"],
+  [/벤치마킹|분석|경쟁|참고계정/, "analyst"],
+  [/체험단|협찬|리뷰|지원서/, "review"],
+  [/강의|전자책|노트|요약|공부/, "digest"],
+  [/기획|캘린더|아이디어|계획|전략/, "planner"]
+];
+
+function routeDirective(text) {
+  for (const [re, id] of ROUTES) if (re.test(text)) return id;
+  return "planner";
+}
+
+function createTask(title, assignee) {
+  const hasActive = !!agentActiveTask(assignee);
+  const task = {
+    id: Date.now() + "-" + Math.random().toString(36).slice(2, 6),
+    title, assignee,
+    status: hasActive ? "todo" : "doing",
+    createdAt: Date.now(), result: "", note: ""
+  };
+  tasks.unshift(task);
+  store.set("tasks", tasks);
+  logActivity(`🧑‍💼 매니저 → ${staffName(assignee)}: 「${title}」 배정${hasActive ? " (대기열)" : ""}`);
+  speak("pm", `${staffName(assignee)}님, 새 업무 배정했어요!`);
+  setTimeout(() => speak(assignee, hasActive ? "접수! 현재 건 마치고 시작할게요." : "새 업무 접수했습니다! 바로 시작합니다 💪"), 1400);
+  return task;
+}
+
+async function handleDirective() {
+  const input = $("#directive-input");
+  const text = input.value.trim();
+  if (!text) { input.focus(); return; }
+  input.value = "";
+  const btn = $("#directive-go");
+  btn.disabled = true;
+
+  let assignments = null;
+  if ((settings.apiKey || "").trim()) {
+    try {
+      const system = `너는 SNS 마케팅 팀의 PM이다. 사장의 지시를 팀원별 작업으로 분해하라.
+팀원 id: planner(콘텐츠 기획), copywriter(카피·캡션·해시태그), reels(릴스 대본), analyst(벤치마킹 분석), review(체험단·협찬), brand(계정 컨셉·프로필), digest(강의 자료 소화)
+규칙: 꼭 필요한 작업만 1~4개. 각 작업 제목은 결과물이 명확한 한 문장. 다른 말 없이 JSON 배열만 출력: [{"assignee":"copywriter","title":"..."}]`;
+      const raw = await callClaudeSystem(system, [{ role: "user", content: text }], () => {});
+      const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      if (Array.isArray(parsed) && parsed.length) {
+        assignments = parsed
+          .filter(p => p.title && STAFF.some(s => s.id === p.assignee))
+          .slice(0, 4);
+      }
+    } catch { /* 실패하면 키워드 배정으로 */ }
+  }
+  if (!assignments || !assignments.length) {
+    assignments = [{ assignee: routeDirective(text), title: text }];
+  }
+
+  const created = assignments.map(a => createTask(a.title, a.assignee));
+  renderBoard();
+  updateOfficeStatuses();
+  toast(`🎯 업무 ${created.length}건 배정 완료!`);
+  btn.disabled = false;
+
+  // API 키가 있으면 직원이 자동으로 작업 수행
+  if ((settings.apiKey || "").trim()) {
+    for (const t of created) if (t.status === "doing") autoWork(t);
+  }
+}
+
+/* ----- 자동 작업 (API 키 연결 시) ----- */
+function taskBrief(task) {
+  const st = STAFF.find(s => s.id === task.assignee);
+  return `${st.prompt()}
+
+──────────────
+[오늘의 업무 지시]
+${task.title}${task.note ? `\n(보완 요청: ${task.note})` : ""}
+
+인사나 질문 없이, 위 업무의 결과물을 바로 쓸 수 있는 완성된 형태로 만들어서 보여줘.`;
+}
+
+async function autoWork(task) {
+  if (task.autoWorking) return;
+  task.autoWorking = true;
+  speak(task.assignee, "작업 시작합니다... 🔨", 2500);
+  try {
+    const st = STAFF.find(s => s.id === task.assignee);
+    const result = await callClaudeSystem(
+      st.prompt().replace(/\[시작 인사\][\s\S]*$/, ""),
+      [{ role: "user", content: `인사나 질문 없이, 이 업무의 결과물을 바로 쓸 수 있는 완성된 형태로 만들어줘:\n${task.title}${task.note ? `\n(보완 요청: ${task.note})` : ""}` }],
+      () => {}
+    );
+    task.result = result;
+    task.status = "review";
+    task.autoWorking = false;
+    store.set("tasks", tasks);
+    logActivity(`${staffEmoji(task.assignee)} ${staffName(task.assignee)}: 「${task.title}」 결과물 제출 → 검토 대기`);
+    speak(task.assignee, "결과물 올렸습니다! 검토 부탁드려요 👀");
+    renderBoard();
+    updateOfficeStatuses();
+  } catch (e) {
+    task.autoWorking = false;
+    speak(task.assignee, "⚠️ 작업 중 문제가 생겼어요...");
+    toast("⚠️ 자동 작업 실패: " + friendlyApiError(e) + " — 카드의 [지시서 복사]로 수동 진행할 수 있어요.", 6000);
+  }
+}
+
+/* ----- 업무 보드 (칸반) ----- */
+const BOARD_COLS = [
+  ["todo", "⏳ 대기"], ["doing", "🔨 진행 중"], ["review", "👀 검토 대기"], ["done", "✅ 완료"]
+];
+
+function promoteQueue(assignee) {
+  if (agentActiveTask(assignee)) return;
+  const next = tasks.filter(t => t.assignee === assignee && t.status === "todo").pop();
+  if (next) {
+    next.status = "doing";
+    store.set("tasks", tasks);
+    logActivity(`🧑‍💼 매니저: ${staffName(assignee)}의 대기 업무 「${next.title}」 자동 시작`);
+    speak(assignee, "다음 업무 바로 시작합니다! 💪");
+    renderBoard();
+    updateOfficeStatuses();
+    if ((settings.apiKey || "").trim()) autoWork(next);
+  }
+}
+
+function renderBoard() {
+  const kanban = $("#kanban");
+  if (!kanban) return;
+  kanban.innerHTML = "";
+
+  BOARD_COLS.forEach(([status, label]) => {
+    const col = document.createElement("div");
+    col.className = "kanban-col";
+    const items = tasks.filter(t => t.status === status);
+    col.innerHTML = `<div class="kanban-col-head">${label} <span>${items.length}</span></div>`;
+
+    items.forEach(t => {
+      const card = document.createElement("div");
+      card.className = "task-card";
+
+      const head = document.createElement("div");
+      head.className = "task-assignee";
+      head.textContent = `${staffEmoji(t.assignee)} ${staffName(t.assignee)}`;
+
+      const title = document.createElement("div");
+      title.className = "task-title";
+      title.textContent = t.title;
+
+      const actions = document.createElement("div");
+      actions.className = "task-actions";
+
+      const addBtn = (label, cls, fn) => {
+        const b = document.createElement("button");
+        b.className = cls; b.textContent = label;
+        b.addEventListener("click", fn);
+        actions.appendChild(b);
+      };
+
+      if (status === "todo") {
+        addBtn("▶ 지금 시작", "btn-small", () => {
+          t.status = "doing";
+          store.set("tasks", tasks);
+          logActivity(`${staffEmoji(t.assignee)} ${staffName(t.assignee)}: 「${t.title}」 작업 시작`);
+          renderBoard(); updateOfficeStatuses();
+          if ((settings.apiKey || "").trim()) autoWork(t);
+        });
+      }
+
+      if (status === "doing") {
+        if (t.autoWorking) {
+          const w = document.createElement("span");
+          w.className = "task-working";
+          w.textContent = "🔨 직원이 작업 중...";
+          actions.appendChild(w);
+        } else {
+          addBtn("📋 지시서 복사", "btn-small", async () => {
+            try {
+              await copyText(taskBrief(t));
+              toast("복사됨! 무료 AI(Gemini 등) 새 대화에 붙여넣고, 나온 결과물을 [결과물 제출]로 가져오세요.");
+            } catch { toast("⚠️ 복사 실패 — 다시 시도해주세요."); }
+          });
+          addBtn("📥 결과물 제출", "btn-small", () => {
+            const form = card.querySelector(".task-form");
+            form.classList.toggle("hidden");
+            form.querySelector("textarea").focus();
+          });
+        }
+      }
+
+      if (status === "review") {
+        addBtn("✅ 승인 (완료)", "btn-small", () => {
+          t.status = "done"; t.doneAt = Date.now();
+          store.set("tasks", tasks);
+          logActivity(`✅ 「${t.title}」 승인 완료 (${staffName(t.assignee)})`);
+          speak(t.assignee, "승인 감사합니다! 🎉");
+          renderBoard(); updateOfficeStatuses();
+          promoteQueue(t.assignee);
+        });
+        addBtn("↩ 보완 요청", "btn-small", () => {
+          const note = prompt("어떤 점을 보완할까요? (직원에게 전달됩니다)");
+          if (note === null) return;
+          t.note = note.trim(); t.status = "doing";
+          store.set("tasks", tasks);
+          logActivity(`↩ 「${t.title}」 보완 요청 → ${staffName(t.assignee)} 재작업`);
+          speak(t.assignee, "피드백 확인! 보완해서 다시 올릴게요 💪");
+          renderBoard(); updateOfficeStatuses();
+          if ((settings.apiKey || "").trim()) autoWork(t);
+        });
+      }
+
+      addBtn("🗑", "btn-small btn-task-del", () => {
+        if (!confirm(`「${t.title}」 업무를 삭제할까요?`)) return;
+        tasks = tasks.filter(x => x.id !== t.id);
+        store.set("tasks", tasks);
+        renderBoard(); updateOfficeStatuses();
+        promoteQueue(t.assignee);
+      });
+
+      card.append(head, title);
+
+      if (t.result) {
+        const det = document.createElement("details");
+        det.className = "task-result";
+        det.innerHTML = `<summary>📄 결과물 보기</summary>`;
+        const pre = document.createElement("pre");
+        pre.textContent = t.result;
+        det.appendChild(pre);
+        const copyBtn = document.createElement("button");
+        copyBtn.className = "btn-small";
+        copyBtn.textContent = "결과물 복사";
+        copyBtn.addEventListener("click", async () => {
+          try { await copyText(t.result); toast("결과물이 복사됐어요!"); } catch {}
+        });
+        det.appendChild(copyBtn);
+        card.appendChild(det);
+      }
+
+      card.appendChild(actions);
+
+      if (status === "doing") {
+        const form = document.createElement("div");
+        form.className = "task-form hidden";
+        const ta = document.createElement("textarea");
+        ta.rows = 4;
+        ta.placeholder = "무료 AI가 만들어준 결과물을 여기에 붙여넣으세요";
+        const save = document.createElement("button");
+        save.className = "btn-small";
+        save.textContent = "제출";
+        save.addEventListener("click", () => {
+          const v = ta.value.trim();
+          if (!v) { ta.focus(); return; }
+          t.result = v; t.status = "review";
+          store.set("tasks", tasks);
+          logActivity(`${staffEmoji(t.assignee)} ${staffName(t.assignee)}: 「${t.title}」 결과물 제출 → 검토 대기`);
+          speak(t.assignee, "결과물 올렸습니다! 검토 부탁드려요 👀");
+          renderBoard(); updateOfficeStatuses();
+        });
+        form.append(ta, save);
+        card.appendChild(form);
+      }
+
+      col.appendChild(card);
+    });
+
+    if (!items.length) {
+      const empty = document.createElement("div");
+      empty.className = "kanban-empty";
+      empty.textContent = "비어있음";
+      col.appendChild(empty);
+    }
+    kanban.appendChild(col);
+  });
+
+  const open = tasks.filter(t => t.status === "todo" || t.status === "doing").length;
+  const review = tasks.filter(t => t.status === "review").length;
+  const done = tasks.filter(t => t.status === "done").length;
+  $("#board-stats").textContent = `열린 업무 ${open} · 검토 ${review} · 완료 ${done}`;
+}
+
+function renderOffice() {
+  buildOffice();
+  updateOfficeStatuses();
+  renderBoard();
+  renderActivity();
+}
+
 /* ---------- 채팅 탭 ---------- */
 let sending = false;
 
@@ -1048,7 +1562,7 @@ function exportBackup() {
     version: 1,
     exportedAt: new Date().toISOString(),
     settings: { ...settings, apiKey: "" }, // 보안을 위해 키는 제외
-    docs, chats, roadmapDone, missions
+    docs, chats, roadmapDone, missions, tasks, activity, meetings
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
@@ -1071,11 +1585,17 @@ function importBackup(file) {
       chats = data.chats || {};
       roadmapDone = data.roadmapDone || {};
       missions = data.missions || null;
+      tasks = data.tasks || [];
+      activity = data.activity || [];
+      meetings = data.meetings || [];
       store.set("settings", settings);
       store.set("docs", docs);
       store.set("chats", chats);
       store.set("roadmapDone", roadmapDone);
       store.set("missions", missions);
+      store.set("tasks", tasks);
+      store.set("activity", activity);
+      store.set("meetings", meetings);
       renderAll();
       toast("📥 백업을 불러왔어요!");
     } catch (e) {
@@ -1090,6 +1610,7 @@ function switchTab(name) {
   $$(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
   $$(".tab-panel").forEach(p => p.classList.add("hidden"));
   $("#tab-" + name).classList.remove("hidden");
+  if (name === "office") renderOffice();
   if (name === "staff") renderStaff();
   if (name === "chat") renderChat();
   if (name === "library") renderLibrary();
@@ -1100,6 +1621,7 @@ function switchTab(name) {
 /* ---------- 렌더 전체 ---------- */
 function renderAll() {
   renderKeyStatus();
+  renderOffice();
   renderStaff();
   renderHome();
   renderPersonaBar();
@@ -1131,6 +1653,11 @@ function bindEvents() {
   });
   $("#kg-later").addEventListener("click", () => $("#key-guide").classList.add("hidden"));
   $("#set-key-guide").addEventListener("click", openKeyGuide);
+
+  // 사무실
+  $("#scrum-btn").addEventListener("click", holdScrum);
+  $("#directive-go").addEventListener("click", handleDirective);
+  $("#directive-input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) handleDirective(); });
 
   // 아이디어 변환기
   const ideaGo = () => {

@@ -266,6 +266,104 @@ body {
 .toggle input:checked + .toggle-slider { background: var(--accent); }
 .toggle input:checked + .toggle-slider::before { transform: translateX(18px); }
 
+/* ===== 사무실 ===== */
+.office-clock { font-size: .78rem; color: var(--text-soft); font-weight: 400; margin-left: 6px; }
+.office {
+  position: relative; height: 420px; border-radius: 12px; overflow: hidden;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 38px, rgba(0,0,0,.025) 38px 39px),
+    repeating-linear-gradient(90deg, transparent 0 38px, rgba(0,0,0,.025) 38px 39px),
+    linear-gradient(160deg, #efe9dd, #e7e0d1);
+  border: 1px solid var(--line);
+}
+.o-table {
+  position: absolute; left: 47%; top: 49%; transform: translate(-50%, -50%);
+  width: 190px; height: 110px; border-radius: 50%;
+  background: linear-gradient(150deg, #c9a97d, #b28e5f);
+  border: 4px solid #a07f52; box-shadow: 0 6px 14px rgba(0,0,0,.12);
+  display: flex; align-items: center; justify-content: center;
+}
+.o-table span { font-size: .68rem; color: rgba(60,40,15,.55); font-weight: 700; }
+.o-desk {
+  position: absolute; transform: translate(-50%, -50%);
+  width: 68px; height: 38px; border-radius: 8px;
+  background: linear-gradient(150deg, #dcd3c0, #cfc4ac);
+  border: 2px solid #bcae90; box-shadow: 0 3px 8px rgba(0,0,0,.08);
+  display: flex; align-items: flex-end; justify-content: center;
+  font-size: .58rem; color: rgba(60,40,15,.5); font-weight: 700; padding-bottom: 2px;
+}
+.agent {
+  position: absolute; transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center;
+  transition: left 1.9s cubic-bezier(.45,.05,.35,1), top 1.9s cubic-bezier(.45,.05,.35,1);
+  z-index: 5;
+}
+.agent-emoji { font-size: 1.7rem; filter: drop-shadow(0 2px 3px rgba(0,0,0,.18)); }
+.agent-tag {
+  display: flex; align-items: center; gap: 4px;
+  font-size: .6rem; font-weight: 700; color: var(--text);
+  background: rgba(255,255,255,.9); padding: 1px 7px; border-radius: 999px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.12); white-space: nowrap;
+}
+.agent-dot { width: 7px; height: 7px; border-radius: 50%; background: #b9b4a8; }
+.agent-dot.dot-work { background: #2e9e5b; box-shadow: 0 0 5px #2e9e5b; }
+.agent-dot.dot-review { background: #e8a838; box-shadow: 0 0 5px #e8a838; }
+.agent-dot.dot-idle { background: #b9b4a8; }
+.bubble {
+  position: absolute; bottom: calc(100% + 5px); left: 50%; transform: translateX(-50%);
+  background: #fff; border: 1px solid var(--line); border-radius: 10px;
+  padding: 6px 10px; font-size: .7rem; line-height: 1.45;
+  width: max-content; max-width: 190px; box-shadow: 0 4px 12px rgba(0,0,0,.12);
+  z-index: 10; animation: bubble-pop .18s ease;
+}
+.bubble::after {
+  content: ""; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: #fff;
+}
+@keyframes bubble-pop { from { opacity: 0; transform: translateX(-50%) scale(.85); } }
+
+.meeting-log-wrap { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--surface-2); }
+.meeting-log-title { font-size: .85rem; font-weight: 700; margin-bottom: 8px; }
+.meeting-log-title span { font-weight: 400; color: var(--text-soft); font-size: .75rem; }
+.meeting-log { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.meeting-line { font-size: .82rem; line-height: 1.5; }
+.meeting-line b { color: var(--accent-strong); margin-right: 4px; }
+
+/* ===== 업무 보드 ===== */
+.kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.kanban-col { background: var(--surface-2); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 120px; }
+.kanban-col-head { font-size: .8rem; font-weight: 700; display: flex; justify-content: space-between; padding: 2px 4px; }
+.kanban-col-head span { color: var(--text-soft); font-weight: 400; }
+.kanban-empty { font-size: .75rem; color: var(--text-soft); text-align: center; padding: 14px 0; }
+.task-card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px; display: flex; flex-direction: column; gap: 7px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.05);
+}
+.task-assignee { font-size: .7rem; color: var(--accent-strong); font-weight: 700; }
+.task-title { font-size: .84rem; line-height: 1.45; word-break: break-word; }
+.task-actions { display: flex; flex-wrap: wrap; gap: 5px; }
+.task-actions .btn-small { font-size: .72rem; padding: 5px 9px; }
+.btn-task-del { background: transparent; color: var(--text-soft); }
+.task-working { font-size: .74rem; color: var(--accent-strong); animation: blink 1.4s infinite; }
+.task-form { display: flex; flex-direction: column; gap: 6px; }
+.task-form textarea { font-size: .8rem; }
+.task-result summary { font-size: .76rem; color: var(--text-soft); cursor: pointer; }
+.task-result pre {
+  margin: 6px 0; padding: 10px; background: var(--surface-2); border-radius: 8px;
+  font-size: .76rem; white-space: pre-wrap; word-break: break-word;
+  max-height: 220px; overflow-y: auto; font-family: inherit;
+}
+.activity { display: flex; flex-direction: column; gap: 6px; }
+.activity-line { font-size: .82rem; line-height: 1.5; }
+.activity-time { color: var(--text-soft); font-size: .72rem; margin-right: 6px; }
+
+@media (max-width: 720px) {
+  .office { height: 340px; }
+  .o-table { width: 140px; height: 84px; }
+  .kanban { grid-template-columns: 1fr 1fr; }
+}
+
 /* ===== AI 직원 ===== */
 .staff-tip {
   font-size: .85rem; background: var(--accent-soft); color: var(--accent-strong);

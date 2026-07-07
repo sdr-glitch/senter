@@ -89,15 +89,54 @@
   </header>
 
   <nav class="tabs">
-    <button class="tab active" data-tab="staff">🧑‍💼 AI 직원</button>
+    <button class="tab active" data-tab="office">🏢 사무실</button>
+    <button class="tab" data-tab="staff">🧑‍💼 AI 직원</button>
     <button class="tab" data-tab="chat">💬 멘토 채팅</button>
     <button class="tab" data-tab="home">🏠 홈</button>
     <button class="tab" data-tab="library">📚 자료실</button>
     <button class="tab" data-tab="settings">⚙️ 설정</button>
   </nav>
 
+  <!-- ===== 사무실 탭 ===== -->
+  <main id="tab-office" class="tab-panel">
+    <section class="card office-card">
+      <div class="card-head">
+        <h3>🏢 우리 사무실 <span id="office-clock" class="office-clock"></span></h3>
+        <button class="btn-small" id="scrum-btn">📣 스크럼 미팅 소집</button>
+      </div>
+      <div id="office" class="office"></div>
+      <div id="meeting-log-wrap" class="meeting-log-wrap hidden">
+        <div class="meeting-log-title">📝 회의록 <span id="meeting-log-date"></span></div>
+        <div id="meeting-log" class="meeting-log"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>🎯 지시 내리기</h3>
+      <p class="card-desc">할 일을 한 줄로 지시하면 매니저가 담당 직원에게 배정하고 업무 카드를 만들어요. (예: "이번 주 릴스 3개 기획해줘", "체험단 지원 문구 만들어줘")</p>
+      <div class="idea-row">
+        <input type="text" id="directive-input" placeholder="예: 주방 수납 릴스 대본 만들어줘">
+        <button class="btn-primary" id="directive-go">지시 →</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h3>📊 업무 현황판</h3>
+        <span id="board-stats" class="progress-label"></span>
+      </div>
+      <p class="card-desc">직원이 일을 마치려면 내 손이 한 번 필요해요: 카드의 <b>[지시서 복사]</b> → 무료 AI에 붙여넣기 → 나온 결과물을 <b>[결과물 제출]</b>로 붙여넣으면 검토 단계로 넘어갑니다. (API 키를 연결하면 이 단계 없이 자동으로 일해요)</p>
+      <div id="kanban" class="kanban"></div>
+    </section>
+
+    <section class="card">
+      <h3>📜 최근 활동</h3>
+      <div id="activity" class="activity"></div>
+    </section>
+  </main>
+
   <!-- ===== AI 직원 탭 ===== -->
-  <main id="tab-staff" class="tab-panel">
+  <main id="tab-staff" class="tab-panel hidden">
     <section class="card">
       <h3>🧑‍💼 나의 AI 직원 사무실</h3>
       <p class="card-desc"><b>결제·API 키 없이 지금 바로 무료로</b> 쓰는 방법이에요. 각 직원의 "업무 지시서"를 복사해서 무료 AI 챗봇에 붙여넣으면, 그 대화방이 나만의 전문 직원이 됩니다. 지시서에는 내 계정 정보가 자동으로 들어가 있어요.</p>
