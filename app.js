@@ -3432,6 +3432,10 @@ let reelsMedia = [];        // {id, kind, name, url, size, duration, w, h, thumb
 let reelsResult = "";       // 마지막으로 생성된 대본(마크다운)
 let reelsBusy = false;
 let reelsInited = false;
+let reelsScripts = store.get("reelsScripts", []); // 보관함 {id, ts, title, platform, length, tone, md}
+let reelsCurrentId = null;  // 지금 화면에 열린 대본의 보관함 id
+let reelsLastPromptText = ""; // 마지막 생성에 쓴 프롬프트 (수정 요청 맥락용)
+const REELS_SCRIPT_CAP = 20;
 
 function fmtDur(sec) {
   if (!sec || !isFinite(sec)) return "0초";
@@ -3604,6 +3608,101 @@ function reelsChoice(sel, fallback) {
   const el = $(sel + " .chip.selected");
   return (el && el.dataset.value) || fallback;
 }
+function reelsChoiceLabel(sel) {
+  const el = $(sel + " .chip.selected");
+  return el ? el.textContent.trim() : "";
+}
+
+/* ---------- 대본 보관함 ---------- */
+function extractReelsTitle(md, fallback) {
+  const sec = sliceSection(md, /제목\s*후보/);
+  const m = (sec || md).match(/^\s*(?:[-*•]|\d+[.)])\s*(.+)$/m);
+  let t = m ? m[1].replace(/[*`#]/g, "").trim() : "";
+  if (!t) t = (fallback || "").trim().slice(0, 30);
+  return (t || "무제 대본").slice(0, 60);
+}
+
+function saveReelsScript(md) {
+  const entry = {
+    id: "s" + Date.now() + Math.round(Math.random() * 1e4),
+    ts: Date.now(),
+    title: extractReelsTitle(md, $("#reels-topic").value),
+    platform: reelsChoiceLabel("#reels-platform"),
+    length: reelsChoiceLabel("#reels-length"),
+    tone: reelsChoiceLabel("#reels-tone"),
+    md
+  };
+  reelsScripts.unshift(entry);
+  if (reelsScripts.length > REELS_SCRIPT_CAP) reelsScripts.length = REELS_SCRIPT_CAP;
+  store.set("reelsScripts", reelsScripts);
+  reelsCurrentId = entry.id;
+  renderReelsLibrary();
+}
+
+/* 수정 요청 결과는 새 항목을 만들지 않고 원본 항목을 갱신 */
+function updateReelsScript(md) {
+  const e = reelsScripts.find(s => s.id === reelsCurrentId);
+  if (!e) { saveReelsScript(md); return; }
+  e.md = md;
+  e.ts = Date.now();
+  e.title = extractReelsTitle(md, e.title);
+  store.set("reelsScripts", reelsScripts);
+  renderReelsLibrary();
+}
+
+function fmtShortDate(ts) {
+  const d = new Date(ts);
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function renderReelsLibrary() {
+  const wrap = $("#reels-lib");
+  if (!wrap) return;
+  $("#reels-lib-count").textContent = reelsScripts.length ? `${reelsScripts.length}/${REELS_SCRIPT_CAP}개` : "";
+  if (!reelsScripts.length) {
+    wrap.innerHTML = `<div class="reels-lib-empty">아직 저장된 대본이 없어요. 위에서 대본을 만들면 자동으로 여기에 쌓여요!</div>`;
+    return;
+  }
+  wrap.innerHTML = reelsScripts.map(s => {
+    const meta = [fmtShortDate(s.ts), s.platform, s.length, s.tone].filter(Boolean).join(" · ");
+    return `<div class="reels-lib-item${s.id === reelsCurrentId ? " current" : ""}" data-id="${s.id}">
+      <div class="reels-lib-main">
+        <div class="reels-lib-title">${escapeHtml(s.title)}${s.id === reelsCurrentId ? ' <span class="reels-lib-now">지금 열림</span>' : ""}</div>
+        <div class="reels-lib-meta">${escapeHtml(meta)}</div>
+      </div>
+      <div class="reels-lib-actions">
+        <button class="btn-small" data-act="open">열기</button>
+        <button class="btn-small" data-act="copy">복사</button>
+        <button class="btn-small" data-act="srt">.srt</button>
+        <button class="btn-small reels-lib-del" data-act="del">🗑️</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function openReelsScript(id) {
+  const s = reelsScripts.find(x => x.id === id);
+  if (!s) return;
+  reelsResult = s.md;
+  reelsCurrentId = s.id;
+  store.set("reelsLast", s.md);
+  $("#reels-result").innerHTML = renderMarkdown(s.md);
+  $("#reels-result-card").classList.remove("hidden");
+  $("#reels-gen-note").textContent = "🗂️ 보관함에서 연 대본이에요. 아래 [살짝 고치기]로 수정할 수도 있어요.";
+  renderReelsLibrary();
+  $("#reels-result-card").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function deleteReelsScript(id) {
+  const i = reelsScripts.findIndex(x => x.id === id);
+  if (i < 0) return;
+  if (!confirm(`"${reelsScripts[i].title}" 대본을 삭제할까요?`)) return;
+  reelsScripts.splice(i, 1);
+  if (reelsCurrentId === id) reelsCurrentId = null;
+  store.set("reelsScripts", reelsScripts);
+  renderReelsLibrary();
+  toast("🗑️ 삭제했어요.");
+}
 
 function buildReelsMediaSummary() {
   if (!reelsMedia.length) return "(올린 소스 없음 — 사용자가 설명만 준 경우, 필요한 촬영 컷을 직접 제안하세요.)";
@@ -3677,32 +3776,40 @@ ${buildReelsMediaSummary()}
 위 소스들을 실제로 배치해서, 캡컷·프리미어에서 바로 따라 만들 수 있게 정해준 형식대로 대본을 완성해줘.`;
 }
 
-async function generateReelsScript() {
+/* 대본 생성 (refineReq를 주면 기존 대본을 그 요청대로만 수정) */
+async function generateReelsScript(refineReq) {
   if (reelsBusy) return;
+  const refining = typeof refineReq === "string" && refineReq.trim();
+  if (refining && !reelsResult) { toast("먼저 대본을 만들어야 고칠 수 있어요."); return; }
   const topic = ($("#reels-topic").value || "").trim();
-  if (!reelsMedia.length && !topic) {
+  if (!refining && !reelsMedia.length && !topic) {
     toast("사진·영상을 올리거나, 최소한 어떤 영상인지 설명을 적어주세요.");
     $("#reels-topic").focus();
     return;
   }
   reelsBusy = true;
+  stopReelsTts();
   const btn = $("#reels-gen");
+  const refineBtn = $("#reels-refine-go");
   const note = $("#reels-gen-note");
   const card = $("#reels-result-card");
   const out = $("#reels-result");
-  btn.disabled = true; btn.textContent = "🎬 대본 만드는 중...";
+  btn.disabled = true; btn.textContent = refining ? "🛠 고치는 중..." : "🎬 대본 만드는 중...";
+  refineBtn.disabled = true;
   card.classList.remove("hidden");
   card.scrollIntoView({ behavior: "smooth", block: "start" });
 
   // 무료 AI는 스트리밍이 없어 조용히 오래 걸릴 수 있음 — 진행 멘트로 안심시키기
-  const stages = [
-    "📦 올린 소스를 살펴보는 중...",
-    "🪝 스크롤을 멈출 후크를 짜는 중...",
-    "✂️ 컷 편집표에 소스를 배치하는 중...",
-    "🎙️ 나레이션과 자막을 쓰는 중...",
-    "🎵 어울리는 BGM을 고르는 중...",
-    "📝 캡션과 해시태그를 다듬는 중... (거의 다 됐어요!)"
-  ];
+  const stages = refining
+    ? ["🛠 요청하신 부분을 고치는 중...", "📝 나머지 형식을 그대로 유지하며 다듬는 중...", "✅ 마무리 점검 중... (거의 다 됐어요!)"]
+    : [
+      "📦 올린 소스를 살펴보는 중...",
+      "🪝 스크롤을 멈출 후크를 짜는 중...",
+      "✂️ 컷 편집표에 소스를 배치하는 중...",
+      "🎙️ 나레이션과 자막을 쓰는 중...",
+      "🎵 어울리는 BGM을 고르는 중...",
+      "📝 캡션과 해시태그를 다듬는 중... (거의 다 됐어요!)"
+    ];
   let stageIdx = 0;
   let streamed = false;
   const showStage = () => {
@@ -3712,38 +3819,61 @@ async function generateReelsScript() {
   showStage();
   const stageTimer = setInterval(() => { stageIdx++; if (!streamed) showStage(); }, 5000);
 
-  // 내 API 키(Anthropic)가 있으면 미리보기 이미지를 함께 보내 AI가 직접 보게 함
-  const promptText = buildReelsPrompt();
-  const hasKey = (settings && settings.apiKey || "").trim();
-  let userContent = promptText;
-  if (hasKey) {
-    const blocks = [];
-    for (const m of reelsMedia) {
-      if (m.thumbs[0] && blocks.length < 8) {
-        blocks.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: m.thumbs[0].split(",")[1] } });
+  let messages;
+  if (refining) {
+    // 기존 대본을 맥락으로 주고, 요청한 부분만 고쳐서 전체를 다시 받기
+    messages = [
+      { role: "user", content: reelsLastPromptText || buildReelsPrompt() },
+      { role: "assistant", content: reelsResult },
+      { role: "user", content: `방금 만든 대본에서 다음 요청만 반영해서 수정해줘: ${refineReq.trim()}\n\n나머지는 유지하고, 처음 정한 형식(제목 후보~업로드용) 그대로 전체 대본을 다시 출력해줘.` }
+    ];
+  } else {
+    // 내 API 키(Anthropic)가 있으면 미리보기 이미지를 함께 보내 AI가 직접 보게 함
+    const promptText = buildReelsPrompt();
+    reelsLastPromptText = promptText;
+    const hasKey = (settings && settings.apiKey || "").trim();
+    let userContent = promptText;
+    if (hasKey) {
+      const blocks = [];
+      for (const m of reelsMedia) {
+        if (m.thumbs[0] && blocks.length < 8) {
+          blocks.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: m.thumbs[0].split(",")[1] } });
+        }
       }
+      if (blocks.length) userContent = [{ type: "text", text: promptText }, ...blocks];
     }
-    if (blocks.length) userContent = [{ type: "text", text: promptText }, ...blocks];
+    messages = [{ role: "user", content: userContent }];
   }
 
   try {
-    const md = await aiChat(REELS_SYSTEM, [{ role: "user", content: userContent }], (partial) => {
+    const md = await aiChat(REELS_SYSTEM, messages, (partial) => {
       streamed = true;
       out.innerHTML = renderMarkdown(partial);
     });
     reelsResult = md;
     store.set("reelsLast", md);
+    if (refining) updateReelsScript(md); else saveReelsScript(md);
     out.innerHTML = renderMarkdown(md);
-    note.textContent = "✅ 완성! 대본을 복사하거나 자막(.srt)으로 저장해 캡컷·프리미어에 넣어보세요.";
+    note.textContent = refining
+      ? "✅ 고쳤어요! 마음에 안 들면 다른 요청으로 또 고칠 수 있어요."
+      : "✅ 완성! 보관함에도 저장해뒀어요. 대본을 복사하거나 자막(.srt)으로 저장해 캡컷·프리미어에 넣어보세요.";
+    if (refining) $("#reels-refine-input").value = "";
   } catch (e) {
-    out.innerHTML = "";
-    card.classList.add("hidden");
-    note.innerHTML = `⚠️ AI 연결이 안 됐어요. 걱정 마세요 — 위의 <b>[📋 프롬프트만 복사]</b>를 눌러 <a href="https://gemini.google.com" target="_blank" rel="noopener">Gemini</a>나 <a href="https://chatgpt.com" target="_blank" rel="noopener">ChatGPT</a> 새 대화에 붙여넣으면 똑같은 대본을 무료로 받을 수 있어요!`;
+    if (refining) {
+      // 수정 실패 시 기존 대본 유지
+      out.innerHTML = renderMarkdown(reelsResult);
+      note.textContent = "⚠️ 수정 요청이 실패했어요. 기존 대본은 그대로예요 — 잠시 후 다시 시도해주세요.";
+    } else {
+      out.innerHTML = "";
+      card.classList.add("hidden");
+      note.innerHTML = `⚠️ AI 연결이 안 됐어요. 걱정 마세요 — 위의 <b>[📋 프롬프트만 복사]</b>를 눌러 <a href="https://gemini.google.com" target="_blank" rel="noopener">Gemini</a>나 <a href="https://chatgpt.com" target="_blank" rel="noopener">ChatGPT</a> 새 대화에 붙여넣으면 똑같은 대본을 무료로 받을 수 있어요!`;
+    }
     toast("⚠️ " + friendlyApiError(e), 6000);
   } finally {
     clearInterval(stageTimer);
     reelsBusy = false;
     btn.disabled = false; btn.textContent = "🎬 대본 만들기";
+    refineBtn.disabled = false;
   }
 }
 
@@ -3855,6 +3985,58 @@ function copyReelsScript() {
   copyToClipboard(reelsResult, "📋 대본을 복사했어요. 캡컷·프리미어 메모나 대본란에 붙여넣으세요.");
 }
 
+/* 특정 섹션만 골라 복사 (마크다운 기호 제거해 바로 쓸 수 있게) */
+function copyReelsSection(titleRe, label) {
+  if (!reelsResult) return;
+  const sec = sliceSection(reelsResult, titleRe);
+  const text = (sec || "")
+    .replace(/^\s*[-*•]\s*/gm, "")
+    .replace(/\*\*/g, "")
+    .replace(/`/g, "")
+    .trim();
+  if (!text) { toast(`대본에서 ${label} 부분을 찾지 못했어요. [🔄 다시]로 새로 만들어보세요.`); return; }
+  copyToClipboard(text, `📋 ${label}만 복사했어요!`);
+}
+
+/* ---------- 나레이션 듣기 (브라우저 내장 TTS — 무료) ---------- */
+let reelsTtsOn = false;
+
+function setReelsTtsUi(on) {
+  reelsTtsOn = on;
+  const b = $("#reels-tts");
+  if (b) b.textContent = on ? "⏹ 읽기 멈추기" : "🔊 나레이션 듣기";
+}
+
+function stopReelsTts() {
+  if ("speechSynthesis" in window) { try { speechSynthesis.cancel(); } catch {} }
+  setReelsTtsUi(false);
+}
+
+function toggleReelsTts() {
+  if (!("speechSynthesis" in window)) {
+    toast("이 브라우저는 소리 읽기(TTS)를 지원하지 않아요. 크롬·엣지·사파리에서 열어보세요.");
+    return;
+  }
+  if (reelsTtsOn) { stopReelsTts(); return; }
+  if (!reelsResult) return;
+  const sec = sliceSection(reelsResult, /나레이션/);
+  const text = (sec || "")
+    .replace(/^\s*[-*•>]\s*/gm, "")
+    .replace(/[*_`#]/g, "")
+    .trim();
+  if (!text) { toast("대본에서 나레이션 부분을 찾지 못했어요."); return; }
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "ko-KR";
+  u.rate = 1.05;
+  const ko = speechSynthesis.getVoices().find(v => /^ko/i.test(v.lang));
+  if (ko) u.voice = ko;
+  u.onend = () => setReelsTtsUi(false);
+  u.onerror = () => setReelsTtsUi(false);
+  setReelsTtsUi(true);
+  speechSynthesis.speak(u);
+  toast("🔊 나레이션을 읽어드릴게요. 직접 녹음할 때 속도 참고용으로 들어보세요!");
+}
+
 /* 무료 챗봇(Gemini·ChatGPT·Claude)에 붙여넣어 쓸 프롬프트 통째로 복사 */
 function copyReelsPrompt() {
   const topic = ($("#reels-topic").value || "").trim();
@@ -3940,9 +4122,12 @@ function renderReels() {
 
   $("#reels-example").addEventListener("click", fillReelsExample);
   $("#reels-prompt").addEventListener("click", copyReelsPrompt);
-  $("#reels-gen").addEventListener("click", generateReelsScript);
-  $("#reels-regen").addEventListener("click", generateReelsScript);
+  $("#reels-gen").addEventListener("click", () => generateReelsScript());
+  $("#reels-regen").addEventListener("click", () => generateReelsScript());
   $("#reels-copy").addEventListener("click", copyReelsScript);
+  $("#reels-copy-nar").addEventListener("click", () => copyReelsSection(/나레이션/, "나레이션"));
+  $("#reels-copy-cap").addEventListener("click", () => copyReelsSection(/업로드용|캡션/, "캡션·해시태그"));
+  $("#reels-tts").addEventListener("click", toggleReelsTts);
   $("#reels-txt").addEventListener("click", () => {
     if (!reelsResult) return;
     downloadTextFile("릴스대본.txt", reelsResult);
@@ -3956,15 +4141,53 @@ function renderReels() {
     toast("💬 자막(.srt)을 저장했어요! 캡컷은 '자막 → 자막 가져오기', 프리미어는 '캡션 가져오기'로 넣으세요.");
   });
 
+  // 살짝 고치기 (원클릭 칩 + 직접 요청)
+  $$("#reels-refine-chips .chip").forEach(chip => {
+    chip.addEventListener("click", (e) => { e.preventDefault(); generateReelsScript(chip.dataset.req); });
+  });
+  const refineGo = () => {
+    const v = $("#reels-refine-input").value.trim();
+    if (!v) { $("#reels-refine-input").focus(); toast("어떻게 고칠지 적어주세요. (예: 15초로 줄여줘)"); return; }
+    generateReelsScript(v);
+  };
+  $("#reels-refine-go").addEventListener("click", refineGo);
+  $("#reels-refine-input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) refineGo(); });
+
+  // 보관함 (이벤트 위임)
+  $("#reels-lib").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-act]");
+    if (!btn) return;
+    const id = btn.closest(".reels-lib-item").dataset.id;
+    const s = reelsScripts.find(x => x.id === id);
+    if (!s) return;
+    if (btn.dataset.act === "open") openReelsScript(id);
+    else if (btn.dataset.act === "copy") copyToClipboard(s.md, `📋 "${s.title}" 대본을 복사했어요.`);
+    else if (btn.dataset.act === "srt") {
+      const srt = reelsToSrt(s.md);
+      if (!srt) { toast("이 대본에서 자막 타임라인을 못 찾았어요."); return; }
+      downloadTextFile("자막.srt", srt, "application/x-subrip");
+      toast("💬 자막(.srt)을 저장했어요!");
+    }
+    else if (btn.dataset.act === "del") deleteReelsScript(id);
+  });
+
   // 지난번에 만든 대본 복원 (사진·영상은 용량상 저장하지 않아요)
   const last = store.get("reelsLast", "");
   if (last) {
     reelsResult = last;
+    // 예전 버전에서 넘어온 경우: 보관함에 없으면 옮겨 담기
+    if (!reelsScripts.some(s => s.md === last)) {
+      reelsScripts.unshift({ id: "s-mig-" + Date.now(), ts: Date.now(), title: extractReelsTitle(last, "지난 대본"), platform: "", length: "", tone: "", md: last });
+      if (reelsScripts.length > REELS_SCRIPT_CAP) reelsScripts.length = REELS_SCRIPT_CAP;
+      store.set("reelsScripts", reelsScripts);
+    }
+    reelsCurrentId = (reelsScripts.find(s => s.md === last) || {}).id || null;
     $("#reels-result").innerHTML = renderMarkdown(last);
     $("#reels-result-card").classList.remove("hidden");
     $("#reels-gen-note").textContent = "↑ 지난번에 만든 대본이에요. 새로 만들면 바뀝니다.";
   }
 
+  renderReelsLibrary();
   renderReelsMedia();
 }
 

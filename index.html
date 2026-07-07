@@ -235,6 +235,10 @@
           <button class="chip" data-value="유쾌하고 재미있는">유머·재미</button>
           <button class="chip" data-value="신뢰감 있는 제품 리뷰">제품 리뷰</button>
           <button class="chip" data-value="따라 하기 쉬운 튜토리얼">튜토리얼</button>
+          <button class="chip" data-value="조용하고 편안한 ASMR·힐링 감성 (소리와 여백 중심, 자막 최소화)">ASMR·힐링</button>
+          <button class="chip" data-value="호기심을 끌었다가 마지막에 반전을 주는 스토리텔링">스토리·반전</button>
+          <button class="chip" data-value="지저분한 Before에서 깔끔한 After로 변신하는 과정을 극적으로 대비시키는">Before→After</button>
+          <button class="chip" data-value="TOP 3 리스트로 항목을 딱딱 짚어주는">리스트 TOP3</button>
         </div>
       </div>
 
@@ -259,10 +263,30 @@
           <button class="btn-small" id="reels-copy">📋 대본 복사</button>
           <button class="btn-small" id="reels-srt">💬 자막 저장(.srt)</button>
           <button class="btn-small" id="reels-txt">📥 대본 저장(.txt)</button>
+          <button class="btn-small" id="reels-tts">🔊 나레이션 듣기</button>
           <button class="btn-small" id="reels-regen">🔄 다시</button>
         </div>
       </div>
       <div id="reels-result" class="reels-result markdown-body"></div>
+      <div class="reels-partial">
+        <span class="reels-partial-label">필요한 부분만 복사:</span>
+        <button class="btn-small" id="reels-copy-nar">🎙️ 나레이션만</button>
+        <button class="btn-small" id="reels-copy-cap">📝 캡션·해시태그만</button>
+      </div>
+      <div class="reels-refine">
+        <div class="reels-opt-label">🛠 살짝 고치기 — 처음부터 다시 안 만들어도 돼요. 원하는 것만 콕 집어서!</div>
+        <div class="chip-row" id="reels-refine-chips">
+          <button class="chip" data-req="전체를 더 짧고 임팩트 있게 압축해줘 (군더더기 삭제)">✂️ 더 짧게</button>
+          <button class="chip" data-req="후크(첫 2초)를 더 자극적이고 궁금하게 바꿔줘, 다른 방향 2안도 함께">🪝 후크 더 세게</button>
+          <button class="chip" data-req="나레이션과 자막의 말투를 더 친근하고 편안하게 바꿔줘">😊 말투 친근하게</button>
+          <button class="chip" data-req="화면 자막을 더 짧고 굵은 키워드 위주로 다듬어줘">💬 자막 간결하게</button>
+          <button class="chip" data-req="마지막에 팔로우·저장을 자연스럽게 유도하는 마무리 멘트를 넣어줘">➕ 팔로우 유도 추가</button>
+        </div>
+        <div class="idea-row reels-refine-row">
+          <input type="text" id="reels-refine-input" placeholder="직접 요청: 예) 두 번째 컷을 빼고 15초로 줄여줘" maxlength="200">
+          <button class="btn-primary" id="reels-refine-go">수정 →</button>
+        </div>
+      </div>
       <details class="reels-guide">
         <summary>📖 이 대본, 캡컷·프리미어에 어떻게 넣나요? (처음이라면 열어보세요)</summary>
         <div class="reels-guide-cols">
@@ -288,6 +312,15 @@
           </div>
         </div>
       </details>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h3>🗂️ 대본 보관함</h3>
+        <span id="reels-lib-count" class="progress-label"></span>
+      </div>
+      <p class="card-desc">만든 대본은 여기에 자동 저장돼요 (최근 20개). 예전 대본을 열어서 다시 쓰거나, 자막만 뽑아갈 수 있어요.</p>
+      <div id="reels-lib" class="reels-lib"></div>
     </section>
   </main>
 

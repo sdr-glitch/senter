@@ -825,6 +825,45 @@ body {
 .reels-result th, .reels-result td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
 .reels-result th { background: var(--surface-2); font-weight: 600; }
 
+/* 부분 복사 */
+.reels-partial {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line);
+}
+.reels-partial-label { font-size: .82rem; color: var(--text-soft); font-weight: 600; }
+
+/* 살짝 고치기 */
+.reels-refine {
+  margin-top: 14px; padding: 14px; border-radius: 12px;
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.reels-refine .chip { background: var(--surface); }
+.reels-refine .chip:hover { border-color: var(--accent); }
+.reels-refine-row { margin-top: 10px; }
+.reels-refine-row input { background: var(--surface); }
+
+/* 대본 보관함 */
+.reels-lib { display: flex; flex-direction: column; gap: 8px; }
+.reels-lib-empty { font-size: .88rem; color: var(--text-soft); padding: 8px 2px; }
+.reels-lib-item {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface);
+}
+.reels-lib-item.current { border-color: var(--accent); background: var(--accent-soft); }
+.reels-lib-item.current .btn-small { background: var(--surface); }
+.reels-lib-item.current .reels-lib-del { background: #fdeceb; }
+.reels-lib-main { flex: 1; min-width: 180px; }
+.reels-lib-title { font-weight: 700; font-size: .92rem; }
+.reels-lib-now {
+  font-size: .7rem; font-weight: 700; color: #fff; background: var(--accent);
+  border-radius: 999px; padding: 1px 8px; vertical-align: 2px;
+}
+.reels-lib-meta { font-size: .78rem; color: var(--text-soft); margin-top: 2px; }
+.reels-lib-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.reels-lib-del { background: #fdeceb; color: var(--danger); }
+
 @media (max-width: 640px) {
   .reels-thumb-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+  .reels-lib-item { align-items: flex-start; flex-direction: column; gap: 8px; }
 }
