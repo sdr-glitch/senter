@@ -2112,8 +2112,8 @@ async function handleDirective() {
 팀원 id: ${STAFF.map(s => `${s.id}(${s.role})`).join(", ")}
 규칙: 꼭 필요한 작업만 1~4개. 각 작업 제목은 결과물이 명확한 한 문장. 다른 말 없이 JSON 배열만 출력: [{"assignee":"copywriter","title":"..."}]`;
       const raw = await callClaudeSystem(system, [{ role: "user", content: text }], () => {});
-      const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
-      if (Array.isArray(parsed) && parsed.length) {
+      const parsed = parseAiJsonArray(raw);
+      if (parsed.length) {
         assignments = parsed
           .filter(p => p.title && STAFF.some(s => s.id === p.assignee))
           .slice(0, 4);
@@ -3810,14 +3810,16 @@ let trendNews = store.get("trendNews", null);   // {at, items:[{title,url,points
 let trendPlatform = (trendFeed && trendFeed.platform) || "전체";
 let trendBusy = false;
 
-const TREND_PLATFORM_HINT = {
-  "전체": "릴스·쇼츠·카드뉴스 등 형식을 골고루",
-  "인스타 릴스": "9:16 세로 릴스, 15~30초, 저장·공유 유도 중심",
-  "유튜브 쇼츠": "세로 쇼츠, 검색에 걸리는 제목, 정보형",
-  "틱톡": "빠른 편집, 유행 사운드·챌린지, 반전",
-  "블로그·검색": "네이버 검색 상위 노출용 글 제목·키워드",
-  "사진·카드뉴스": "정보를 넘겨보는 카드뉴스, 저장각 사진"
+/* 플랫폼 레지스트리 — 칩 라벨(index.html data-value)과 키가 일치해야 함. 힌트·형식의 단일 출처 */
+const TREND_PLATFORMS = {
+  "전체": { hint: "릴스·쇼츠·카드뉴스 등 형식을 골고루", format: "릴스 또는 카드뉴스" },
+  "인스타 릴스": { hint: "9:16 세로 릴스, 15~30초, 저장·공유 유도 중심", format: "릴스 (세로 15~30초)" },
+  "유튜브 쇼츠": { hint: "세로 쇼츠, 검색에 걸리는 제목, 정보형", format: "유튜브 쇼츠 (세로 30~45초)" },
+  "틱톡": { hint: "빠른 편집, 유행 사운드·챌린지, 반전", format: "틱톡 (빠른 편집·유행 사운드)" },
+  "블로그·검색": { hint: "네이버 검색 상위 노출용 글 제목·키워드", format: "네이버 블로그 글" },
+  "사진·카드뉴스": { hint: "정보를 넘겨보는 카드뉴스, 저장각 사진", format: "카드뉴스 (5~7장)" }
 };
+function trendPlatformInfo(p) { return TREND_PLATFORMS[p] || TREND_PLATFORMS["전체"]; }
 
 /* 계절 기반 기본 소재 씨앗 (AI 없이도 실제 소재 제공) — 리빙 분야 기준, 다른 분야도 무난히 통용 */
 const TREND_EVERGREEN = [
@@ -3859,21 +3861,15 @@ function trendSeason() {
   return "가을";
 }
 
-function trendFormatFor(platform) {
-  switch (platform) {
-    case "인스타 릴스": return "릴스 (세로 15~30초)";
-    case "유튜브 쇼츠": return "유튜브 쇼츠 (세로 30~45초)";
-    case "틱톡": return "틱톡 (빠른 편집·유행 사운드)";
-    case "블로그·검색": return "네이버 블로그 글";
-    case "사진·카드뉴스": return "카드뉴스 (5~7장)";
-    default: return "릴스 또는 카드뉴스";
-  }
+/* 내 주제에서 파생한 해시태그 — 주제가 무엇이든(리빙·뷰티·요리...) 어울리게 */
+function trendTags() {
+  const t = topicWord().replace(/\s/g, "");
+  return ["#" + t, "#" + t + "스타그램", "#" + t + "꿀팁", "#" + t + "일상"];
 }
 
-function trendTags(extra) {
-  const niche = topicWord();
-  const base = ["#" + niche.replace(/\s/g, ""), "#" + niche.replace(/\s/g, "") + "스타그램", "#살림스타그램", "#홈스타일링"];
-  return Array.from(new Set([...base, ...(extra || [])])).slice(0, 6);
+/* 기본 소재 씨앗이 리빙 기준이라, 주제가 리빙 계열인지 판단(안내 문구용) */
+function trendTopicIsLiving() {
+  return /리빙|살림|인테리어|홈|집/.test((settings && settings.topic) || "리빙");
 }
 
 /* 하루 단위로 살짝 회전시켜 매일 다른 조합이 뜨게 */
@@ -3885,27 +3881,37 @@ function trendRotate(arr, n) {
 
 /* AI 없이도 계절에 맞춘 실제 소재 6개 */
 function templateTrends(platform) {
-  const fmt = trendFormatFor(platform);
+  const fmt = trendPlatformInfo(platform).format;
+  const tags = trendTags();
   const pool = trendRotate([...(TREND_SEASON[trendSeason()] || []), ...TREND_EVERGREEN], new Date().getDate()).slice(0, 6);
-  return pool.map(s => ({ topic: s.t, why: s.w, format: fmt, hook: s.h, tags: trendTags([]) }));
+  return pool.map(s => ({ topic: s.t, why: s.w, format: fmt, hook: s.h, tags }));
+}
+
+/* AI 응답에서 JSON 배열만 안전하게 추출 (코드펜스·앞뒤 설명문 제거) */
+function parseAiJsonArray(raw) {
+  let s = String(raw).replace(/```json|```/gi, "").trim();
+  const a = s.indexOf("["), b = s.lastIndexOf("]");
+  if (a !== -1 && b > a) s = s.slice(a, b + 1);
+  const parsed = JSON.parse(s);
+  return Array.isArray(parsed) ? parsed : [];
 }
 
 /* AI 큐레이션 (aiChat 3단계 안전망 경유) */
 async function aiTrends(platform) {
   const niche = (settings && settings.topic) || "리빙";
   const season = trendSeason();
-  const hint = TREND_PLATFORM_HINT[platform] || "";
+  const info = trendPlatformInfo(platform);
   const system = `너는 SNS 트렌드 분석가야. "${niche}" 분야 크리에이터가 지금(${season}철)에 만들면 반응이 좋을 콘텐츠 소재를 골라줘.
-플랫폼 초점: ${platform} — ${hint}
+플랫폼 초점: ${platform} — ${info.hint}
 규칙: 실제로 요즘 통하는 각도·포맷 위주. 초보도 오늘 바로 만들 수 있는 것. 과장하거나 없는 트렌드를 지어내지 마.
 다른 말 없이 JSON 배열만 출력(정확히 6개): [{"topic":"소재 한 줄","why":"왜 지금 반응이 오는지 한 줄","format":"추천 형식","hook":"첫 화면 후킹 문구 예시","tags":["#해시태그"]}]`;
   const raw = await aiChat(system, [{ role: "user", content: `"${niche}" 계정에서 ${platform}로 올릴, 지금 뜨는 소재 6개 뽑아줘.` }]);
-  const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
-  if (!Array.isArray(parsed) || !parsed.length) throw new Error("빈 응답");
+  const parsed = parseAiJsonArray(raw);
+  if (!parsed.length) throw new Error("빈 응답");
   return parsed.slice(0, 6).map(p => ({
     topic: String(p.topic || "").slice(0, 120),
     why: String(p.why || "").slice(0, 160),
-    format: String(p.format || trendFormatFor(platform)).slice(0, 60),
+    format: String(p.format || trendPlatformInfo(platform).format).slice(0, 60),
     hook: String(p.hook || "").slice(0, 160),
     tags: Array.isArray(p.tags) ? p.tags.map(t => String(t)).slice(0, 8) : []
   })).filter(x => x.topic);
@@ -3919,32 +3925,49 @@ async function refreshTrends() {
   const platform = trendPlatform;
   if (btn) { btn.disabled = true; btn.textContent = "트렌드 받는 중..."; }
   if (note) note.textContent = "";
-  let items, source;
   try {
-    items = await aiTrends(platform);
-    source = "ai";
-  } catch (e) {
-    items = templateTrends(platform);
-    source = "offline";
+    let items, source;
+    try {
+      items = await aiTrends(platform);
+      source = "ai";
+    } catch (e) {
+      items = templateTrends(platform);
+      source = "offline";
+    }
+    trendFeed = { at: Date.now(), platform, source, items };
+    store.set("trendFeed", trendFeed);
+    renderTrendFeed();
+    if (note) {
+      if (source === "ai") {
+        note.textContent = "✨ AI가 지금 흐름에 맞춰 골라준 소재예요.";
+      } else {
+        const hasKey = !!(settings && (settings.apiKey || "").trim());
+        note.textContent = "📦 계절에 맞춘 기본 소재예요. "
+          + (hasKey
+            ? "AI 호출이 잠시 실패했어요 — 잠시 후 다시 눌러보세요."
+            : "설정에서 AI를 연결하면 더 뾰족하게 골라줘요.")
+          + (trendTopicIsLiving() ? "" : " (기본 소재는 리빙 기준이에요 — 내 주제에 딱 맞추려면 AI 연결이 좋아요)");
+      }
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "🔄 지금 뜨는 트렌드 받기"; }
+    trendBusy = false;
   }
-  trendFeed = { at: Date.now(), platform, source, items };
-  store.set("trendFeed", trendFeed);
-  renderTrendFeed();
-  if (note) note.textContent = source === "ai"
-    ? "✨ AI가 지금 흐름에 맞춰 골라준 소재예요."
-    : "📦 계절에 맞춘 기본 소재예요. 설정에서 AI를 연결하면 더 뾰족하게 골라줘요.";
-  if (btn) { btn.disabled = false; btn.textContent = "🔄 지금 뜨는 트렌드 받기"; }
-  trendBusy = false;
 }
 
 function trendMake(it) {
   if (!it) return;
-  const directive = `"${it.topic}" 소재로 ${it.format || "콘텐츠"} 만들어줘.${it.hook ? ` 후킹: ${it.hook}` : ""}`;
+  const topic = String(it.topic || "").trim();
+  if (!topic) return;
+  const directive = `"${topic}" 소재로 ${it.format || "콘텐츠"} 만들어줘.${it.hook ? ` 후킹: ${it.hook}` : ""}`;
   const assignee = routeDirective(directive);
   const t = createTask(directive, assignee);
   renderBoard(); updateOfficeStatuses();
   dispatchWork(t);
-  toast(`🎯 "${it.topic.slice(0, 16)}…" 업무를 ${staffName(assignee)}에게 배정했어요! 사무실에서 진행돼요.`);
+  const short = topic.length > 16 ? topic.slice(0, 16) + "…" : topic;
+  toast(t.status === "doing"
+    ? `🎯 "${short}" 업무를 ${staffName(assignee)}에게 배정했어요! 사무실에서 진행돼요.`
+    : `🎯 "${short}" 업무를 대기열에 올렸어요. ${staffName(assignee)}이(가) 하던 일을 마치면 바로 시작해요.`);
   switchTab("office");
 }
 
@@ -3987,12 +4010,12 @@ function renderTrendFeed() {
   }
   if (meta) meta.textContent = `${trendFeed.platform} · ${trendAgo(trendFeed.at)}`;
   el.innerHTML = trendFeed.items.map((it, i) => {
-    const tags = (it.tags || []).map(t => `<span class="trend-tag">${escapeHtml(t)}</span>`).join("");
+    const tags = (it.tags || []).map(t => `<span class="trend-tag">${escapeHtml(String(t))}</span>`).join("");
     return `<div class="trend-card">
-      <div class="trend-card-top"><span class="trend-fmt">${escapeHtml(it.format || "")}</span></div>
-      <div class="trend-topic">${escapeHtml(it.topic)}</div>
-      ${it.why ? `<div class="trend-why">💡 ${escapeHtml(it.why)}</div>` : ""}
-      ${it.hook ? `<div class="trend-hook">🎬 후킹 예시: "${escapeHtml(it.hook)}"</div>` : ""}
+      <span class="trend-fmt">${escapeHtml(String(it.format || ""))}</span>
+      <div class="trend-topic">${escapeHtml(String(it.topic || ""))}</div>
+      ${it.why ? `<div class="trend-why">💡 ${escapeHtml(String(it.why))}</div>` : ""}
+      ${it.hook ? `<div class="trend-hook">🎬 후킹 예시: "${escapeHtml(String(it.hook))}"</div>` : ""}
       ${tags ? `<div class="trend-tags">${tags}</div>` : ""}
       <div class="trend-card-actions">
         <button class="btn-small trend-make-btn" data-trend-make="${i}">🎯 콘텐츠 만들기</button>
@@ -4016,7 +4039,7 @@ function renderTrendMarks() {
     return;
   }
   el.innerHTML = trendMarks.map(m => `<div class="trend-mark">
-      <div class="trend-mark-text">${escapeHtml(m.text)}</div>
+      <div class="trend-mark-text">${escapeHtml(String(m.text || ""))}</div>
       <div class="trend-mark-actions">
         <button class="btn-small trend-make-btn" data-mark-make="${m.id}">🎯 콘텐츠 만들기</button>
         <button class="btn-small btn-danger-ghost" data-mark-del="${m.id}">삭제</button>
@@ -4025,12 +4048,8 @@ function renderTrendMarks() {
   el.querySelectorAll("[data-mark-make]").forEach(b => b.addEventListener("click", () => {
     const m = trendMarks.find(x => x.id === b.dataset.markMake);
     if (!m) return;
-    if (m.extra) { trendMake(m.extra); return; }
-    const t = createTask(`"${m.text}" 트렌드로 콘텐츠 만들어줘`, routeDirective(m.text));
-    renderBoard(); updateOfficeStatuses();
-    dispatchWork(t);
-    toast("🎯 업무 배정 완료! 사무실에서 진행돼요.");
-    switchTab("office");
+    // 카드에서 담은 것(extra)이든 직접 적은 것이든 동일한 배정 경로 사용
+    trendMake(m.extra || { topic: m.text, format: "", hook: "", tags: [] });
   }));
   el.querySelectorAll("[data-mark-del]").forEach(b => b.addEventListener("click", () => {
     trendMarks = trendMarks.filter(x => x.id !== b.dataset.markDel);
@@ -4056,13 +4075,13 @@ async function fetchTrendNews(force) {
     if (!res.ok) throw new Error("net");
     const data = await res.json();
     const items = (data.hits || []).filter(h => h.title).map(h => ({
-      title: h.title,
-      url: h.url || `https://news.ycombinator.com/item?id=${h.objectID}`,
+      title: String(h.title).slice(0, 200),
+      url: trendSafeUrl(h.url, h.objectID),
       points: h.points || 0,
       at: (h.created_at_i || 0) * 1000
     })).slice(0, 10);
     if (!items.length) throw new Error("empty");
-    trendNews = { at: Date.now(), items };
+    trendNews = { at: Date.now(), items }; // 새 목록이면 이전 한글 브리핑은 폐기
     store.set("trendNews", trendNews);
     renderTrendNews();
   } catch (e) {
@@ -4078,29 +4097,72 @@ async function fetchTrendNews(force) {
   }
 }
 
+/* 외부 API·저장된 캐시의 URL은 http(s)만 허용 (javascript: 등 차단) */
+function trendSafeUrl(u, id) {
+  u = String(u || "");
+  if (/^https?:\/\//i.test(u)) return u;
+  return id ? "https://news.ycombinator.com/item?id=" + encodeURIComponent(String(id)) : "https://news.ycombinator.com/";
+}
+
 function renderTrendNews() {
   const el = $("#trend-news");
   if (!el) return;
+  const briefEl = $("#trend-news-brief-out");
+  if (briefEl) {
+    const brief = trendNews && trendNews.brief;
+    briefEl.classList.toggle("hidden", !brief);
+    briefEl.innerHTML = brief ? renderMarkdown(String(brief)) : "";
+  }
   if (!trendNews || !trendNews.items || !trendNews.items.length) {
     el.innerHTML = `<div class="trend-empty">🔄 새로고침을 눌러 실시간 소식을 받아보세요.</div>`;
     return;
   }
-  el.innerHTML = trendNews.items.map(n => `<a class="trend-news-item" href="${escapeHtml(n.url)}" target="_blank" rel="noopener">
-      <span class="trend-news-title">${escapeHtml(n.title)}</span>
-      <span class="trend-news-meta">▲${n.points} · ${trendAgo(n.at)}</span>
-    </a>`).join("") + `<div class="trend-news-src">출처: Hacker News (실시간) · 새 창에서 열려요</div>`;
+  el.innerHTML = trendNews.items.map(n => `<a class="trend-news-item" href="${escapeHtml(trendSafeUrl(n.url))}" target="_blank" rel="noopener">
+      <span class="trend-news-title">${escapeHtml(String(n.title || ""))}</span>
+      <span class="trend-news-meta">▲${n.points | 0} · ${trendAgo(n.at)}</span>
+    </a>`).join("") + `<div class="trend-news-src">출처: Hacker News (실시간·영어) · 새 창에서 열려요</div>`;
+}
+
+/* 영어 헤드라인을 초보자 눈높이 한국어로 브리핑 (aiChat 3단계 안전망) */
+let trendBriefBusy = false;
+async function trendNewsBrief() {
+  if (trendBriefBusy) return;
+  if (!trendNews || !trendNews.items || !trendNews.items.length) {
+    toast("먼저 🔄 새로고침으로 소식을 받아온 뒤에 브리핑을 눌러주세요.");
+    return;
+  }
+  trendBriefBusy = true;
+  const btn = $("#trend-news-brief");
+  if (btn) { btn.disabled = true; btn.textContent = "브리핑 만드는 중..."; }
+  try {
+    const heads = trendNews.items.map((n, i) => `${i + 1}. ${n.title}`).join("\n");
+    const system = `너는 코딩·IT를 전혀 모르는 한국인 SNS 크리에이터를 위한 친절한 테크 해설가야.
+아래 영어 헤드라인들을 읽고: ① 지금 세상 흐름을 쉬운 한국어 3~4줄로 요약(전문 용어는 바로 풀어서), ② 이 흐름을 SNS 콘텐츠 소재로 써먹을 아이디어 1개 제안. 짧고 따뜻하게.`;
+    const text = await aiChat(system, [{ role: "user", content: heads }]);
+    trendNews.brief = String(text).slice(0, 4000);
+    store.set("trendNews", trendNews);
+    renderTrendNews();
+  } catch (e) {
+    toast("⚠️ " + friendlyApiError(e), 6000);
+  } finally {
+    trendBriefBusy = false;
+    if (btn) { btn.disabled = false; btn.textContent = "🇰🇷 한글 브리핑"; }
+  }
 }
 
 let trendInited = false;
+function syncTrendChips() {
+  $$("#trend-platform .chip").forEach(c => c.classList.toggle("selected", c.dataset.value === trendPlatform));
+}
 function renderTrend() {
   if (!trendInited) {
     trendInited = true;
     $$("#trend-platform .chip").forEach(chip => chip.addEventListener("click", () => {
       trendPlatform = chip.dataset.value;
-      $$("#trend-platform .chip").forEach(c => c.classList.toggle("selected", c === chip));
+      syncTrendChips();
     }));
   }
-  $$("#trend-platform .chip").forEach(c => c.classList.toggle("selected", c.dataset.value === trendPlatform));
+  syncTrendChips();
   renderTrendFeed();
   renderTrendMarks();
   fetchTrendNews(false);
@@ -4185,6 +4247,7 @@ function bindEvents() {
   // 트렌드 관제판
   $("#trend-refresh").addEventListener("click", refreshTrends);
   $("#trend-news-refresh").addEventListener("click", () => fetchTrendNews(true));
+  $("#trend-news-brief").addEventListener("click", trendNewsBrief);
   $("#trend-add-go").addEventListener("click", () => {
     const inp = $("#trend-add-input");
     const v = inp.value.trim();
@@ -4194,7 +4257,7 @@ function bindEvents() {
     toast("🔖 담았어요!");
   });
   $("#trend-add-input").addEventListener("keydown", e => {
-    if (e.key === "Enter") { e.preventDefault(); $("#trend-add-go").click(); }
+    if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); $("#trend-add-go").click(); }
   });
 
   // 무료 AI 연결 테스트
@@ -5107,4 +5170,4 @@ function init() {
 init();
 
 // 자동 테스트용 훅 (앱 동작에는 영향 없음)
-window.__senter = { chatterTick, holdScrum, rebuildStaff, taskBrief, verifyBrief, focusComplete, recordUsage, renderTokenBar, estTokens, ensureUsage, autoPilotTick, templateDraft, refreshTrends, templateTrends, trendMake, addTrendMark, fetchTrendNews };
+window.__senter = { chatterTick, holdScrum, rebuildStaff, taskBrief, verifyBrief, focusComplete, recordUsage, renderTokenBar, estTokens, ensureUsage, autoPilotTick, templateDraft, refreshTrends, templateTrends, trendMake, addTrendMark, fetchTrendNews, trendNewsBrief, trendSafeUrl, parseAiJsonArray };

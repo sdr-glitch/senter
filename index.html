@@ -366,9 +366,13 @@
     <section class="card">
       <div class="card-head">
         <h3>🔴 실시간 트렌드 레이더 <span class="trend-live-dot" title="실시간"></span></h3>
-        <button class="btn-small" id="trend-news-refresh">🔄 새로고침</button>
+        <div class="trend-news-btns">
+          <button class="btn-small" id="trend-news-brief">🇰🇷 한글 브리핑</button>
+          <button class="btn-small" id="trend-news-refresh">🔄 새로고침</button>
+        </div>
       </div>
-      <p class="card-desc">전 세계에서 지금 화제인 <b>AI·테크 소식</b>이에요 (실시간). 세상이 어디로 가는지 감을 잡고, 콘텐츠 소재로도 써보세요.</p>
+      <p class="card-desc">전 세계에서 지금 화제인 <b>AI·테크 소식</b>이에요 (실시간·영어 제목). 영어가 어려우면 <b>[🇰🇷 한글 브리핑]</b>을 누르세요 — AI가 쉬운 말로 요약하고 콘텐츠 소재 아이디어까지 뽑아줘요.</p>
+      <div id="trend-news-brief-out" class="trend-news-brief markdown-body hidden"></div>
       <div id="trend-news" class="trend-news"></div>
     </section>
 

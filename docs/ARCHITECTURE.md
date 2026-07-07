@@ -77,7 +77,7 @@ node --check app.js                    # 문법
 3. **스튜디오 자산 ↔ 업무 연결** — 이모티콘 기획 승인 시 스튜디오에 프로젝트 자동 생성
 
 ### 완료됨 (기록)
-- ~~트렌드 관제판~~ → 📈 트렌드 탭. `xazingatrend/trend-viewer`(Python 로컬 대시보드)를 senter 철칙(정적·무의존·CORS 안전망)에 맞춰 재해석: ① AI 큐레이션(`aiTrends`, 3단계 안전망 경유, 실패 시 `templateTrends` 계절 기반 오프라인 소재) ② 실시간 뉴스 레이더(HN Algolia, CORS 허용, 1h 캐시, 네트워크 실패 시 이전 목록·안내로 폴백) ③ 직접 담기 북마크. 각 소재 카드 [🎯 콘텐츠 만들기] → `createTask`+`dispatchWork`로 기존 업무 파이프라인에 연결. 플랫폼별(릴스/쇼츠/틱톡/블로그/카드뉴스) 형식 자동 반영
+- ~~트렌드 관제판~~ → 📈 트렌드 탭. `xazingatrend/trend-viewer`(Python 로컬 대시보드)를 senter 철칙(정적·무의존·CORS 안전망)에 맞춰 재해석: ① AI 큐레이션(`aiTrends`, 3단계 안전망 경유, 실패 시 `templateTrends` 계절 기반 오프라인 소재 — 리빙 기준이라 다른 주제면 안내 문구 표시) ② 실시간 뉴스 레이더(HN Algolia, CORS 허용, 1h 캐시, 실패 시 이전 목록 폴백, **[🇰🇷 한글 브리핑]** 버튼이 영어 헤드라인을 aiChat으로 요약) ③ 직접 담기 북마크(cap 40). [🎯 콘텐츠 만들기] → `trendMake()` 단일 경로로 `createTask`+`dispatchWork` 연결(대기열이면 토스트로 안내). 플랫폼 힌트·형식은 `TREND_PLATFORMS` 레지스트리 단일 출처. 보안: 외부 URL은 `trendSafeUrl()`로 http(s)만 허용(javascript: 차단), AI JSON 파싱은 공용 `parseAiJsonArray()` 사용
 - ~~회의록 열람 UI~~ → 사무실 탭 [📜 회의록] 보관함 (최근 10개, 펼쳐보기)
 - ~~스튜디오 ↔ 센터 데이터 연결~~ → `readStudioSns()` → 보고서 "SNS 채널 현황" 표 + 스크럼 채널 멘트
 - ~~업무 보드 필터/검색~~ → 보드 상단 검색(제목·담당명), 완료 업무 40개 자동 정리(trimDoneTasks)
