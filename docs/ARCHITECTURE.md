@@ -25,7 +25,7 @@ studio.html─ 크리에이터 스튜디오(허브/패턴/이모티콘/템플릿
 | `senter:docs` | 자료실 [{id,title,content,enabled}] | PDF 추출 30만 자/건 |
 | `senter:chats` | 멘토별 대화 {personaId:[...]} | 페르소나당 80개 |
 | `senter:tasks` | 업무 [{id,title,assignee,status,stage,draft,critique,result,note}] | - |
-| `senter:customStaff` | 채용 직원 [{id,name,role,duty,emoji,keywords,look}] | 총 직원 11명 |
+| `senter:customStaff` | 채용 직원 [{id,name,role,duty,emoji,keywords,look}] | 총 직원 11명 (기본 8: 이모티콘 기획자 포함) |
 | `senter:teamChat` / `senter:activity` / `senter:meetings` | 대화/활동/회의록 | 60 / 30 / 10 |
 | `senter:todos` `events` `notes` `focusLog` | 생산성 | - |
 | `senter:roadmapDone` `missions` `stageOpen` `currentPersona` `personaBarExpanded` | UI 상태 | - |
@@ -40,6 +40,7 @@ studio.html─ 크리에이터 스튜디오(허브/패턴/이모티콘/템플릿
 |---|---|
 | 정적 SPA + localStorage | 사용자가 비개발자. 서버·DB·배포 파이프라인은 유지 불가능. 트레이드오프: 기기 간 동기화 없음(백업 파일로 대체) |
 | 자율 근무 `autoPilotTick()` | 사용자가 자료만 올리면 스터디 회의→초안→보고까지 자동. AI 없으면 `templateDraft()` 오프라인 초안 엔진이 실제 결과물 생성 |
+| 리서치 자동화 | 벤치마킹 보고서(`benchDraft`)·카카오 이모티콘 시장 분석(`emoticonKakaoDraft`)·멀티 플랫폼 기획(`emoticonMultiDraft`)을 자율 이니셔티브로 생성. 실시간 크롤링은 불가하므로 검증된 패턴 지식 + "10분 직접 확인 체크리스트" + AI 연결 시 심화 분석의 3층 구조. 7일마다 주간 벤치마킹 갱신 |
 | AI 3단계 체인 `aiChat()` | 사용자가 API 결제 실패(카드 문제). ① Anthropic(브라우저 직접, `anthropic-dangerous-direct-browser-access`) → ② Puter.js 무료(키 불필요, 첫 사용 시 무료계정 팝업 1회) → ③ 오프라인 템플릿(미션=로드맵 기반, 우선순위=마감순, 보고서·회의=데이터 조립) + "지시서 복사→무료 챗봇" 수동 흐름 |
 | 자동 실행은 **버튼**으로 (키 없을 때) | Puter 첫 인증 팝업은 사용자 제스처 필요 + 예상 못 한 백그라운드 호출 방지 |
 | 업무 파이프라인 3단계 검증 | draft→verify(전문가 2명 교차검증→수정→재검토)→final(매니저)→review. `workMode:"quick"`으로 1단계 모드 전환 가능. 검증 대사·회의는 실제 보드 데이터에서 생성 |
