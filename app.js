@@ -606,8 +606,10 @@ async function callClaudeSystem(system, messages, onDelta) {
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
+  const model = (settings && settings.model) || "claude-sonnet-5";
   let buffer = "";
   let full = "";
+  let inTok = 0, outTok = 0; // 실제 토큰 사용량 (Anthropic 응답에서 수집)
 
   while (true) {
     const { done, value } = await reader.read();
@@ -625,6 +627,14 @@ async function callClaudeSystem(system, messages, onDelta) {
           full += ev.delta.text;
           onDelta(full);
         }
+        // 토큰 사용량: 시작 이벤트에 입력, delta 이벤트에 누적 출력 토큰
+        if (ev.type === "message_start" && ev.message && ev.message.usage) {
+          const u = ev.message.usage;
+          inTok = (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0);
+        }
+        if (ev.type === "message_delta" && ev.usage && typeof ev.usage.output_tokens === "number") {
+          outTok = ev.usage.output_tokens;
+        }
         if (ev.type === "error") throw new Error(ev.error?.message || "스트리밍 오류");
       } catch (e) {
         if (e instanceof SyntaxError) continue;
@@ -632,6 +642,7 @@ async function callClaudeSystem(system, messages, onDelta) {
       }
     }
   }
+  recordUsage(model, inTok, outTok, false);
   return full;
 }
 
@@ -682,6 +693,9 @@ async function aiChat(system, messages, onDelta = () => {}) {
     const text = extractPuterText(resp).trim();
     if (!text) throw new Error("빈 응답");
     onDelta(text);
+    // 무료 AI는 토큰 정보를 안 주므로 글자 수로 추정 (비용은 0원)
+    const inEst = estTokens(system) + messages.reduce((a, m) => a + estTokens(m.content), 0);
+    recordUsage("free", inEst, estTokens(text), true);
     return text;
   } catch (e) {
     const msg = String(e && (e.message || e.error && e.error.message) || e);
@@ -700,6 +714,160 @@ function friendlyApiError(e) {
   if (e.status === 529) return "AI 서버가 잠시 바빠요. 조금 뒤에 다시 시도해주세요.";
   if (e instanceof TypeError) return "인터넷 연결을 확인해주세요. (네트워크 오류)";
   return "오류가 발생했어요: " + e.message;
+}
+
+/* ---------- 토큰 사용량 & 상태바 ---------- */
+/* 모델별 100만 토큰당 요금(USD, 대략치) — 실제 청구는 Anthropic 콘솔 기준 */
+const MODEL_PRICING = {
+  "claude-sonnet-5":            { in: 3,  out: 15, label: "Sonnet 5" },
+  "claude-haiku-4-5-20251001":  { in: 1,  out: 5,  label: "Haiku 4.5" },
+  "claude-opus-4-8":            { in: 15, out: 75, label: "Opus 4.8" }
+};
+const USD_TO_KRW = 1400;               // 환율(대략) — 비용은 어디까지나 참고용 추정
+const DEFAULT_TOKEN_BUDGET = 1000000;  // 이번 달 토큰 한도 기본값 (100만 토큰)
+
+let usage = store.get("usage", null);
+
+function currentMonth() { return new Date().toISOString().slice(0, 7); } // "2026-07"
+
+/* 이번 달 사용량 객체 보장 — 달이 바뀌면 자동 초기화 */
+function ensureUsage() {
+  const m = currentMonth();
+  if (!usage || usage.month !== m) {
+    usage = { month: m, inTok: 0, outTok: 0, req: 0, freeReq: 0, byModel: {} };
+    store.set("usage", usage);
+  }
+  return usage;
+}
+
+function tokenBudget() {
+  const b = settings && Number(settings.tokenBudget);
+  return b && b > 0 ? b : DEFAULT_TOKEN_BUDGET;
+}
+
+/* 무료 AI 응답 토큰 추정: 한글은 1자≈1토큰, 그 외는 3.8자≈1토큰 (대략) */
+function estTokens(str) {
+  if (!str) return 0;
+  let cjk = 0;
+  for (const ch of str) if (ch.charCodeAt(0) > 0x2e00) cjk++;
+  const other = str.length - cjk;
+  return Math.max(1, Math.round(cjk * 1.1 + other / 3.8));
+}
+
+/* AI 호출 1건의 사용량 기록 */
+function recordUsage(model, inTok, outTok, isFree) {
+  const u = ensureUsage();
+  inTok = Math.max(0, inTok | 0);
+  outTok = Math.max(0, outTok | 0);
+  u.inTok += inTok;
+  u.outTok += outTok;
+  u.req += 1;
+  if (isFree) u.freeReq += 1;
+  const key = model || (isFree ? "free" : "claude-sonnet-5");
+  const bm = u.byModel[key] || (u.byModel[key] = { in: 0, out: 0, req: 0, free: !!isFree });
+  bm.in += inTok; bm.out += outTok; bm.req += 1;
+  store.set("usage", u);
+  renderTokenBar();
+}
+
+/* 이번 달 예상 비용(원) — 유료(API) 모델만 과금, 무료는 0원 */
+function estCostKrw() {
+  const u = ensureUsage();
+  let usd = 0;
+  for (const [model, bm] of Object.entries(u.byModel)) {
+    const p = MODEL_PRICING[model];
+    if (!p) continue; // 무료 AI 등 요금표에 없는 건 0원
+    usd += (bm.in / 1e6) * p.in + (bm.out / 1e6) * p.out;
+  }
+  return usd * USD_TO_KRW;
+}
+
+function fmtNum(n) { return Math.round(n).toLocaleString("ko-KR"); }
+function fmtKrw(v) {
+  if (v <= 0) return "₩0";
+  if (v < 100) return "₩" + v.toFixed(1);
+  return "₩" + Math.round(v).toLocaleString("ko-KR");
+}
+
+function renderTokenBar() {
+  const bar = $("#token-bar");
+  if (!bar) return;
+  // 앱 화면이 떠 있을 때만 표시 (온보딩 중엔 숨김)
+  if ($("#app").classList.contains("hidden")) { bar.classList.add("hidden"); return; }
+  bar.classList.remove("hidden");
+
+  const u = ensureUsage();
+  const budget = tokenBudget();
+  const used = u.inTok + u.outTok;
+  const left = Math.max(0, budget - used);
+  const pct = budget > 0 ? Math.min(100, used / budget * 100) : 0;
+  const krw = estCostKrw();
+
+  $("#tb-used").textContent = fmtNum(used);
+  $("#tb-total").textContent = fmtNum(budget);
+  $("#tb-left").textContent = fmtNum(left);
+  $("#tb-cost").textContent = fmtKrw(krw);
+
+  const fill = $("#tb-fill");
+  fill.style.width = pct.toFixed(1) + "%";
+  bar.classList.toggle("tb-warn", pct >= 70 && pct < 90);
+  bar.classList.toggle("tb-danger", pct >= 90);
+
+  // 상세 패널
+  const monthLabel = u.month.replace("-", "년 ") + "월";
+  const paidReq = u.req - u.freeReq;
+  const modelRows = Object.entries(u.byModel).map(([model, bm]) => {
+    const p = MODEL_PRICING[model];
+    const name = p ? p.label : (bm.free ? "무료 AI (추정)" : model);
+    const cost = p ? (bm.in / 1e6 * p.in + bm.out / 1e6 * p.out) * USD_TO_KRW : 0;
+    return `<tr><td>${name}</td><td>${fmtNum(bm.in)}</td><td>${fmtNum(bm.out)}</td><td>${bm.req}회</td><td>${p ? fmtKrw(cost) : "무료"}</td></tr>`;
+  }).join("");
+
+  $("#tb-detail-body").innerHTML = `
+    <div class="tb-detail-grid">
+      <div class="tb-stat"><span>이번 달</span><b>${monthLabel}</b></div>
+      <div class="tb-stat"><span>입력 토큰</span><b>${fmtNum(u.inTok)}</b></div>
+      <div class="tb-stat"><span>출력 토큰</span><b>${fmtNum(u.outTok)}</b></div>
+      <div class="tb-stat"><span>호출 횟수</span><b>${u.req}회 <small>(내 키 ${paidReq} · 무료 ${u.freeReq})</small></b></div>
+    </div>
+    ${modelRows ? `<table class="tb-table"><thead><tr><th>모델</th><th>입력</th><th>출력</th><th>호출</th><th>예상 비용</th></tr></thead><tbody>${modelRows}</tbody></table>` : `<p class="tb-empty">아직 사용 기록이 없어요. 멘토와 대화하면 여기에 쌓여요.</p>`}
+    <div class="tb-budget-row">
+      <label>이번 달 토큰 한도
+        <input type="number" id="tb-budget-input" min="10000" step="10000" value="${budget}">
+      </label>
+      <button class="btn-small" id="tb-budget-save">한도 저장</button>
+      <button class="btn-small btn-danger-ghost" id="tb-reset">이번 달 사용량 초기화</button>
+    </div>
+    <p class="tb-note">💡 비용은 <b>참고용 추정치</b>예요 (환율 ₩${USD_TO_KRW.toLocaleString()}/$1 기준, 무료 AI는 0원·글자 수로 토큰 추정). 정확한 청구액은 <a href="https://console.anthropic.com/" target="_blank" rel="noopener">Anthropic 콘솔</a>에서 확인하세요. 사용량은 매달 1일 자동으로 초기화돼요.</p>
+  `;
+
+  // 상세 패널 안의 버튼은 매번 새로 그려지므로 여기서 바인딩
+  const bsave = $("#tb-budget-save");
+  if (bsave) bsave.onclick = () => {
+    const v = Number($("#tb-budget-input").value);
+    if (!v || v < 10000) { toast("한도는 최소 10,000 토큰 이상으로 정해주세요."); return; }
+    settings.tokenBudget = Math.round(v);
+    store.set("settings", settings);
+    renderTokenBar();
+    toast("✅ 이번 달 토큰 한도를 " + fmtNum(v) + "(으)로 정했어요.");
+  };
+  const breset = $("#tb-reset");
+  if (breset) breset.onclick = () => {
+    if (!confirm("이번 달 토큰 사용량 기록을 0으로 초기화할까요? (한도 설정은 그대로 유지돼요)")) return;
+    usage = { month: currentMonth(), inTok: 0, outTok: 0, req: 0, freeReq: 0, byModel: {} };
+    store.set("usage", usage);
+    renderTokenBar();
+    toast("🧹 이번 달 사용량을 초기화했어요.");
+  };
+}
+
+function toggleTokenDetail(force) {
+  const d = $("#tb-detail");
+  const t = $("#tb-toggle");
+  const open = force != null ? force : d.classList.contains("hidden");
+  d.classList.toggle("hidden", !open);
+  t.textContent = open ? "▾ 닫기" : "▴ 자세히";
+  if (open) renderTokenBar();
 }
 
 /* ---------- 온보딩 ---------- */
@@ -3007,7 +3175,7 @@ function exportBackup() {
     exportedAt: new Date().toISOString(),
     settings: { ...settings, apiKey: "" }, // 보안을 위해 키는 제외
     docs, chats, roadmapDone, missions, tasks, activity, meetings, customStaff, teamChat,
-    todos, events, notes, focusLog
+    todos, events, notes, focusLog, usage
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
@@ -3039,6 +3207,8 @@ function importBackup(file) {
       events = data.events || [];
       notes = data.notes || [];
       focusLog = data.focusLog || {};
+      usage = data.usage || null;
+      store.set("usage", usage);
       store.set("todos", todos);
       store.set("events", events);
       store.set("notes", notes);
@@ -3092,6 +3262,7 @@ function renderAll() {
   renderLibrary();
   renderSettings();
   renderTools();
+  renderTokenBar();
 }
 
 /* ---------- 이벤트 바인딩 ---------- */
@@ -3101,6 +3272,9 @@ function bindEvents() {
 
   // 온보딩
   $("#ob-done").addEventListener("click", finishOnboarding);
+
+  // 토큰 상태바 (자세히 열기/닫기)
+  $("#tb-toggle").addEventListener("click", () => toggleTokenDetail());
 
   // API 키 안내
   $("#kg-save").addEventListener("click", () => {
@@ -3810,4 +3984,4 @@ function init() {
 init();
 
 // 자동 테스트용 훅 (앱 동작에는 영향 없음)
-window.__senter = { chatterTick, holdScrum, rebuildStaff, taskBrief, verifyBrief, focusComplete };
+window.__senter = { chatterTick, holdScrum, rebuildStaff, taskBrief, verifyBrief, focusComplete, recordUsage, renderTokenBar, estTokens, ensureUsage };

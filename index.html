@@ -543,6 +543,23 @@
   </div>
 </div>
 
+<!-- ===== 항상 떠 있는 토큰 상태바 ===== -->
+<div id="token-bar" class="token-bar hidden">
+  <div class="tb-main">
+    <span class="tb-icon" title="AI 토큰 사용 현황">🪙</span>
+    <div class="tb-bar-wrap"><div id="tb-fill" class="tb-fill"></div></div>
+    <span class="tb-nums">
+      사용 <b id="tb-used">0</b> / <span id="tb-total">0</span>
+      · 남음 <b id="tb-left">0</b>
+      · 💰 <b id="tb-cost">₩0</b>
+    </span>
+    <button id="tb-toggle" class="tb-toggle" type="button">▴ 자세히</button>
+  </div>
+  <div id="tb-detail" class="tb-detail hidden">
+    <div id="tb-detail-body"></div>
+  </div>
+</div>
+
 <div id="toast" class="toast hidden"></div>
 
 <script src="app.js"></script>

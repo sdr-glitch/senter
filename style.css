@@ -630,10 +630,80 @@ body {
 /* ===== 기타 ===== */
 .saved-note { font-size: .85rem; color: var(--accent-strong); margin-left: 10px; }
 .toast {
-  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  position: fixed; bottom: 76px; left: 50%; transform: translateX(-50%);
   background: var(--text); color: #fff; padding: 12px 20px; border-radius: 12px;
   font-size: .9rem; z-index: 200; box-shadow: 0 6px 24px rgba(0,0,0,.25);
   max-width: 90vw;
+}
+
+/* ===== 토큰 상태바 (화면 하단 고정) ===== */
+.token-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 150;
+  display: flex; flex-direction: column-reverse;
+  background: var(--surface); border-top: 1px solid var(--line);
+  box-shadow: 0 -2px 16px rgba(0,0,0,.06);
+}
+.tb-main {
+  max-width: 880px; width: 100%; margin: 0 auto;
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 16px; font-size: .84rem;
+}
+.tb-icon { font-size: 1.15rem; flex-shrink: 0; }
+.tb-bar-wrap {
+  flex: 1; min-width: 60px; height: 8px; border-radius: 999px;
+  background: var(--surface-2); overflow: hidden;
+}
+.tb-fill {
+  height: 100%; width: 0%; border-radius: 999px;
+  background: var(--accent); transition: width .3s ease, background .3s ease;
+}
+.token-bar.tb-warn .tb-fill { background: #e8a838; }
+.token-bar.tb-danger .tb-fill { background: var(--danger); }
+.tb-nums { flex-shrink: 0; color: var(--text-soft); white-space: nowrap; }
+.tb-nums b { color: var(--text); font-variant-numeric: tabular-nums; }
+.token-bar.tb-danger .tb-nums b#tb-left { color: var(--danger); }
+.tb-toggle {
+  flex-shrink: 0; border: 1px solid var(--line); background: var(--surface-2);
+  color: var(--text-soft); font-family: inherit; font-size: .78rem; font-weight: 600;
+  padding: 5px 10px; border-radius: 999px; cursor: pointer;
+}
+.tb-toggle:hover { background: var(--accent-soft); color: var(--accent-strong); }
+.tb-detail {
+  max-width: 880px; width: 100%; margin: 0 auto;
+  padding: 14px 16px; border-bottom: 1px solid var(--line);
+  max-height: 55vh; overflow-y: auto;
+}
+.tb-detail-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;
+}
+.tb-stat {
+  background: var(--surface-2); border-radius: 10px; padding: 9px 11px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.tb-stat span { font-size: .72rem; color: var(--text-soft); }
+.tb-stat b { font-size: .98rem; font-variant-numeric: tabular-nums; }
+.tb-stat b small { font-size: .66rem; font-weight: 500; color: var(--text-soft); }
+.tb-table { width: 100%; border-collapse: collapse; font-size: .8rem; margin-bottom: 12px; }
+.tb-table th, .tb-table td { padding: 6px 8px; text-align: right; border-bottom: 1px solid var(--line); }
+.tb-table th:first-child, .tb-table td:first-child { text-align: left; }
+.tb-table th { color: var(--text-soft); font-weight: 600; font-size: .74rem; }
+.tb-table td { font-variant-numeric: tabular-nums; }
+.tb-empty { font-size: .84rem; color: var(--text-soft); margin-bottom: 12px; }
+.tb-budget-row {
+  display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.tb-budget-row label { display: flex; flex-direction: column; gap: 4px; font-size: .78rem; color: var(--text-soft); }
+.tb-budget-row input {
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+  font-family: inherit; font-size: .88rem; width: 150px;
+}
+.tb-note { font-size: .74rem; color: var(--text-soft); line-height: 1.6; }
+.tb-note a { color: var(--accent-strong); }
+
+@media (max-width: 640px) {
+  .tb-nums { font-size: .74rem; white-space: normal; }
+  .tb-detail-grid { grid-template-columns: 1fr 1fr; }
+  .tb-toggle { padding: 5px 8px; font-size: .72rem; }
 }
 
 /* ===== 모바일 ===== */
