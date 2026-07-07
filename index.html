@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>센터 — 나의 AI 마케팅 멘토</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌱</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ===== 온보딩 (첫 실행) ===== -->
+<div id="onboarding" class="modal-backdrop hidden">
+  <div class="modal onboard">
+    <div class="onboard-emoji">🌱</div>
+    <h1>센터에 오신 걸 환영해요!</h1>
+    <p class="onboard-sub">당신의 SNS 성장을 함께할 AI 마케팅 멘토팀입니다.<br>먼저 몇 가지만 알려주세요. (나중에 설정에서 바꿀 수 있어요)</p>
+
+    <label class="field">
+      <span>뭐라고 불러드릴까요?</span>
+      <input type="text" id="ob-name" placeholder="예: 지은, 리빙마스터" maxlength="20">
+    </label>
+
+    <label class="field">
+      <span>운영할 계정의 주제</span>
+      <input type="text" id="ob-topic" value="리빙 (인테리어 · 살림 · 홈스타일링)" maxlength="60">
+    </label>
+
+    <label class="field">
+      <span>주력 플랫폼</span>
+      <div class="chip-row" id="ob-platforms">
+        <button class="chip selected" data-value="인스타그램">인스타그램</button>
+        <button class="chip" data-value="네이버 블로그">네이버 블로그</button>
+        <button class="chip" data-value="유튜브/쇼츠">유튜브/쇼츠</button>
+        <button class="chip" data-value="틱톡">틱톡</button>
+      </div>
+    </label>
+
+    <label class="field">
+      <span>목표</span>
+      <input type="text" id="ob-goal" value="체험단 협찬 받기 → 광고 수익까지" maxlength="60">
+    </label>
+
+    <label class="field">
+      <span>내 SNS 경험 수준</span>
+      <div class="chip-row" id="ob-level">
+        <button class="chip selected" data-value="완전 초보 (아무것도 몰라요)">완전 초보</button>
+        <button class="chip" data-value="계정은 있지만 방치 중">계정만 있음</button>
+        <button class="chip" data-value="가끔 올리지만 성장이 안 됨">가끔 올림</button>
+      </div>
+    </label>
+
+    <button class="btn-primary" id="ob-done">시작하기 →</button>
+    <p class="onboard-note">💡 AI 멘토와 대화하려면 API 키가 필요해요. 시작한 뒤 안내해 드릴게요.</p>
+  </div>
+</div>
+
+<!-- ===== API 키 안내 모달 ===== -->
+<div id="key-guide" class="modal-backdrop hidden">
+  <div class="modal">
+    <h2>🔑 AI 연결하기 (API 키 발급)</h2>
+    <p class="modal-desc">이 앱의 AI 멘토는 <b>Claude</b>(클로드)라는 AI를 사용해요. 사용하려면 "API 키"라는 열쇠가 필요합니다. <b>쓴 만큼만 소액 결제</b>되는 방식이에요 (가볍게 쓰면 월 몇천 원 수준).</p>
+    <ol class="guide-steps">
+      <li><a href="https://console.anthropic.com/" target="_blank" rel="noopener">console.anthropic.com</a> 에 접속해서 회원가입 (구글 계정으로 가능)</li>
+      <li>왼쪽 메뉴 또는 설정에서 <b>Billing</b>(결제)에 들어가 카드 등록 후 <b>$5 정도 충전</b> (약 7천 원 — 몇 달은 씁니다)</li>
+      <li><b>API Keys</b> 메뉴에서 <b>Create Key</b> 클릭 → 이름은 아무거나 (예: senter)</li>
+      <li><code>sk-ant-</code> 로 시작하는 긴 문자가 나오면 <b>복사</b> (이 화면을 벗어나면 다시 볼 수 없으니 꼭 복사!)</li>
+      <li>아래 칸에 붙여넣기 → 저장</li>
+    </ol>
+    <label class="field">
+      <span>API 키 붙여넣기</span>
+      <input type="password" id="kg-key" placeholder="sk-ant-...">
+    </label>
+    <p class="modal-note">🔒 키는 이 브라우저에만 저장되며, 외부 서버로 전송되지 않아요 (AI 호출 시 Anthropic에만 전달).</p>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="kg-later">나중에 할게요</button>
+      <button class="btn-primary" id="kg-save">저장하고 시작</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 앱 본체 ===== -->
+<div id="app" class="app hidden">
+  <header class="topbar">
+    <div class="logo">🌱 <b>센터</b> <span class="logo-sub">AI 마케팅 멘토</span></div>
+    <div class="topbar-right">
+      <span id="key-status" class="key-status"></span>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="home">🏠 홈</button>
+    <button class="tab" data-tab="chat">💬 멘토 채팅</button>
+    <button class="tab" data-tab="library">📚 자료실</button>
+    <button class="tab" data-tab="settings">⚙️ 설정</button>
+  </nav>
+
+  <!-- ===== 홈 탭 ===== -->
+  <main id="tab-home" class="tab-panel">
+    <section class="hero">
+      <h2 id="home-greeting">안녕하세요!</h2>
+      <p id="home-sub" class="hero-sub"></p>
+    </section>
+
+    <section class="card">
+      <h3>💡 아이디어 변환기</h3>
+      <p class="card-desc">아무 소재나 던져보세요. "이건 계란이야" 라고만 해도, 마케팅 크리에이터 관점의 콘텐츠 각도로 바꿔드립니다.</p>
+      <div class="idea-row">
+        <input type="text" id="idea-input" placeholder="예: 계란, 수납 바구니, 오늘 산 무드등...">
+        <button class="btn-primary" id="idea-go">변환 →</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h3>🎯 오늘의 미션</h3>
+        <button class="btn-small" id="mission-gen">미션 받기</button>
+      </div>
+      <p class="card-desc">멘토가 지금 내 단계에 맞는 오늘 할 일을 뽑아줘요. 하루 3개, 부담 없이.</p>
+      <div id="mission-list" class="mission-list"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h3>🗺️ 성장 로드맵</h3>
+        <span id="roadmap-progress" class="progress-label"></span>
+      </div>
+      <p class="card-desc">계정 세팅부터 수익화까지, 순서대로 하나씩. 막히면 각 항목의 💬 버튼으로 멘토에게 바로 물어보세요.</p>
+      <div id="roadmap" class="roadmap"></div>
+    </section>
+  </main>
+
+  <!-- ===== 채팅 탭 ===== -->
+  <main id="tab-chat" class="tab-panel hidden">
+    <div class="chat-layout">
+      <aside class="persona-bar" id="persona-bar"></aside>
+      <div class="chat-main">
+        <div class="chat-head">
+          <div>
+            <div class="chat-persona-name" id="chat-persona-name"></div>
+            <div class="chat-persona-desc" id="chat-persona-desc"></div>
+          </div>
+          <button class="btn-small btn-danger-ghost" id="chat-clear">대화 초기화</button>
+        </div>
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="chat-suggestions" id="chat-suggestions"></div>
+        <div class="chat-input-row">
+          <textarea id="chat-input" rows="1" placeholder="멘토에게 무엇이든 물어보세요..."></textarea>
+          <button class="btn-primary" id="chat-send">전송</button>
+        </div>
+        <div class="chat-kb-note" id="chat-kb-note"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===== 자료실 탭 ===== -->
+  <main id="tab-library" class="tab-panel hidden">
+    <section class="card">
+      <h3>📚 내 자료실</h3>
+      <p class="card-desc">유료 강의 노트, 전자책, 노션에 정리한 내용을 여기에 넣어두면 <b>모든 멘토가 이 자료를 참고해서</b> 대답해요. 노션 내용은 페이지에서 전체 선택(Ctrl+A) → 복사해서 붙여넣으면 됩니다.</p>
+      <div class="lib-actions">
+        <button class="btn-primary" id="lib-add-paste">✍️ 붙여넣기로 추가</button>
+        <button class="btn-ghost" id="lib-add-file">📄 파일 업로드 (.txt / .md)</button>
+        <input type="file" id="lib-file-input" accept=".txt,.md,.markdown,text/plain" multiple hidden>
+      </div>
+      <div id="lib-usage" class="lib-usage"></div>
+      <div id="lib-list" class="lib-list"></div>
+    </section>
+  </main>
+
+  <!-- ===== 설정 탭 ===== -->
+  <main id="tab-settings" class="tab-panel hidden">
+    <section class="card">
+      <h3>🔑 AI 연결</h3>
+      <label class="field">
+        <span>Anthropic API 키</span>
+        <input type="password" id="set-key" placeholder="sk-ant-...">
+      </label>
+      <button class="btn-ghost btn-small" id="set-key-guide">발급 방법 다시 보기</button>
+      <label class="field">
+        <span>AI 모델</span>
+        <select id="set-model">
+          <option value="claude-sonnet-5">Claude Sonnet 5 — 추천 (품질·비용 균형)</option>
+          <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 — 가장 저렴하고 빠름</option>
+          <option value="claude-opus-4-8">Claude Opus 4.8 — 가장 똑똑함 (비용 높음)</option>
+        </select>
+      </label>
+    </section>
+
+    <section class="card">
+      <h3>👤 내 프로필</h3>
+      <p class="card-desc">멘토들이 이 정보를 바탕으로 조언해요.</p>
+      <label class="field"><span>이름/닉네임</span><input type="text" id="set-name"></label>
+      <label class="field"><span>계정 주제</span><input type="text" id="set-topic"></label>
+      <label class="field"><span>주력 플랫폼 (쉼표로 구분)</span><input type="text" id="set-platforms"></label>
+      <label class="field"><span>목표</span><input type="text" id="set-goal"></label>
+      <label class="field"><span>경험 수준</span><input type="text" id="set-level"></label>
+      <button class="btn-primary" id="set-save">저장</button>
+      <span id="set-saved" class="saved-note hidden">✅ 저장됐어요</span>
+    </section>
+
+    <section class="card">
+      <h3>🧹 데이터 관리</h3>
+      <p class="card-desc">모든 데이터는 이 브라우저에만 저장돼요. 브라우저를 바꾸면 데이터가 따라가지 않아요.</p>
+      <div class="modal-actions" style="justify-content:flex-start">
+        <button class="btn-ghost" id="set-export">📦 백업 내보내기</button>
+        <button class="btn-ghost" id="set-import">📥 백업 불러오기</button>
+        <input type="file" id="set-import-input" accept=".json" hidden>
+        <button class="btn-danger" id="set-reset">전체 초기화</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
