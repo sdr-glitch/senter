@@ -2437,6 +2437,8 @@ async function sendChat(presetText) {
     });
     liveEl.classList.remove("typing");
     history.push({ role: "assistant", content: full });
+    // 저장 공간 보호: 페르소나당 최근 80개 메시지만 보관
+    if (history.length > 80) chats[currentPersona] = history.slice(-80);
     store.set("chats", chats);
   } catch (e) {
     liveEl.remove();
@@ -2936,8 +2938,27 @@ function renderStudio() {
 }
 
 /* ---------- 설정 탭 ---------- */
+function renderStorageMeter() {
+  const el = $("#storage-meter");
+  if (!el) return;
+  let bytes = 0;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      bytes += (k.length + (localStorage.getItem(k) || "").length) * 2; // UTF-16
+    }
+  } catch { el.textContent = ""; return; }
+  const mb = bytes / 1048576;
+  const limit = 5; // 대부분의 브라우저 기준 약 5MB
+  const pct = Math.min(100, Math.round(mb / limit * 100));
+  el.innerHTML = `저장 공간 사용: <b>${mb.toFixed(2)}MB</b> / 약 ${limit}MB (${pct}%)` +
+    (pct >= 80 ? ` — ⚠️ 거의 찼어요! 백업 후 안 쓰는 자료·대화를 정리해주세요.` : "");
+  el.style.color = pct >= 80 ? "#c0392b" : "";
+}
+
 function renderSettings() {
   const s = settings;
+  renderStorageMeter();
   $("#set-key").value = s.apiKey || "";
   $("#set-model").value = s.model || "claude-sonnet-5";
   $("#set-workmode").value = s.workMode || "thorough";

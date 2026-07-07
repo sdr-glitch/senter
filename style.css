@@ -440,10 +440,10 @@ body {
   z-index: 10; animation: bubble-pop .15s steps(2, end);
 }
 .bubble::after {
-  content: ""; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+  content: ""; position: absolute; top: 100%; left: 50%;
   width: 8px; height: 8px; background: #fffdf5;
   border-right: 3px solid #14161f; border-bottom: 3px solid #14161f;
-  margin-top: -5px; rotate: 45deg;
+  margin-top: -5px; transform: translateX(-50%) rotate(45deg);
 }
 @keyframes bubble-pop { from { opacity: 0; transform: translateX(-50%) scale(.8); } }
 
