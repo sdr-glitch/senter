@@ -46,9 +46,10 @@ body {
   position: sticky; top: 8px; z-index: 20;
 }
 .tab {
-  flex: 1; padding: 10px 6px; border: none; background: transparent;
-  border-radius: 10px; font-size: .92rem; cursor: pointer; color: var(--text-soft);
+  flex: 1; padding: 10px 2px; border: none; background: transparent;
+  border-radius: 10px; font-size: .84rem; cursor: pointer; color: var(--text-soft);
   font-family: inherit; font-weight: 600; transition: background .15s;
+  white-space: nowrap;
 }
 .tab:hover { background: var(--surface-2); }
 .tab.active { background: var(--accent); color: #fff; }

@@ -2375,9 +2375,14 @@ function finalReview(t) {
   }, 4000);
 }
 
-// 새로고침 등으로 최종 검토가 멈춘 업무 재개
+// 새로고침 등으로 멈춘 업무 재개: 최종 검토 단계 + 자동 작업 중이던 업무
 function resumePendingFinals() {
+  // 진행 플래그는 메모리 상태 — 새로고침 전에 저장된 잔재를 지워야 재개 필터에 걸리지 않는다
+  tasks.forEach(t => { t.autoWorking = false; t.finalizing = false; });
   tasks.filter(t => t.status === "doing" && t.stage === "final").forEach(finalReview);
+  // 자동 파이프라인 중간에 끊긴 업무는 이어서 실행 (초안 있으면 검증부터)
+  tasks.filter(t => t.status === "doing" && t.stage !== "final")
+    .forEach((t, i) => setTimeout(() => dispatchWork(t), 2000 + i * 1500));
 }
 
 /* ----- 자동 작업 (API 키 연결 시): 전 단계 자동 실행 ----- */
@@ -2840,13 +2845,16 @@ ${title} — ${goal}에 다가가기 위한 작업
 async function templateWork(task) {
   if (task.autoWorking) return;
   task.autoWorking = true;
-  task.stage = "draft";
-  renderBoard();
-  speak(task.assignee, "초안 작업 시작합니다! 🔨", 2500);
-  await sleep(2500 + Math.random() * 2000);
-  if (task.status !== "doing") { task.autoWorking = false; return; } // 사용자가 삭제한 경우
 
-  task.draft = templateDraft(task);
+  // 초안이 없으면 초안부터 (있으면 검증 단계부터 이어서 — 새로고침 복구 지원)
+  if (!task.draft) {
+    task.stage = "draft";
+    renderBoard();
+    speak(task.assignee, "초안 작업 시작합니다! 🔨", 2500);
+    await sleep(2500 + Math.random() * 2000);
+    if (task.status !== "doing") { task.autoWorking = false; return; } // 사용자가 삭제한 경우
+    task.draft = templateDraft(task);
+  }
   task.stage = "verify";
   store.set("tasks", tasks);
   logActivity(`${staffEmoji(task.assignee)} ${staffName(task.assignee)}: 「${task.title}」 초안 완성 → 1차 교차검증`);
@@ -3124,16 +3132,9 @@ function renderBoard() {
           promoteQueue(t.assignee);
         });
         addBtn("↩ 보완 요청", "btn-small", () => {
-          const note = prompt("어떤 점을 보완할까요? (직원에게 전달됩니다)");
-          if (note === null) return;
-          t.note = note.trim(); t.status = "doing"; t.stage = "draft";
-          store.set("tasks", tasks);
-          logActivity(`↩ 「${t.title}」 보완 요청 → ${staffName(t.assignee)} 재작업`);
-          if (t.note) postChat("boss", `「${t.title}」 보완 부탁해요: ${t.note}`);
-          postChat(t.assignee, "피드백 확인! 보완해서 다시 올릴게요 💪");
-          speak(t.assignee, "피드백 확인! 보완해서 다시 올릴게요 💪");
-          renderBoard(); updateOfficeStatuses();
-          dispatchWork(t);
+          const form = card.querySelector(".task-form");
+          form.classList.toggle("hidden");
+          form.querySelector("textarea").focus();
         });
       }
 
@@ -3217,6 +3218,32 @@ function renderBoard() {
           if (!v) { ta.focus(); return; }
           if (t.stage === "verify") submitVerified(t, v);
           else submitDraft(t, v);
+        });
+        form.append(ta, save);
+        card.appendChild(form);
+      }
+
+      if (status === "review") {
+        // 보완 요청 입력 폼 (철칙: window.prompt() 금지 — 카드 안 폼 사용)
+        const form = document.createElement("div");
+        form.className = "task-form hidden";
+        const ta = document.createElement("textarea");
+        ta.rows = 3;
+        ta.placeholder = "어떤 점을 보완할까요? 예: 말투를 더 친근하게, 해시태그 추가 (직원에게 전달됩니다)";
+        const save = document.createElement("button");
+        save.className = "btn-small";
+        save.textContent = "↩ 보완 요청 보내기";
+        save.addEventListener("click", () => {
+          t.note = ta.value.trim();
+          t.status = "doing"; t.stage = "draft";
+          t.draft = ""; t.result = ""; t.critique = ""; // 이전 결과를 비워야 처음부터 다시 만든다
+          store.set("tasks", tasks);
+          logActivity(`↩ 「${t.title}」 보완 요청 → ${staffName(t.assignee)} 재작업`);
+          if (t.note) postChat("boss", `「${t.title}」 보완 부탁해요: ${t.note}`);
+          postChat(t.assignee, "피드백 확인! 보완해서 다시 올릴게요 💪");
+          speak(t.assignee, "피드백 확인! 보완해서 다시 올릴게요 💪");
+          renderBoard(); updateOfficeStatuses();
+          dispatchWork(t);
         });
         form.append(ta, save);
         card.appendChild(form);
