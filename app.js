@@ -468,7 +468,7 @@ function toast(msg, ms = 3200) {
 }
 
 function escapeHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 /* 간단한 마크다운 렌더러 (멘토 답변용) */
@@ -3295,6 +3295,24 @@ function seekAndCapture(video, t) {
   });
 }
 
+/* 일부 영상(화면 녹화, 앱 녹화 webm 등)은 길이가 Infinity로 나옴 —
+   끝쪽으로 시크하면 브라우저가 실제 길이를 계산해줌 */
+function resolveVideoDuration(v) {
+  return new Promise((resolve) => {
+    if (isFinite(v.duration) && v.duration > 0) { resolve(v.duration); return; }
+    let done = false;
+    const finish = () => {
+      if (done) return; done = true;
+      v.removeEventListener("durationchange", onChange);
+      resolve(isFinite(v.duration) && v.duration > 0 ? v.duration : 0);
+    };
+    const onChange = () => { if (isFinite(v.duration) && v.duration > 0) finish(); };
+    v.addEventListener("durationchange", onChange);
+    setTimeout(finish, 3000);
+    try { v.currentTime = 1e7; } catch { finish(); }
+  });
+}
+
 function loadVideoMeta(url) {
   return new Promise((resolve) => {
     const v = document.createElement("video");
@@ -3302,10 +3320,10 @@ function loadVideoMeta(url) {
     let settled = false;
     const bail = () => { if (!settled) { settled = true; resolve({ duration: 0, w: 0, h: 0, thumbs: [] }); } };
     v.addEventListener("error", bail);
-    setTimeout(bail, 12000);
+    setTimeout(bail, 15000);
     v.addEventListener("loadeddata", async () => {
       if (settled) return; settled = true;
-      const dur = isFinite(v.duration) ? v.duration : 0;
+      const dur = await resolveVideoDuration(v);
       const w = v.videoWidth, h = v.videoHeight;
       const points = dur > 0.5
         ? [dur * 0.1, dur * 0.5, dur * 0.85].map(t => Math.min(Math.max(t, 0.05), dur - 0.05))
@@ -3536,7 +3554,7 @@ function sliceSection(md, titleRe) {
    ① '자막 타임라인' 섹션의 mm:ss-mm:ss | 자막 줄  ②없으면 컷 편집표에서 폴백  ③최후: 전체에서 추출 */
 function reelsToSrt(md) {
   let cues = parseCueLines(sliceSection(md, /자막\s*타임라인/));
-  if (!cues.length) cues = parseCueTable(md);
+  if (!cues.length) cues = parseCueTable(sliceSection(md, /컷\s*편집표/) || md);
   if (!cues.length) cues = parseCueLines(md);
   if (!cues.length) return "";
   const stamp = (sec) => {
@@ -3564,6 +3582,7 @@ function parseCueLines(md) {
 
 /* 폴백: 컷 편집표(| 시간 | ... | 화면 자막 |)에서 자막 추출 */
 function parseCueTable(md) {
+  if (!md) return [];
   const lines = md.split("\n").filter(l => l.includes("|"));
   if (lines.length < 2) return [];
   const header = lines[0].replace(/^\||\|$/g, "").split("|").map(c => c.trim());
@@ -3641,6 +3660,7 @@ function copyReelsPrompt() {
 
 function fillReelsExample() {
   const t = $("#reels-topic");
+  if (t.value.trim() && !confirm("지금 적은 내용을 예시로 바꿀까요?")) return;
   t.value = "좁은 주방 수납 꿀템 소개 영상. 3천 원짜리 걸이 하나로 조리도구가 깔끔하게 정리되고 공간이 두 배로 넓어진 걸 보여주고 싶어요. Before(지저분)→After(깔끔) 비교가 핵심이고, 마지막엔 '프로필 링크에서 구매' 유도로 마무리.";
   t.focus();
   toast("✨ 예시를 넣었어요. 내 상황에 맞게 고쳐 쓰면 돼요.");
