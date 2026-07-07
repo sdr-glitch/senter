@@ -266,6 +266,30 @@ body {
 .toggle input:checked + .toggle-slider { background: var(--accent); }
 .toggle input:checked + .toggle-slider::before { transform: translateX(18px); }
 
+/* ===== AI 직원 ===== */
+.staff-tip {
+  font-size: .85rem; background: var(--accent-soft); color: var(--accent-strong);
+  padding: 12px 14px; border-radius: 10px; line-height: 1.8;
+}
+.staff-list { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.staff-card { display: flex; flex-direction: column; gap: 12px; }
+.staff-head { display: flex; align-items: center; gap: 12px; }
+.staff-emoji { font-size: 2rem; }
+.staff-name { font-weight: 700; font-size: 1.02rem; }
+.staff-role { font-size: .8rem; color: var(--text-soft); }
+.staff-tasks { font-size: .82rem; color: var(--text-soft); display: flex; flex-direction: column; gap: 5px; }
+.staff-tasks b { color: var(--text); font-size: .8rem; }
+.staff-task { background: var(--surface-2); padding: 5px 10px; border-radius: 8px; }
+.staff-preview summary { font-size: .82rem; color: var(--text-soft); cursor: pointer; user-select: none; }
+.staff-preview summary:hover { color: var(--accent-strong); }
+.staff-preview pre {
+  margin-top: 8px; padding: 12px; background: var(--surface-2); border-radius: 10px;
+  font-size: .78rem; white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto;
+  font-family: inherit; user-select: text;
+}
+.staff-card .btn-primary { margin-top: auto; }
+@media (max-width: 640px) { .staff-list { grid-template-columns: 1fr; } }
+
 /* ===== 기타 ===== */
 .saved-note { font-size: .85rem; color: var(--accent-strong); margin-left: 10px; }
 .toast {
