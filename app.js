@@ -4039,13 +4039,17 @@ function renderTrendMarks() {
   }));
 }
 
+let trendNewsBusy = false;
 async function fetchTrendNews(force) {
   const el = $("#trend-news");
-  if (!el) return;
+  if (!el || trendNewsBusy) return;
   if (!force && trendNews && trendNews.items && trendNews.items.length && Date.now() - trendNews.at < 3600000) {
     renderTrendNews();
     return;
   }
+  trendNewsBusy = true;
+  const rbtn = $("#trend-news-refresh");
+  if (rbtn) rbtn.disabled = true;
   el.innerHTML = `<div class="trend-empty">실시간 소식을 불러오는 중...</div>`;
   try {
     const res = await fetch("https://hn.algolia.com/api/v1/search?tags=story&query=AI&hitsPerPage=12");
@@ -4068,6 +4072,9 @@ async function fetchTrendNews(force) {
     } else {
       el.innerHTML = `<div class="trend-empty">지금은 실시간 소식을 불러올 수 없어요. 인터넷을 확인하고 <b>🔄 새로고침</b>을 눌러주세요.</div>`;
     }
+  } finally {
+    trendNewsBusy = false;
+    if (rbtn) rbtn.disabled = false;
   }
 }
 
