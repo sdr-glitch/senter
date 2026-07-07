@@ -3801,6 +3801,304 @@ function importBackup(file) {
 }
 
 /* ---------- 탭 전환 ---------- */
+/* ========== 트렌드 관제판 ==========
+   AI 큐레이션(3단계 안전망) + 실시간 뉴스 레이더(HN) + 직접 담기.
+   AI·인터넷이 없어도 계절 기반 기본 소재로 항상 동작. */
+let trendFeed = store.get("trendFeed", null);   // {at, platform, source, items:[{topic,why,format,hook,tags:[]}]}
+let trendMarks = store.get("trendMarks", []);   // [{id, text, at, extra}]
+let trendNews = store.get("trendNews", null);   // {at, items:[{title,url,points,at}]}
+let trendPlatform = (trendFeed && trendFeed.platform) || "전체";
+let trendBusy = false;
+
+const TREND_PLATFORM_HINT = {
+  "전체": "릴스·쇼츠·카드뉴스 등 형식을 골고루",
+  "인스타 릴스": "9:16 세로 릴스, 15~30초, 저장·공유 유도 중심",
+  "유튜브 쇼츠": "세로 쇼츠, 검색에 걸리는 제목, 정보형",
+  "틱톡": "빠른 편집, 유행 사운드·챌린지, 반전",
+  "블로그·검색": "네이버 검색 상위 노출용 글 제목·키워드",
+  "사진·카드뉴스": "정보를 넘겨보는 카드뉴스, 저장각 사진"
+};
+
+/* 계절 기반 기본 소재 씨앗 (AI 없이도 실제 소재 제공) — 리빙 분야 기준, 다른 분야도 무난히 통용 */
+const TREND_EVERGREEN = [
+  { t: "Before → After 공간 변신 한 컷", w: "전/후 대비는 스크롤을 멈추게 하는 대표 후킹이에요.", h: "3일 전 우리 집, 이렇게 바뀌었어요" },
+  { t: "3천 원 이하 살림템 TOP 3", w: "가성비·저장각 정보는 저장수와 공유가 잘 나와요.", h: "이거 다이소에 있는 거 실화?" },
+  { t: "이거 왜 이제 알았지, 청소 꿀팁", w: "실생활 꿀팁은 '나도 해봐야지' 반응으로 저장을 부릅니다.", h: "10년 묵은 때가 1분 만에" },
+  { t: "좁은 집 공간 2배 수납법", w: "1인·신혼 가구가 늘며 소형 공간 콘텐츠 수요가 꾸준해요.", h: "여기에 이게 다 들어간다고?" },
+  { t: "흔한 인테리어 실수 3가지", w: "'내 얘긴가?' 하는 공감형은 댓글이 잘 달려요.", h: "이거 하면 집이 좁아 보여요" },
+  { t: "우리 집 하루 루틴 (감성 브이로그)", w: "잔잔한 일상 루틴은 팬층·재방문을 만들어요.", h: "아무 일도 없는 우리 집의 하루" }
+];
+const TREND_SEASON = {
+  "봄": [
+    { t: "봄맞이 대청소 체크리스트", w: "환절기·이사철이라 청소·정리 검색이 몰려요.", h: "봄엔 이 순서로 치우세요" },
+    { t: "파스텔 홈스타일링 / 플랜테리어", w: "봄 감성 컬러·식물 콘텐츠 반응이 좋은 시기예요.", h: "화분 하나로 집이 확 바뀜" },
+    { t: "봄 이불·커튼 교체 스타일링", w: "계절 침구 교체는 매년 반복되는 실수요 콘텐츠예요.", h: "겨울 이불 이렇게 넣으세요" }
+  ],
+  "여름": [
+    { t: "장마철 습기·곰팡이 잡는 법", w: "장마 시즌 검색량이 급등하는 실수요 주제예요.", h: "이거 안 하면 곰팡이 핍니다" },
+    { t: "집 시원해 보이게 만드는 컬러·소재", w: "무더위엔 '시원해 보이는' 연출 콘텐츠가 통해요.", h: "에어컨 없이 시원해 보이는 집" },
+    { t: "여름 홈카페 / 시원한 음료 세팅", w: "제철 홈카페는 사진·릴스 둘 다 잘 나와요.", h: "카페 안 가고 집에서 이 비주얼" }
+  ],
+  "가을": [
+    { t: "포근한 조명·무드등 홈무드", w: "일조량이 줄며 조명·무드 콘텐츠 반응이 올라와요.", h: "불만 바꿨을 뿐인데 카페 됨" },
+    { t: "환절기 정리수납 리셋", w: "옷·이불 교체철이라 수납 검색이 늘어요.", h: "옷장, 10분이면 리셋 끝" },
+    { t: "가을 감성 홈카페·패브릭", w: "따뜻한 톤 스타일링이 저장각으로 잘 나와요.", h: "가을은 이 컬러가 국룰" }
+  ],
+  "겨울": [
+    { t: "난방비 아끼는 살림템", w: "난방비 걱정 시즌이라 절약 정보 수요가 커요.", h: "이거 하나로 난방비 반값" },
+    { t: "연말 홈파티·데코 세팅", w: "연말엔 파티·선물·데코 콘텐츠가 몰려요.", h: "돈 안 들이고 홈파티 감성" },
+    { t: "결로·환기 겨울 살림", w: "겨울 창문 결로는 매년 반복되는 실수요 주제예요.", h: "창문에 물 맺힘, 이렇게 해결" }
+  ]
+};
+
+function trendSeason() {
+  const m = new Date().getMonth() + 1;
+  if (m === 12 || m <= 2) return "겨울";
+  if (m <= 5) return "봄";
+  if (m <= 8) return "여름";
+  return "가을";
+}
+
+function trendFormatFor(platform) {
+  switch (platform) {
+    case "인스타 릴스": return "릴스 (세로 15~30초)";
+    case "유튜브 쇼츠": return "유튜브 쇼츠 (세로 30~45초)";
+    case "틱톡": return "틱톡 (빠른 편집·유행 사운드)";
+    case "블로그·검색": return "네이버 블로그 글";
+    case "사진·카드뉴스": return "카드뉴스 (5~7장)";
+    default: return "릴스 또는 카드뉴스";
+  }
+}
+
+function trendTags(extra) {
+  const niche = topicWord();
+  const base = ["#" + niche.replace(/\s/g, ""), "#" + niche.replace(/\s/g, "") + "스타그램", "#살림스타그램", "#홈스타일링"];
+  return Array.from(new Set([...base, ...(extra || [])])).slice(0, 6);
+}
+
+/* 하루 단위로 살짝 회전시켜 매일 다른 조합이 뜨게 */
+function trendRotate(arr, n) {
+  if (!arr.length) return arr;
+  n = ((n % arr.length) + arr.length) % arr.length;
+  return arr.slice(n).concat(arr.slice(0, n));
+}
+
+/* AI 없이도 계절에 맞춘 실제 소재 6개 */
+function templateTrends(platform) {
+  const fmt = trendFormatFor(platform);
+  const pool = trendRotate([...(TREND_SEASON[trendSeason()] || []), ...TREND_EVERGREEN], new Date().getDate()).slice(0, 6);
+  return pool.map(s => ({ topic: s.t, why: s.w, format: fmt, hook: s.h, tags: trendTags([]) }));
+}
+
+/* AI 큐레이션 (aiChat 3단계 안전망 경유) */
+async function aiTrends(platform) {
+  const niche = (settings && settings.topic) || "리빙";
+  const season = trendSeason();
+  const hint = TREND_PLATFORM_HINT[platform] || "";
+  const system = `너는 SNS 트렌드 분석가야. "${niche}" 분야 크리에이터가 지금(${season}철)에 만들면 반응이 좋을 콘텐츠 소재를 골라줘.
+플랫폼 초점: ${platform} — ${hint}
+규칙: 실제로 요즘 통하는 각도·포맷 위주. 초보도 오늘 바로 만들 수 있는 것. 과장하거나 없는 트렌드를 지어내지 마.
+다른 말 없이 JSON 배열만 출력(정확히 6개): [{"topic":"소재 한 줄","why":"왜 지금 반응이 오는지 한 줄","format":"추천 형식","hook":"첫 화면 후킹 문구 예시","tags":["#해시태그"]}]`;
+  const raw = await aiChat(system, [{ role: "user", content: `"${niche}" 계정에서 ${platform}로 올릴, 지금 뜨는 소재 6개 뽑아줘.` }]);
+  const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+  if (!Array.isArray(parsed) || !parsed.length) throw new Error("빈 응답");
+  return parsed.slice(0, 6).map(p => ({
+    topic: String(p.topic || "").slice(0, 120),
+    why: String(p.why || "").slice(0, 160),
+    format: String(p.format || trendFormatFor(platform)).slice(0, 60),
+    hook: String(p.hook || "").slice(0, 160),
+    tags: Array.isArray(p.tags) ? p.tags.map(t => String(t)).slice(0, 8) : []
+  })).filter(x => x.topic);
+}
+
+async function refreshTrends() {
+  if (trendBusy) return;
+  trendBusy = true;
+  const btn = $("#trend-refresh");
+  const note = $("#trend-note");
+  const platform = trendPlatform;
+  if (btn) { btn.disabled = true; btn.textContent = "트렌드 받는 중..."; }
+  if (note) note.textContent = "";
+  let items, source;
+  try {
+    items = await aiTrends(platform);
+    source = "ai";
+  } catch (e) {
+    items = templateTrends(platform);
+    source = "offline";
+  }
+  trendFeed = { at: Date.now(), platform, source, items };
+  store.set("trendFeed", trendFeed);
+  renderTrendFeed();
+  if (note) note.textContent = source === "ai"
+    ? "✨ AI가 지금 흐름에 맞춰 골라준 소재예요."
+    : "📦 계절에 맞춘 기본 소재예요. 설정에서 AI를 연결하면 더 뾰족하게 골라줘요.";
+  if (btn) { btn.disabled = false; btn.textContent = "🔄 지금 뜨는 트렌드 받기"; }
+  trendBusy = false;
+}
+
+function trendMake(it) {
+  if (!it) return;
+  const directive = `"${it.topic}" 소재로 ${it.format || "콘텐츠"} 만들어줘.${it.hook ? ` 후킹: ${it.hook}` : ""}`;
+  const assignee = routeDirective(directive);
+  const t = createTask(directive, assignee);
+  renderBoard(); updateOfficeStatuses();
+  dispatchWork(t);
+  toast(`🎯 "${it.topic.slice(0, 16)}…" 업무를 ${staffName(assignee)}에게 배정했어요! 사무실에서 진행돼요.`);
+  switchTab("office");
+}
+
+function addTrendMark(text, extra) {
+  trendMarks.unshift({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 5), text, at: Date.now(), extra: extra || null });
+  trendMarks = trendMarks.slice(0, 40);
+  store.set("trendMarks", trendMarks);
+  renderTrendMarks();
+}
+
+function trendSaveItem(it) {
+  if (!it) return;
+  addTrendMark(it.topic + (it.format ? ` · ${it.format}` : ""), it);
+  toast("🔖 담았어요! '내가 담은 트렌드'에서 볼 수 있어요.");
+}
+
+function trendCopyItem(it) {
+  if (!it) return;
+  const txt = `[소재] ${it.topic}\n[형식] ${it.format || ""}\n${it.why ? `[왜 뜨나] ${it.why}\n` : ""}${it.hook ? `[후킹] ${it.hook}\n` : ""}${(it.tags || []).join(" ")}`;
+  copyToClipboard(txt.trim(), "📋 트렌드 소재를 복사했어요!");
+}
+
+function trendAgo(ts) {
+  if (!ts) return "";
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return "방금";
+  if (s < 3600) return Math.floor(s / 60) + "분 전";
+  if (s < 86400) return Math.floor(s / 3600) + "시간 전";
+  return Math.floor(s / 86400) + "일 전";
+}
+
+function renderTrendFeed() {
+  const el = $("#trend-feed");
+  if (!el) return;
+  const meta = $("#trend-feed-meta");
+  if (!trendFeed || !trendFeed.items || !trendFeed.items.length) {
+    el.innerHTML = `<div class="trend-empty">위 <b>[🔄 지금 뜨는 트렌드 받기]</b>를 눌러 오늘의 콘텐츠 소재를 받아보세요.</div>`;
+    if (meta) meta.textContent = "";
+    return;
+  }
+  if (meta) meta.textContent = `${trendFeed.platform} · ${trendAgo(trendFeed.at)}`;
+  el.innerHTML = trendFeed.items.map((it, i) => {
+    const tags = (it.tags || []).map(t => `<span class="trend-tag">${escapeHtml(t)}</span>`).join("");
+    return `<div class="trend-card">
+      <div class="trend-card-top"><span class="trend-fmt">${escapeHtml(it.format || "")}</span></div>
+      <div class="trend-topic">${escapeHtml(it.topic)}</div>
+      ${it.why ? `<div class="trend-why">💡 ${escapeHtml(it.why)}</div>` : ""}
+      ${it.hook ? `<div class="trend-hook">🎬 후킹 예시: "${escapeHtml(it.hook)}"</div>` : ""}
+      ${tags ? `<div class="trend-tags">${tags}</div>` : ""}
+      <div class="trend-card-actions">
+        <button class="btn-small trend-make-btn" data-trend-make="${i}">🎯 콘텐츠 만들기</button>
+        <button class="btn-small" data-trend-save="${i}">🔖 담기</button>
+        <button class="btn-small" data-trend-copy="${i}">📋 복사</button>
+      </div>
+    </div>`;
+  }).join("");
+  el.querySelectorAll("[data-trend-make]").forEach(b => b.addEventListener("click", () => trendMake(trendFeed.items[+b.dataset.trendMake])));
+  el.querySelectorAll("[data-trend-save]").forEach(b => b.addEventListener("click", () => trendSaveItem(trendFeed.items[+b.dataset.trendSave])));
+  el.querySelectorAll("[data-trend-copy]").forEach(b => b.addEventListener("click", () => trendCopyItem(trendFeed.items[+b.dataset.trendCopy])));
+}
+
+function renderTrendMarks() {
+  const el = $("#trend-marks");
+  if (!el) return;
+  const c = $("#trend-marks-count");
+  if (c) c.textContent = trendMarks.length ? `${trendMarks.length}개` : "";
+  if (!trendMarks.length) {
+    el.innerHTML = `<div class="trend-empty">아직 담은 트렌드가 없어요. 위 소재 카드의 <b>🔖 담기</b>나, 여기 입력칸에 직접 적어보세요.</div>`;
+    return;
+  }
+  el.innerHTML = trendMarks.map(m => `<div class="trend-mark">
+      <div class="trend-mark-text">${escapeHtml(m.text)}</div>
+      <div class="trend-mark-actions">
+        <button class="btn-small trend-make-btn" data-mark-make="${m.id}">🎯 콘텐츠 만들기</button>
+        <button class="btn-small btn-danger-ghost" data-mark-del="${m.id}">삭제</button>
+      </div>
+    </div>`).join("");
+  el.querySelectorAll("[data-mark-make]").forEach(b => b.addEventListener("click", () => {
+    const m = trendMarks.find(x => x.id === b.dataset.markMake);
+    if (!m) return;
+    if (m.extra) { trendMake(m.extra); return; }
+    const t = createTask(`"${m.text}" 트렌드로 콘텐츠 만들어줘`, routeDirective(m.text));
+    renderBoard(); updateOfficeStatuses();
+    dispatchWork(t);
+    toast("🎯 업무 배정 완료! 사무실에서 진행돼요.");
+    switchTab("office");
+  }));
+  el.querySelectorAll("[data-mark-del]").forEach(b => b.addEventListener("click", () => {
+    trendMarks = trendMarks.filter(x => x.id !== b.dataset.markDel);
+    store.set("trendMarks", trendMarks);
+    renderTrendMarks();
+  }));
+}
+
+async function fetchTrendNews(force) {
+  const el = $("#trend-news");
+  if (!el) return;
+  if (!force && trendNews && trendNews.items && trendNews.items.length && Date.now() - trendNews.at < 3600000) {
+    renderTrendNews();
+    return;
+  }
+  el.innerHTML = `<div class="trend-empty">실시간 소식을 불러오는 중...</div>`;
+  try {
+    const res = await fetch("https://hn.algolia.com/api/v1/search?tags=story&query=AI&hitsPerPage=12");
+    if (!res.ok) throw new Error("net");
+    const data = await res.json();
+    const items = (data.hits || []).filter(h => h.title).map(h => ({
+      title: h.title,
+      url: h.url || `https://news.ycombinator.com/item?id=${h.objectID}`,
+      points: h.points || 0,
+      at: (h.created_at_i || 0) * 1000
+    })).slice(0, 10);
+    if (!items.length) throw new Error("empty");
+    trendNews = { at: Date.now(), items };
+    store.set("trendNews", trendNews);
+    renderTrendNews();
+  } catch (e) {
+    if (trendNews && trendNews.items && trendNews.items.length) {
+      renderTrendNews();
+      if (force) toast("실시간 소식 새로고침에 실패해 이전 목록을 보여줘요.");
+    } else {
+      el.innerHTML = `<div class="trend-empty">지금은 실시간 소식을 불러올 수 없어요. 인터넷을 확인하고 <b>🔄 새로고침</b>을 눌러주세요.</div>`;
+    }
+  }
+}
+
+function renderTrendNews() {
+  const el = $("#trend-news");
+  if (!el) return;
+  if (!trendNews || !trendNews.items || !trendNews.items.length) {
+    el.innerHTML = `<div class="trend-empty">🔄 새로고침을 눌러 실시간 소식을 받아보세요.</div>`;
+    return;
+  }
+  el.innerHTML = trendNews.items.map(n => `<a class="trend-news-item" href="${escapeHtml(n.url)}" target="_blank" rel="noopener">
+      <span class="trend-news-title">${escapeHtml(n.title)}</span>
+      <span class="trend-news-meta">▲${n.points} · ${trendAgo(n.at)}</span>
+    </a>`).join("") + `<div class="trend-news-src">출처: Hacker News (실시간) · 새 창에서 열려요</div>`;
+}
+
+let trendInited = false;
+function renderTrend() {
+  if (!trendInited) {
+    trendInited = true;
+    $$("#trend-platform .chip").forEach(chip => chip.addEventListener("click", () => {
+      trendPlatform = chip.dataset.value;
+      $$("#trend-platform .chip").forEach(c => c.classList.toggle("selected", c === chip));
+    }));
+  }
+  $$("#trend-platform .chip").forEach(c => c.classList.toggle("selected", c.dataset.value === trendPlatform));
+  renderTrendFeed();
+  renderTrendMarks();
+  fetchTrendNews(false);
+}
+
 function switchTab(name) {
   $$(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
   $$(".tab-panel").forEach(p => p.classList.add("hidden"));
@@ -3810,6 +4108,7 @@ function switchTab(name) {
   if (name === "staff") renderStaff();
   if (name === "tools") renderTools();
   if (name === "reels") renderReels();
+  if (name === "trend") renderTrend();
   if (name === "studio") renderStudio();
   if (name === "chat") renderChat();
   if (name === "library") renderLibrary();
@@ -3874,6 +4173,21 @@ function bindEvents() {
       ? "🤖 자율 근무 켜짐! 직원들이 알아서 다음 일을 찾아 초안을 올릴 거예요."
       : "💤 자율 근무 꺼짐. 이제 직접 지시한 일만 합니다.");
     if (settings.autoPilot) autoPilotTick(true);
+  });
+
+  // 트렌드 관제판
+  $("#trend-refresh").addEventListener("click", refreshTrends);
+  $("#trend-news-refresh").addEventListener("click", () => fetchTrendNews(true));
+  $("#trend-add-go").addEventListener("click", () => {
+    const inp = $("#trend-add-input");
+    const v = inp.value.trim();
+    if (!v) { inp.focus(); return; }
+    addTrendMark(v, null);
+    inp.value = "";
+    toast("🔖 담았어요!");
+  });
+  $("#trend-add-input").addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); $("#trend-add-go").click(); }
   });
 
   // 무료 AI 연결 테스트
@@ -4786,4 +5100,4 @@ function init() {
 init();
 
 // 자동 테스트용 훅 (앱 동작에는 영향 없음)
-window.__senter = { chatterTick, holdScrum, rebuildStaff, taskBrief, verifyBrief, focusComplete, recordUsage, renderTokenBar, estTokens, ensureUsage, autoPilotTick, templateDraft };
+window.__senter = { chatterTick, holdScrum, rebuildStaff, taskBrief, verifyBrief, focusComplete, recordUsage, renderTokenBar, estTokens, ensureUsage, autoPilotTick, templateDraft, refreshTrends, templateTrends, trendMake, addTrendMark, fetchTrendNews };

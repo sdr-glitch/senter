@@ -30,6 +30,7 @@ studio.html─ 크리에이터 스튜디오(허브/패턴/이모티콘/템플릿
 | `senter:todos` `events` `notes` `focusLog` | 생산성 | - |
 | `senter:roadmapDone` `missions` `stageOpen` `currentPersona` `personaBarExpanded` | UI 상태 | - |
 | `senter:autoState` | 자율 근무 상태 (done/studied/preparedEvents/lastReportAt) | - |
+| `senter:trendFeed` `trendMarks` `trendNews` | 트렌드 관제판: AI 큐레이션 피드 / 담은 트렌드 / 실시간 뉴스 캐시(1h) | 마크 40 |
 | `studio_hq_v1` `emoticon_studio_v1` `pattern_studio_v1` `studio_shell_last` | 스튜디오(iframe) 자체 키 | - |
 
 백업: 설정 탭 내보내기/불러오기 (senter:* 전체, API 키 제외. 스튜디오 키는 스튜디오 자체 내보내기 사용).
@@ -76,6 +77,7 @@ node --check app.js                    # 문법
 3. **스튜디오 자산 ↔ 업무 연결** — 이모티콘 기획 승인 시 스튜디오에 프로젝트 자동 생성
 
 ### 완료됨 (기록)
+- ~~트렌드 관제판~~ → 📈 트렌드 탭. `xazingatrend/trend-viewer`(Python 로컬 대시보드)를 senter 철칙(정적·무의존·CORS 안전망)에 맞춰 재해석: ① AI 큐레이션(`aiTrends`, 3단계 안전망 경유, 실패 시 `templateTrends` 계절 기반 오프라인 소재) ② 실시간 뉴스 레이더(HN Algolia, CORS 허용, 1h 캐시, 네트워크 실패 시 이전 목록·안내로 폴백) ③ 직접 담기 북마크. 각 소재 카드 [🎯 콘텐츠 만들기] → `createTask`+`dispatchWork`로 기존 업무 파이프라인에 연결. 플랫폼별(릴스/쇼츠/틱톡/블로그/카드뉴스) 형식 자동 반영
 - ~~회의록 열람 UI~~ → 사무실 탭 [📜 회의록] 보관함 (최근 10개, 펼쳐보기)
 - ~~스튜디오 ↔ 센터 데이터 연결~~ → `readStudioSns()` → 보고서 "SNS 채널 현황" 표 + 스크럼 채널 멘트
 - ~~업무 보드 필터/검색~~ → 보드 상단 검색(제목·담당명), 완료 업무 40개 자동 정리(trimDoneTasks)

@@ -102,6 +102,7 @@
     <button class="tab" data-tab="home">🏠 홈</button>
     <button class="tab" data-tab="tools">✅ 생산성</button>
     <button class="tab" data-tab="reels">🎬 릴스/숏츠</button>
+    <button class="tab" data-tab="trend">📈 트렌드</button>
     <button class="tab" data-tab="studio">🎨 스튜디오</button>
     <button class="tab" data-tab="library">📚 자료실</button>
     <button class="tab" data-tab="settings">⚙️ 설정</button>
@@ -327,6 +328,61 @@
       </div>
       <p class="card-desc">만든 대본은 여기에 자동 저장돼요 (최근 20개). 예전 대본을 열어서 다시 쓰거나, 자막만 뽑아갈 수 있어요.</p>
       <div id="reels-lib" class="reels-lib"></div>
+    </section>
+  </main>
+
+  <!-- ===== 트렌드 관제판 탭 ===== -->
+  <main id="tab-trend" class="tab-panel hidden">
+    <section class="card">
+      <div class="card-head">
+        <h3>📈 트렌드 관제판</h3>
+        <span class="reels-free-badge">🆓 무료</span>
+      </div>
+      <p class="card-desc">지금 <b>내 분야 SNS에서 반응 오는 소재·포맷</b>을 한 화면에 모아봐요. AI가 요즘 뜨는 콘텐츠 각도를 골라주고, 실시간 뉴스 레이더로 세상 흐름도 잡아줘요. 마음에 드는 트렌드는 <b>바로 [🎯 콘텐츠 만들기]</b>로 직원에게 넘길 수 있어요. <b>인터넷·AI가 막혀도</b> 계절에 맞는 기본 소재가 항상 떠서 앱이 멈추지 않아요.</p>
+
+      <div class="trend-controls">
+        <div class="reels-opt-label">🎯 어디에 올릴 콘텐츠?</div>
+        <div class="chip-row" id="trend-platform">
+          <button class="chip selected" data-value="전체">전체</button>
+          <button class="chip" data-value="인스타 릴스">인스타 릴스</button>
+          <button class="chip" data-value="유튜브 쇼츠">유튜브 쇼츠</button>
+          <button class="chip" data-value="틱톡">틱톡</button>
+          <button class="chip" data-value="블로그·검색">블로그·검색</button>
+          <button class="chip" data-value="사진·카드뉴스">사진·카드뉴스</button>
+        </div>
+        <button class="btn-primary trend-refresh-btn" id="trend-refresh">🔄 지금 뜨는 트렌드 받기</button>
+        <p class="trend-note" id="trend-note"></p>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h3>🔥 지금 뜨는 콘텐츠 소재</h3>
+        <span id="trend-feed-meta" class="progress-label"></span>
+      </div>
+      <div id="trend-feed" class="trend-feed"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h3>🔴 실시간 트렌드 레이더 <span class="trend-live-dot" title="실시간"></span></h3>
+        <button class="btn-small" id="trend-news-refresh">🔄 새로고침</button>
+      </div>
+      <p class="card-desc">전 세계에서 지금 화제인 <b>AI·테크 소식</b>이에요 (실시간). 세상이 어디로 가는지 감을 잡고, 콘텐츠 소재로도 써보세요.</p>
+      <div id="trend-news" class="trend-news"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h3>🔖 내가 담은 트렌드</h3>
+        <span id="trend-marks-count" class="progress-label"></span>
+      </div>
+      <p class="card-desc">밖에서 본 릴스·게시물·검색어를 여기에 담아두세요. 나중에 [🎯 콘텐츠 만들기]로 바로 넘길 수 있어요. (최근 40개)</p>
+      <div class="idea-row trend-add-row">
+        <input type="text" id="trend-add-input" placeholder="예: '주방 상부장 없애기' 릴스가 요즘 자꾸 보임 (링크 붙여넣기도 OK)" maxlength="200">
+        <button class="btn-primary" id="trend-add-go">담기 →</button>
+      </div>
+      <div id="trend-marks" class="trend-marks"></div>
     </section>
   </main>
 
