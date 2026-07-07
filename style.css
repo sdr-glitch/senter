@@ -268,6 +268,7 @@ body {
 
 /* ===== 사무실 ===== */
 .office-clock { font-size: .78rem; color: var(--text-soft); font-weight: 400; margin-left: 6px; }
+.office-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .office {
   position: relative; height: 560px; border-radius: 12px; overflow: hidden;
   background: linear-gradient(175deg, #eef0ea 0%, #dfe3da 45%, #c9cec2 100%);
@@ -319,6 +320,8 @@ body {
   border: 2px solid #a07f52; box-shadow: 0 3px 6px rgba(0,0,0,.14);
 }
 .f-bigdesk { width: 86px; height: 34px; }
+.f-clickable { cursor: pointer; }
+.f-clickable:hover { filter: brightness(1.12); }
 .f-table {
   position: absolute; left: 76.5%; top: 25%; transform: translate(-50%, -50%); z-index: 1;
   width: 175px; height: 92px; border-radius: 50%;
@@ -475,6 +478,11 @@ body {
 .task-actions .btn-small { font-size: .72rem; padding: 5px 9px; }
 .btn-task-del { background: transparent; color: var(--text-soft); }
 .task-working { font-size: .74rem; color: var(--accent-strong); animation: blink 1.4s infinite; }
+.task-stage { display: flex; align-items: center; gap: 4px; }
+.stage-dot { width: 8px; height: 8px; border-radius: 50%; background: #d8d4c8; }
+.stage-dot.sd-done { background: var(--accent); }
+.stage-dot.sd-cur { background: var(--accent); animation: blink 1.2s infinite; }
+.stage-text { font-size: .7rem; color: var(--accent-strong); font-weight: 700; margin-left: 4px; }
 .task-form { display: flex; flex-direction: column; gap: 6px; }
 .task-form textarea { font-size: .8rem; }
 .task-result summary { font-size: .76rem; color: var(--text-soft); cursor: pointer; }

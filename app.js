@@ -891,6 +891,11 @@ let tasks = store.get("tasks", []);
 let activity = store.get("activity", []);
 let meetings = store.get("meetings", []);
 
+// 예전 데이터 마이그레이션: 검증 단계(stage)가 없는 진행 중 업무에 부여
+tasks.forEach(t => {
+  if (t.status === "doing" && !t.stage) t.stage = t.result ? "verify" : "draft";
+});
+
 /* 사무실 구조 (좌표는 % 단위) */
 const ROOMS = [
   { id: "ceo", name: "대표실", x: 1.5, y: 2, w: 26, h: 34 },
@@ -959,8 +964,10 @@ function buildOffice() {
     floor.appendChild(room);
   });
 
-  // 가구 — 대표실
-  addFurniture(floor, "f-desk f-bigdesk", DESK_POS.boss[0], DESK_POS.boss[1], `<span class="stand f-monitor">🖥️</span>`);
+  // 가구 — 대표실 (책상 클릭 = 직원 팝업)
+  const bossDesk = addFurniture(floor, "f-desk f-bigdesk", DESK_POS.boss[0], DESK_POS.boss[1], `<span class="stand f-monitor">🖥️</span>`);
+  bossDesk.classList.add("f-clickable");
+  bossDesk.addEventListener("click", () => openStaffModal("boss"));
   addFurniture(floor, "f-prop", 23, 8, `<span class="stand">📚</span>`);
   addFurniture(floor, "f-prop", 4, 30, `<span class="stand">🪴</span>`);
 
@@ -970,10 +977,14 @@ function buildOffice() {
   addFurniture(floor, "f-prop", 93, 7, `<span class="stand">📊</span>`);
   addFurniture(floor, "f-prop", 58, 7, `<span class="stand">🪴</span>`);
 
-  // 가구 — 사무공간 책상 (직원 수만큼 자동 생성)
+  // 가구 — 사무공간 책상 (직원 수만큼 자동 생성, 클릭 = 직원 팝업)
   OFFICE_AGENTS.forEach(a => {
     if (a.id === "boss") return;
-    addFurniture(floor, "f-desk", DESK_POS[a.id][0], DESK_POS[a.id][1], `<span class="stand f-monitor">🖥️</span>`);
+    const desk = addFurniture(floor, "f-desk", DESK_POS[a.id][0], DESK_POS[a.id][1], `<span class="stand f-monitor">🖥️</span>`);
+    desk.classList.add("f-clickable");
+    desk.dataset.staff = a.id;
+    desk.title = a.name;
+    desk.addEventListener("click", () => openStaffModal(a.id));
   });
   addFurniture(floor, "f-prop", 4, 44, `<span class="stand">🖨️</span>`);
   addFurniture(floor, "f-prop", 48, 94, `<span class="stand">🌿</span>`);
@@ -1155,17 +1166,19 @@ function agentReportLines(id) {
   return lines;
 }
 
-async function holdScrum() {
+async function holdScrum(quick = false) {
   if (officeState.meeting) return;
   officeState.meeting = true;
   const btn = $("#scrum-btn");
-  btn.disabled = true; btn.textContent = "회의 중...";
+  const briefBtn = $("#brief-btn");
+  btn.disabled = true; briefBtn.disabled = true;
+  (quick ? briefBtn : btn).textContent = "회의 중...";
 
   const logWrap = $("#meeting-log-wrap");
   const log = $("#meeting-log");
   logWrap.classList.remove("hidden");
   log.innerHTML = "";
-  $("#meeting-log-date").textContent = new Date().toLocaleString("ko-KR", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  $("#meeting-log-date").textContent = (quick ? "⚡ 빠른 브리핑 · " : "") + new Date().toLocaleString("ko-KR", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
   const minutes = [];
   const record = (id, text) => {
@@ -1176,40 +1189,66 @@ async function holdScrum() {
     log.appendChild(line);
     log.scrollTop = log.scrollHeight;
   };
-  const say = async (id, text, ms = 2600) => {
+  const talkMs = quick ? 1500 : 2600;
+  const say = async (id, text, ms = talkMs) => {
     speak(id, text, ms);
     record(id, text);
-    await sleep(ms + 300);
+    await sleep(ms + (quick ? 150 : 300));
   };
-
-  OFFICE_AGENTS.forEach((a, i) => moveAgent(a.id, SEATS[i % SEATS.length][0], SEATS[i % SEATS.length][1]));
-  await sleep(2100);
 
   const open = tasks.filter(t => t.status === "doing" || t.status === "todo").length;
   const review = tasks.filter(t => t.status === "review").length;
-  await say("pm", `스크럼 시작할게요! 📣 현재 열린 업무 ${open}건, 검토 대기 ${review}건입니다. 돌아가면서 공유해주세요.`);
+  const boss = (settings && settings.name) || "사장님";
 
-  for (const a of OFFICE_AGENTS) {
-    if (a.id === "pm" || a.id === "boss") continue;
-    for (const line of agentReportLines(a.id)) {
-      await say(a.id, line);
+  // 발표자: 빠른 브리핑은 업무 있는 직원만
+  const speakers = OFFICE_AGENTS.filter(a => {
+    if (a.id === "pm" || a.id === "boss") return false;
+    if (!quick) return true;
+    return tasks.some(t => t.assignee === a.id && (t.status !== "done" || Date.now() - (t.doneAt || 0) < 86400000));
+  });
+
+  if (quick) {
+    // 빠른 브리핑: 발표자만 매니저 자리 근처로 모임
+    moveAgent("pm", 40, 25);
+    speakers.forEach((a, i) => moveAgent(a.id, 33 + (i % 4) * 5, 31 + Math.floor(i / 4) * 7));
+    await sleep(2100);
+    await say("pm", `⚡ 빠른 브리핑! 진행 중인 것만 한 줄씩 공유해주세요.`);
+    if (!speakers.length) {
+      await say("pm", "지금은 진행 중인 업무가 없네요. 지시 기다리는 중입니다!");
+    } else {
+      for (const a of speakers) {
+        await say(a.id, agentReportLines(a.id)[0]);
+      }
     }
+    await say("pm", `끝! 검토 대기 ${review}건${review ? ` — ${boss}님 확인 부탁드려요` : ""}. 업무 복귀! 🔥`);
+  } else {
+    // 정식 스크럼: 전원 회의실 집합
+    OFFICE_AGENTS.forEach((a, i) => moveAgent(a.id, SEATS[i % SEATS.length][0], SEATS[i % SEATS.length][1]));
+    await sleep(2100);
+    await say("pm", `스크럼 시작할게요! 📣 현재 열린 업무 ${open}건, 검토 대기 ${review}건입니다. 돌아가면서 공유해주세요.`);
+    for (const a of speakers) {
+      for (const line of agentReportLines(a.id)) {
+        await say(a.id, line);
+      }
+    }
+    const done = tasks.filter(t => t.status === "done").length;
+    await say("pm", review
+      ? `공유 감사합니다. ${boss}님, 검토 대기 ${review}건 확인 부탁드려요! 오늘도 화이팅 🔥`
+      : `공유 감사합니다. 누적 완료 ${done}건! ${boss}님, 새 지시 있으면 언제든 내려주세요. 오늘도 화이팅 🔥`);
   }
 
-  const done = tasks.filter(t => t.status === "done").length;
-  const boss = (settings && settings.name) || "사장님";
-  await say("pm", review
-    ? `공유 감사합니다. ${boss}님, 검토 대기 ${review}건 확인 부탁드려요! 오늘도 화이팅 🔥`
-    : `공유 감사합니다. 누적 완료 ${done}건! ${boss}님, 새 지시 있으면 언제든 내려주세요. 오늘도 화이팅 🔥`);
-
-  meetings.unshift({ date: Date.now(), minutes });
+  meetings.unshift({ date: Date.now(), minutes, quick });
   meetings = meetings.slice(0, 10);
   store.set("meetings", meetings);
-  logActivity("📝 스크럼 미팅 완료 — 회의록 저장됨");
-  postChat("pm", `스크럼 미팅 끝! 열린 업무 ${open}건, 검토 대기 ${review}건입니다. 다들 수고하셨어요 📝`);
+  logActivity(quick ? "⚡ 빠른 브리핑 완료" : "📝 스크럼 미팅 완료 — 회의록 저장됨");
+  postChat("pm", quick
+    ? `⚡ 빠른 브리핑 끝! 검토 대기 ${review}건입니다.`
+    : `스크럼 미팅 끝! 열린 업무 ${open}건, 검토 대기 ${review}건입니다. 다들 수고하셨어요 📝`);
 
   officeState.meeting = false;
-  btn.disabled = false; btn.textContent = "📣 스크럼 미팅 소집";
+  btn.disabled = false; briefBtn.disabled = false;
+  btn.textContent = "📣 스크럼 미팅 소집";
+  briefBtn.textContent = "⚡ 빠른 브리핑";
   OFFICE_AGENTS.forEach(a => moveAgent(a.id, ...WORK_POS[a.id]));
 }
 
@@ -1446,7 +1485,8 @@ function createTask(title, assignee) {
     id: Date.now() + "-" + Math.random().toString(36).slice(2, 6),
     title, assignee,
     status: hasActive ? "todo" : "doing",
-    createdAt: Date.now(), result: "", note: ""
+    stage: "draft",
+    createdAt: Date.now(), result: "", draft: "", note: ""
   };
   tasks.unshift(task);
   store.set("tasks", tasks);
@@ -1515,42 +1555,191 @@ async function handleDirective() {
   }
 }
 
-/* ----- 자동 작업 (API 키 연결 시) ----- */
+/* ----- 3단계 품질 검증 파이프라인 -----
+   ① 담당자 초안(draft) → ② 전문가 2명 교차검증 후 수정·재검토(verify) → ③ 매니저 최종 검토(final) → 보고(review) */
+
+const STAGE_LABEL = {
+  draft: "1/3 초안 작성",
+  verify: "2/3 교차검증·보완",
+  final: "3/3 매니저 최종 검토"
+};
+
+function reviewersFor(assignee) {
+  const others = STAFF.filter(s => s.id !== assignee);
+  return [others[0], others[1] || others[0]];
+}
+
 function taskBrief(task) {
   const st = STAFF.find(s => s.id === task.assignee);
+  if (!st) return `업무: ${task.title}\n위 업무의 결과물(초안)을 만들어줘.`;
   return `${st.prompt()}
 
 ──────────────
 [오늘의 업무 지시]
 ${task.title}${task.note ? `\n(보완 요청: ${task.note})` : ""}
 
-인사나 질문 없이, 위 업무의 결과물을 바로 쓸 수 있는 완성된 형태로 만들어서 보여줘.`;
+인사나 질문 없이, 위 업무의 결과물 초안을 바로 쓸 수 있는 완성된 형태로 만들어서 보여줘.`;
 }
 
+function verifyBrief(task) {
+  const [r1, r2] = reviewersFor(task.assignee);
+  return `너는 SNS 마케팅 팀의 검증 패널이다. ${r1.name}(${r1.role})와 ${r2.name}(${r2.role}) 두 전문가의 관점을 모두 갖고 있다.
+
+${staffContext()}
+
+아래는 「${task.title}」 업무의 초안이다. 다음 3단계를 순서대로 수행하라:
+1단계 (1차 교차검증): 두 전문가 관점에서 각각 오류, 빠진 것, 보완할 점을 찾는다.
+2단계 (수정): 지적 사항을 모두 반영해 초안을 수정한다.
+3단계 (재검토): 수정본을 다시 점검해 문제가 남아있지 않은지 확인하고 최종본을 확정한다.
+
+출력 형식 (이 형식 그대로):
+[검증 의견]
+(발견한 문제와 보완점 요약 3~5줄)
+[최종 결과물]
+(바로 쓸 수 있는 완성본)
+
+━━━ 초안 ━━━
+${task.draft}`;
+}
+
+/* 교차검증 회의 연출: 담당자 + 검증자 2명이 회의 테이블에 모임 */
+async function huddleTheater(task, critiqueSummary) {
+  const [r1, r2] = reviewersFor(task.assignee);
+  const lines = [
+    ["pm", `「${task.title.slice(0, 14)}」 초안 나왔습니다. 1차 교차검증 시작할게요 🔍`],
+    [r1.id, critiqueSummary ? `검증 의견: ${critiqueSummary.slice(0, 40)}…` : "제 관점에서 보완점 몇 가지 찾았어요 🔍"],
+    [r2.id, "방향은 좋아요. 디테일만 보강하면 되겠는데요?"],
+    [task.assignee, "지적 감사합니다! 바로 반영해서 재검토 올릴게요 💪"]
+  ];
+  for (const [who, line] of lines) postChat(who, line);
+
+  if (officeState.meeting || chatterBusy) return; // 회의 중이면 채팅만
+  chatterBusy = true;
+  try {
+    const spots = [[70, 16], [83, 16], [70, 34], [83, 34]];
+    [task.assignee, r1.id, r2.id, "pm"].forEach((id, i) => moveAgent(id, ...spots[i]));
+    await sleep(2100);
+    for (const [who, line] of lines) {
+      speak(who, line, 2400);
+      await sleep(2600);
+    }
+    [task.assignee, r1.id, r2.id, "pm"].forEach(id => moveAgent(id, ...WORK_POS[id]));
+  } finally {
+    chatterBusy = false;
+  }
+}
+
+/* 단계 제출 처리 (수동 모드) */
+function submitDraft(t, text) {
+  t.draft = text;
+  t.stage = "verify";
+  store.set("tasks", tasks);
+  logActivity(`${staffEmoji(t.assignee)} ${staffName(t.assignee)}: 「${t.title}」 초안 완성 → 1차 교차검증`);
+  renderBoard(); updateOfficeStatuses();
+  huddleTheater(t);
+}
+
+function submitVerified(t, text) {
+  // [최종 결과물] 마커가 있으면 검증 의견과 분리 저장
+  const m = text.split(/\[최종 결과물\]/);
+  if (m.length > 1) {
+    t.critique = m[0].replace(/\[검증 의견\]/, "").trim();
+    t.result = m[1].trim();
+  } else {
+    t.result = text;
+  }
+  t.stage = "final";
+  store.set("tasks", tasks);
+  logActivity(`✔ 「${t.title}」 교차검증·보완·재검토 완료 → 매니저 최종 검토`);
+  postChat(t.assignee, `「${t.title}」 보완 완료, 재검토까지 마쳤습니다 ✅`);
+  renderBoard(); updateOfficeStatuses();
+  finalReview(t);
+}
+
+/* 매니저 3차 최종 검토 → 검토 대기(보고) */
+function finalReview(t) {
+  if (t.finalizing) return;
+  t.finalizing = true;
+  speak("pm", `「${t.title.slice(0, 14)}」 3차 최종 검토 들어갑니다 🧐`, 3000);
+  postChat("pm", `「${t.title}」 3차 최종 검토 중입니다 🧐`);
+  setTimeout(() => {
+    t.finalizing = false;
+    if (t.status !== "doing" || t.stage !== "final") return;
+    t.status = "review";
+    t.stage = "";
+    store.set("tasks", tasks);
+    logActivity(`🧑‍💼 매니저: 「${t.title}」 3차 검토 통과 → 사장님 보고`);
+    postChat("pm", `「${t.title}」 3차 검토 통과! 사장님께 보고 올립니다 📋`);
+    speak("pm", "3차 검토 통과! 보고 올립니다 📋");
+    renderBoard(); updateOfficeStatuses();
+  }, 4000);
+}
+
+// 새로고침 등으로 최종 검토가 멈춘 업무 재개
+function resumePendingFinals() {
+  tasks.filter(t => t.status === "doing" && t.stage === "final").forEach(finalReview);
+}
+
+/* ----- 자동 작업 (API 키 연결 시): 전 단계 자동 실행 ----- */
 async function autoWork(task) {
   if (task.autoWorking) return;
   task.autoWorking = true;
-  speak(task.assignee, "작업 시작합니다... 🔨", 2500);
+  const st = STAFF.find(s => s.id === task.assignee);
+  if (!st) { task.autoWorking = false; return; }
+  const cleanPrompt = (s) => s.prompt().replace(/\[시작 인사\][\s\S]*$/, "");
+  const fail = (e, where) => {
+    task.autoWorking = false;
+    renderBoard();
+    speak(task.assignee, "⚠️ 작업 중 문제가 생겼어요...");
+    toast(`⚠️ ${where} 단계 자동 실행 실패: ${friendlyApiError(e)} — 카드의 지시서 복사로 수동 진행할 수 있어요.`, 6000);
+  };
+
   try {
-    const st = STAFF.find(s => s.id === task.assignee);
-    const result = await callClaudeSystem(
-      st.prompt().replace(/\[시작 인사\][\s\S]*$/, ""),
-      [{ role: "user", content: `인사나 질문 없이, 이 업무의 결과물을 바로 쓸 수 있는 완성된 형태로 만들어줘:\n${task.title}${task.note ? `\n(보완 요청: ${task.note})` : ""}` }],
-      () => {}
-    );
-    task.result = result;
+    // ① 초안
+    task.stage = "draft"; renderBoard();
+    speak(task.assignee, "초안 작업 시작합니다... 🔨", 2500);
+    task.draft = await callClaudeSystem(cleanPrompt(st),
+      [{ role: "user", content: `인사나 질문 없이, 이 업무의 결과물 초안을 바로 쓸 수 있는 완성된 형태로 만들어줘:\n${task.title}${task.note ? `\n(보완 요청: ${task.note})` : ""}` }], () => {});
+    task.stage = "verify";
+    store.set("tasks", tasks);
+    logActivity(`${staffEmoji(task.assignee)} ${staffName(task.assignee)}: 「${task.title}」 초안 완성 → 1차 교차검증`);
+    renderBoard();
+
+    // ② 1차 교차검증
+    const [r1, r2] = reviewersFor(task.assignee);
+    const critique = await callClaudeSystem(
+      `너는 ${r1.name}(${r1.role})와 ${r2.name}(${r2.role}) 두 전문가로 구성된 검증 패널이다. 결과물의 오류, 빠진 것, 보완점을 찾아라. 최대 5개, 각 한 줄, 심각한 문제 우선. 문제가 없으면 "이상 없음"이라고만 답하라.\n\n${staffContext()}`,
+      [{ role: "user", content: `업무: ${task.title}\n\n━━━ 초안 ━━━\n${task.draft}` }], () => {});
+    task.critique = critique;
+    huddleTheater(task, critique.split("\n")[0]); // 연출은 기다리지 않음
+
+    // 수정 + 재검토
+    const revised = await callClaudeSystem(cleanPrompt(st),
+      [{ role: "user", content: `아래 초안에 대한 검증 의견이 도착했어. 의견을 모두 반영해 수정하고, 스스로 재검토까지 마친 최종본만 출력해줘 (설명 없이 결과물만).\n\n[검증 의견]\n${critique}\n\n━━━ 초안 ━━━\n${task.draft}` }], () => {});
+    task.stage = "final";
+    store.set("tasks", tasks);
+    logActivity(`✔ 「${task.title}」 교차검증·보완·재검토 완료 → 매니저 최종 검토`);
+    postChat(task.assignee, `「${task.title}」 보완 완료, 재검토까지 마쳤습니다 ✅`);
+    renderBoard();
+
+    // ③ 매니저 3차 최종 검토
+    speak("pm", "3차 최종 검토 들어갑니다 🧐", 2500);
+    postChat("pm", `「${task.title}」 3차 최종 검토 중입니다 🧐`);
+    const final = await callClaudeSystem(
+      `너는 SNS 마케팅 팀의 매니저(PM)다. 아래 결과물을 3차 최종 점검하라: 지시 사항을 충족하는지, 바로 사용 가능한지 확인하고 사소한 다듬기만 해라. 첫 줄에 "✅ 3차 검토 통과 — (한 줄 총평)"을 쓰고, 그 아래에 최종 결과물 전체를 출력하라.\n\n${staffContext()}`,
+      [{ role: "user", content: `업무 지시: ${task.title}\n\n━━━ 결과물 ━━━\n${revised}` }], () => {});
+    task.result = final;
     task.status = "review";
+    task.stage = "";
     task.autoWorking = false;
     store.set("tasks", tasks);
-    logActivity(`${staffEmoji(task.assignee)} ${staffName(task.assignee)}: 「${task.title}」 결과물 제출 → 검토 대기`);
-    postChat(task.assignee, `「${task.title}」 결과물 올렸습니다. 검토 부탁드려요 👀`);
-    speak(task.assignee, "결과물 올렸습니다! 검토 부탁드려요 👀");
+    logActivity(`🧑‍💼 매니저: 「${task.title}」 3차 검토 통과 → 사장님 보고`);
+    postChat("pm", `「${task.title}」 3차 검토 통과! 사장님께 보고 올립니다 📋`);
+    speak("pm", "3차 검토 통과! 보고 올립니다 📋");
     renderBoard();
     updateOfficeStatuses();
   } catch (e) {
-    task.autoWorking = false;
-    speak(task.assignee, "⚠️ 작업 중 문제가 생겼어요...");
-    toast("⚠️ 자동 작업 실패: " + friendlyApiError(e) + " — 카드의 [지시서 복사]로 수동 진행할 수 있어요.", 6000);
+    fail(e, STAGE_LABEL[task.stage] || "작업");
   }
 }
 
@@ -1620,16 +1809,33 @@ function renderBoard() {
         if (t.autoWorking) {
           const w = document.createElement("span");
           w.className = "task-working";
-          w.textContent = "🔨 직원이 작업 중...";
+          w.textContent = `🔨 ${STAGE_LABEL[t.stage] || "작업"} 진행 중...`;
           actions.appendChild(w);
-        } else {
-          addBtn("📋 지시서 복사", "btn-small", async () => {
+        } else if (t.stage === "verify") {
+          addBtn("🔍 검증 지시서 복사", "btn-small", async () => {
             try {
-              await copyText(taskBrief(t));
-              toast("복사됨! 무료 AI(Gemini 등) 새 대화에 붙여넣고, 나온 결과물을 [결과물 제출]로 가져오세요.");
+              await copyText(verifyBrief(t));
+              toast("복사됨! 무료 AI 새 대화에 붙여넣으면 교차검증→수정→재검토를 한 번에 해줘요. 결과 전체를 [검증본 제출]로 가져오세요.");
             } catch { toast("⚠️ 복사 실패 — 다시 시도해주세요."); }
           });
-          addBtn("📥 결과물 제출", "btn-small", () => {
+          addBtn("📥 검증본 제출", "btn-small", () => {
+            const form = card.querySelector(".task-form");
+            form.classList.toggle("hidden");
+            form.querySelector("textarea").focus();
+          });
+        } else if (t.stage === "final") {
+          const w = document.createElement("span");
+          w.className = "task-working";
+          w.textContent = "🧐 매니저 3차 최종 검토 중...";
+          actions.appendChild(w);
+        } else {
+          addBtn("📋 초안 지시서 복사", "btn-small", async () => {
+            try {
+              await copyText(taskBrief(t));
+              toast("복사됨! 무료 AI(Gemini 등) 새 대화에 붙여넣고, 나온 초안을 [초안 제출]로 가져오세요.");
+            } catch { toast("⚠️ 복사 실패 — 다시 시도해주세요."); }
+          });
+          addBtn("📥 초안 제출", "btn-small", () => {
             const form = card.querySelector(".task-form");
             form.classList.toggle("hidden");
             form.querySelector("textarea").focus();
@@ -1651,7 +1857,7 @@ function renderBoard() {
         addBtn("↩ 보완 요청", "btn-small", () => {
           const note = prompt("어떤 점을 보완할까요? (직원에게 전달됩니다)");
           if (note === null) return;
-          t.note = note.trim(); t.status = "doing";
+          t.note = note.trim(); t.status = "doing"; t.stage = "draft";
           store.set("tasks", tasks);
           logActivity(`↩ 「${t.title}」 보완 요청 → ${staffName(t.assignee)} 재작업`);
           if (t.note) postChat("boss", `「${t.title}」 보완 부탁해요: ${t.note}`);
@@ -1672,18 +1878,42 @@ function renderBoard() {
 
       card.append(head, title);
 
-      if (t.result) {
+      // 진행 단계 표시 (파이프라인)
+      if (status === "doing" && t.stage) {
+        const stageEl = document.createElement("div");
+        stageEl.className = "task-stage";
+        const steps = ["draft", "verify", "final"];
+        stageEl.innerHTML = steps.map(s => {
+          const done = steps.indexOf(s) < steps.indexOf(t.stage);
+          const cur = s === t.stage;
+          return `<span class="stage-dot ${done ? "sd-done" : cur ? "sd-cur" : ""}"></span>`;
+        }).join("") + `<span class="stage-text">${STAGE_LABEL[t.stage]}</span>`;
+        card.appendChild(stageEl);
+      }
+
+      if (t.critique && status !== "done") {
         const det = document.createElement("details");
         det.className = "task-result";
-        det.innerHTML = `<summary>📄 결과물 보기</summary>`;
+        det.innerHTML = `<summary>🔍 검증 의견 보기</summary>`;
         const pre = document.createElement("pre");
-        pre.textContent = t.result;
+        pre.textContent = t.critique;
+        det.appendChild(pre);
+        card.appendChild(det);
+      }
+
+      const shownDoc = t.result || (t.stage === "verify" ? t.draft : "");
+      if (shownDoc) {
+        const det = document.createElement("details");
+        det.className = "task-result";
+        det.innerHTML = `<summary>📄 ${t.result ? "결과물" : "초안"} 보기</summary>`;
+        const pre = document.createElement("pre");
+        pre.textContent = shownDoc;
         det.appendChild(pre);
         const copyBtn = document.createElement("button");
         copyBtn.className = "btn-small";
-        copyBtn.textContent = "결과물 복사";
+        copyBtn.textContent = t.result ? "결과물 복사" : "초안 복사";
         copyBtn.addEventListener("click", async () => {
-          try { await copyText(t.result); toast("결과물이 복사됐어요!"); } catch {}
+          try { await copyText(shownDoc); toast("복사됐어요!"); } catch {}
         });
         det.appendChild(copyBtn);
         card.appendChild(det);
@@ -1696,18 +1926,17 @@ function renderBoard() {
         form.className = "task-form hidden";
         const ta = document.createElement("textarea");
         ta.rows = 4;
-        ta.placeholder = "무료 AI가 만들어준 결과물을 여기에 붙여넣으세요";
+        ta.placeholder = t.stage === "verify"
+          ? "검증 지시서 결과(검증 의견 + 최종 결과물)를 통째로 붙여넣으세요"
+          : "무료 AI가 만들어준 초안을 여기에 붙여넣으세요";
         const save = document.createElement("button");
         save.className = "btn-small";
         save.textContent = "제출";
         save.addEventListener("click", () => {
           const v = ta.value.trim();
           if (!v) { ta.focus(); return; }
-          t.result = v; t.status = "review";
-          store.set("tasks", tasks);
-          logActivity(`${staffEmoji(t.assignee)} ${staffName(t.assignee)}: 「${t.title}」 결과물 제출 → 검토 대기`);
-          speak(t.assignee, "결과물 올렸습니다! 검토 부탁드려요 👀");
-          renderBoard(); updateOfficeStatuses();
+          if (t.stage === "verify") submitVerified(t, v);
+          else submitDraft(t, v);
         });
         form.append(ta, save);
         card.appendChild(form);
@@ -2088,6 +2317,7 @@ function switchTab(name) {
   $$(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
   $$(".tab-panel").forEach(p => p.classList.add("hidden"));
   $("#tab-" + name).classList.remove("hidden");
+  window.scrollTo({ top: 0 });
   if (name === "office") renderOffice();
   if (name === "staff") renderStaff();
   if (name === "chat") renderChat();
@@ -2133,7 +2363,8 @@ function bindEvents() {
   $("#set-key-guide").addEventListener("click", openKeyGuide);
 
   // 사무실
-  $("#scrum-btn").addEventListener("click", holdScrum);
+  $("#scrum-btn").addEventListener("click", () => holdScrum(false));
+  $("#brief-btn").addEventListener("click", () => holdScrum(true));
   $("#directive-go").addEventListener("click", handleDirective);
   $("#directive-input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) handleDirective(); });
 
@@ -2210,6 +2441,7 @@ function init() {
   } else {
     $("#app").classList.remove("hidden");
     renderAll();
+    resumePendingFinals();
   }
 }
 
