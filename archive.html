@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>나의 아카이브</title>
+<style>
+  :root{
+    --bg:#f7f6f3; --surface:#ffffff; --text:#262522; --muted:#8b8779;
+    --accent:#2e7d5b; --accent-soft:#e3f0e9; --line:#e5e2d9;
+    --radius:14px;
+    --sans:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+    --shadow:0 1px 2px rgba(30,28,20,.05), 0 10px 26px -14px rgba(30,28,20,.18);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{font-family:var(--sans); background:var(--bg); color:var(--text); font-size:15px; line-height:1.6; letter-spacing:-0.01em; min-height:100vh}
+  button{font-family:inherit; cursor:pointer}
+  input,select,textarea{font-family:inherit; font-size:14px; color:var(--text)}
+  :focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  .hidden{display:none !important}
+
+  /* ===== 헤더 ===== */
+  header.top{
+    position:sticky; top:0; z-index:50; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    padding:12px 20px; background:color-mix(in srgb, var(--bg) 88%, transparent);
+    -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px); border-bottom:1px solid var(--line);
+  }
+  .brand{display:flex; align-items:center; gap:9px; min-width:0}
+  .brand .emoji{font-size:22px}
+  .brand h1{font-size:18px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .live{display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); margin-left:2px}
+  .dot{width:8px; height:8px; border-radius:50%; background:#b9b5a8; flex:none}
+  .dot.on{background:#2fa46c; box-shadow:0 0 0 3px rgba(47,164,108,.18)}
+  .dot.sync{background:#d9a013; animation:pulse 1s infinite}
+  .dot.err{background:#c04f3f}
+  @keyframes pulse{50%{opacity:.35}}
+  .top .sp{flex:1}
+  .tbtn{
+    border:1px solid var(--line); background:var(--surface); color:var(--text);
+    padding:7px 12px; border-radius:20px; font-size:13px; font-weight:650; transition:.14s;
+  }
+  .tbtn:hover{border-color:var(--accent); color:var(--accent)}
+  .tbtn.primary{background:var(--accent); border-color:var(--accent); color:#fff}
+  .tbtn.primary:hover{filter:brightness(.93); color:#fff}
+
+  /* ===== 툴바 ===== */
+  .toolbar{max-width:1100px; margin:18px auto 0; padding:0 20px; display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+  .search{flex:1; min-width:200px; position:relative}
+  .search input{
+    width:100%; padding:9px 13px 9px 34px; border-radius:22px; border:1px solid var(--line);
+    background:var(--surface); font-size:14px;
+  }
+  .search .ic{position:absolute; left:12px; top:50%; transform:translateY(-50%); opacity:.45; font-size:14px}
+  .toolbar select{padding:8px 10px; border-radius:10px; border:1px solid var(--line); background:var(--surface)}
+  .vtoggle{display:flex; border:1px solid var(--line); border-radius:10px; overflow:hidden}
+  .vtoggle button{border:0; background:var(--surface); padding:8px 12px; font-size:13px; color:var(--muted)}
+  .vtoggle button.on{background:var(--accent-soft); color:var(--accent); font-weight:700}
+
+  .chipbar{max-width:1100px; margin:10px auto 0; padding:0 20px; display:flex; gap:6px; flex-wrap:wrap; align-items:center}
+  .chipbar .grp{font-size:11.5px; color:var(--muted); font-weight:700; margin:0 2px 0 6px}
+  .chip{
+    border:1px solid var(--line); background:var(--surface); border-radius:20px;
+    padding:4px 11px; font-size:12.5px; font-weight:600; color:var(--text); opacity:.85; transition:.13s;
+  }
+  .chip:hover{border-color:var(--accent)}
+  .chip.on{background:var(--accent); border-color:var(--accent); color:#fff; opacity:1}
+
+  /* ===== 본문 ===== */
+  main{max-width:1100px; margin:16px auto 80px; padding:0 20px}
+  .count{font-size:12.5px; color:var(--muted); margin:2px 2px 10px}
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:14px}
+  .grid.list{grid-template-columns:1fr; gap:8px}
+
+  .cardi{
+    background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    overflow:hidden; box-shadow:var(--shadow); display:flex; flex-direction:column;
+    transition:transform .15s, box-shadow .15s;
+  }
+  .cardi:hover{transform:translateY(-2px)}
+  .cardi .cover{width:100%; height:130px; object-fit:cover; display:block; border-bottom:1px solid var(--line)}
+  .ci-body{padding:13px 14px 12px; display:flex; flex-direction:column; gap:8px; flex:1}
+  .ci-top{display:flex; gap:8px; align-items:flex-start}
+  .ci-top .icon{font-size:18px; line-height:1.3; flex:none}
+  .ci-top h3{font-size:15px; font-weight:750; line-height:1.4; flex:1; word-break:break-word}
+  .ci-top .star{flex:none; font-size:14px}
+  .tags{display:flex; gap:5px; flex-wrap:wrap}
+  .tag{font-size:11.5px; font-weight:650; padding:2.5px 9px; border-radius:12px; white-space:nowrap}
+  .memo{font-size:13px; color:var(--muted); line-height:1.55; word-break:break-word;
+    display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden}
+  .ci-extra{display:flex; flex-direction:column; gap:3px; font-size:12.5px; color:var(--muted)}
+  .ci-extra b{font-weight:650; color:var(--text); opacity:.75}
+  .ci-foot{margin-top:auto; padding-top:9px; border-top:1px dashed var(--line); display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+  .ci-foot .date{font-size:12px; color:var(--muted); flex:1; white-space:nowrap}
+  .mini{
+    font-size:12px; font-weight:700; text-decoration:none; border-radius:14px; padding:4px 10px;
+    background:var(--accent-soft); color:var(--accent); border:0; display:inline-block;
+  }
+  .mini:hover{filter:brightness(.95)}
+  .grid.list .cardi{flex-direction:row; align-items:center}
+  .grid.list .cover{width:86px; height:64px; border-bottom:0; border-right:1px solid var(--line); flex:none}
+  .grid.list .ci-body{flex-direction:row; align-items:center; gap:12px; padding:10px 14px; flex-wrap:wrap}
+  .grid.list .ci-top{flex:1 1 240px}
+  .grid.list .memo{-webkit-line-clamp:1; flex:2 1 200px}
+  .grid.list .ci-extra{display:none}
+  .grid.list .ci-foot{margin:0; padding:0; border:0}
+
+  .empty{
+    text-align:center; padding:70px 20px; color:var(--muted); background:var(--surface);
+    border:1.5px dashed var(--line); border-radius:var(--radius);
+  }
+  .empty .big{font-size:36px; margin-bottom:10px}
+
+  /* ===== 배너 ===== */
+  .banner{
+    max-width:1100px; margin:14px auto 0; padding:12px 16px; border-radius:12px; font-size:13.5px; line-height:1.6;
+    display:flex; gap:10px; align-items:flex-start;
+  }
+  .banner.warn{background:#fdf3e2; border:1px solid #ecd9b0; color:#7a5b1d}
+  .banner.err{background:#fbeae7; border:1px solid #eccfc8; color:#8c3527}
+  .banner.info{background:var(--accent-soft); border:1px solid var(--line); color:var(--text)}
+  .banner .bx{flex:1}
+  .banner button{border:0; background:transparent; font-size:15px; color:inherit; opacity:.6}
+  @media(max-width:640px){ .banner{margin-left:14px; margin-right:14px} }
+
+  /* ===== 모달 ===== */
+  .backdrop{
+    position:fixed; inset:0; background:rgba(30,28,20,.45); z-index:100;
+    display:flex; align-items:flex-start; justify-content:center; padding:24px 14px; overflow-y:auto;
+  }
+  .modal{
+    background:var(--surface); border-radius:16px; box-shadow:0 24px 60px -20px rgba(0,0,0,.4);
+    width:100%; max-width:560px; padding:24px 22px; margin:auto 0;
+  }
+  .modal h2{font-size:18px; font-weight:800; margin-bottom:6px}
+  .modal .desc{font-size:13.5px; color:var(--muted); margin-bottom:14px; line-height:1.65}
+  .step{
+    border:1px solid var(--line); border-radius:12px; padding:13px 14px; margin-bottom:10px; background:var(--bg);
+  }
+  .step h4{font-size:14px; font-weight:750; margin-bottom:5px}
+  .step p, .step li{font-size:13px; color:var(--muted); line-height:1.7}
+  .step ol{padding-left:18px; margin:4px 0}
+  .step a{color:var(--accent); font-weight:700}
+  .step b{color:var(--text)}
+  .field{display:block; margin:10px 0}
+  .field span{display:block; font-size:12.5px; font-weight:700; margin-bottom:5px; color:var(--text)}
+  .field input[type=text], .field input[type=password], .field select{
+    width:100%; padding:9px 12px; border:1px solid var(--line); border-radius:10px; background:var(--surface);
+  }
+  .fnote{font-size:12px; color:var(--muted); margin-top:4px; line-height:1.6}
+  .m-actions{display:flex; gap:8px; justify-content:flex-end; margin-top:16px; flex-wrap:wrap}
+  .btn{border:1px solid var(--line); background:var(--surface); color:var(--text); padding:9px 16px; border-radius:10px; font-size:14px; font-weight:650}
+  .btn.primary{background:var(--accent); border-color:var(--accent); color:#fff}
+  .btn.danger{background:#fbeae7; border-color:#eccfc8; color:#a03d2d}
+  .testout{font-size:13px; margin-top:10px; line-height:1.6}
+  .testout.ok{color:#1f7a4d; font-weight:700}
+  .testout.bad{color:#a03d2d}
+  details{margin-top:12px; font-size:13px}
+  details summary{cursor:pointer; font-weight:700; color:var(--muted)}
+  details .step{margin-top:8px}
+  code.k{background:var(--bg); border:1px solid var(--line); padding:1px 6px; border-radius:6px; font-size:12px; word-break:break-all}
+
+  /* 테마 편집 */
+  .presets{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px}
+  .preset{border:2px solid var(--line); border-radius:12px; padding:6px 10px 5px; background:var(--surface); text-align:center}
+  .preset.on{border-color:var(--accent)}
+  .preset .sw{display:flex; gap:3px; margin-bottom:4px}
+  .preset .sw i{width:16px; height:16px; border-radius:5px; display:block; border:1px solid rgba(0,0,0,.08)}
+  .preset .nm{font-size:11.5px; font-weight:700; color:var(--muted)}
+  .crow{display:flex; align-items:center; gap:10px; padding:7px 2px; border-bottom:1px dashed var(--line)}
+  .crow label{flex:1; font-size:13.5px; font-weight:650}
+  .crow .hex{font-size:12px; color:var(--muted); width:70px; text-align:right}
+  .crow input[type=color]{width:42px; height:30px; border:1px solid var(--line); border-radius:8px; background:var(--surface); padding:2px}
+  .rrow{display:flex; align-items:center; gap:12px; padding:12px 2px 4px}
+  .rrow input[type=range]{flex:1; accent-color:var(--accent)}
+
+  .urlprev{
+    background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:10px 12px;
+    font-size:12.5px; word-break:break-all; margin-top:8px; color:var(--accent); font-weight:650;
+  }
+
+  /* 토스트 */
+  #toast{
+    position:fixed; left:50%; bottom:26px; transform:translateX(-50%); z-index:200;
+    background:#2c2a24; color:#f5f3ec; padding:10px 18px; border-radius:22px; font-size:13.5px;
+    box-shadow:0 10px 30px rgba(0,0,0,.3); max-width:88vw; text-align:center;
+    opacity:0; pointer-events:none; transition:opacity .25s;
+  }
+  #toast.show{opacity:1}
+
+  @media(max-width:640px){
+    header.top{padding:10px 14px}
+    .toolbar,.chipbar,main{padding-left:14px; padding-right:14px}
+    .brand h1{font-size:16px}
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <span class="emoji" id="h-emoji">📦</span>
+    <h1 id="h-name">나의 아카이브</h1>
+  </div>
+  <div class="live"><span class="dot" id="dot"></span><span id="live-txt">연결 전</span></div>
+  <div class="sp"></div>
+  <button class="tbtn" id="b-refresh" title="지금 바로 노션과 동기화">↻ 새로고침</button>
+  <button class="tbtn" id="b-theme">🎨 꾸미기</button>
+  <button class="tbtn" id="b-url">🔗 내 주소</button>
+  <button class="tbtn" id="b-set">⚙️ 설정</button>
+</header>
+
+<div id="banner-slot"></div>
+
+<div class="toolbar">
+  <div class="search"><span class="ic">🔍</span><input type="search" id="q" placeholder="제목·메모·태그 검색"></div>
+  <select id="sort">
+    <option value="edited">최근 수정순</option>
+    <option value="created">최근 저장순</option>
+    <option value="title">가나다순</option>
+  </select>
+  <div class="vtoggle">
+    <button id="v-card" class="on">🃏 카드</button>
+    <button id="v-list">☰ 목록</button>
+  </div>
+</div>
+<div class="chipbar" id="chips"></div>
+
+<main>
+  <div class="count" id="count"></div>
+  <div class="grid" id="grid"></div>
+  <div class="empty hidden" id="empty">
+    <div class="big">🗂️</div>
+    <p id="empty-msg">아직 표시할 기록이 없어요.<br>노션 데이터베이스에 기록을 추가해 보세요 — 여기 자동으로 나타나요.</p>
+  </div>
+</main>
+
+<!-- ===== 처음 연결 마법사 ===== -->
+<div class="backdrop hidden" id="m-setup">
+  <div class="modal">
+    <h2>📦 노션과 연결하기</h2>
+    <p class="desc">딱 3단계면 끝나요. 한 번만 해두면 이 페이지가 노션 데이터베이스를 계속 지켜보면서 자동으로 새 내용을 보여줘요.</p>
+
+    <div class="step">
+      <h4>1단계 — 노션 '연결 열쇠(토큰)' 만들기</h4>
+      <ol>
+        <li><a href="https://www.notion.so/my-integrations" target="_blank" rel="noopener">notion.so/my-integrations</a> 열기 (노션 로그인 필요)</li>
+        <li><b>+ 새 API 통합 만들기</b> 클릭 → 이름은 <b>아카이브</b> 등 아무거나</li>
+        <li>내 워크스페이스 선택 → <b>저장</b></li>
+        <li><b>프라이빗 API 통합 시크릿</b>의 <b>표시 → 복사</b> 후 아래에 붙여넣기</li>
+      </ol>
+      <label class="field"><span>연결 열쇠 (ntn_ 또는 secret_ 으로 시작)</span>
+        <input type="password" id="su-token" placeholder="ntn_..." autocomplete="off">
+      </label>
+    </div>
+
+    <div class="step">
+      <h4>2단계 — 데이터베이스에 열쇠 꽂아주기</h4>
+      <p>노션에서 연동할 <b>데이터베이스 페이지</b>를 열고 → 오른쪽 위 <b>⋯</b> → <b>연결(Connections)</b> → 방금 만든 통합 이름(<b>아카이브</b>)을 검색해 선택하세요. 이걸 안 하면 "찾을 수 없음" 오류가 나요.</p>
+      <p style="margin-top:6px">💡 <b>「📦 나의 아카이브」</b>라는 시작용 데이터베이스를 이미 만들어 뒀어요 — 노션 검색창에서 찾아 쓰면 돼요.</p>
+    </div>
+
+    <div class="step">
+      <h4>3단계 — 데이터베이스 링크 붙여넣기</h4>
+      <p>데이터베이스 페이지에서 <b>⋯ → 링크 복사</b> 한 주소를 그대로 붙여넣으세요.</p>
+      <label class="field"><span>데이터베이스 링크 (또는 ID)</span>
+        <input type="text" id="su-db" placeholder="https://notion.so/..." autocomplete="off">
+      </label>
+    </div>
+
+    <div class="testout hidden" id="su-out"></div>
+    <div class="m-actions">
+      <button class="btn" id="su-demo">👀 연결 없이 체험해보기</button>
+      <button class="btn primary" id="su-go">연결 테스트 후 시작 →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 설정 ===== -->
+<div class="backdrop hidden" id="m-set">
+  <div class="modal">
+    <h2>⚙️ 연결 설정</h2>
+    <p class="desc">열쇠(토큰)와 링크는 <b>이 브라우저에만</b> 저장돼요. 주소 복사로 만든 링크에는 절대 포함되지 않아요.</p>
+    <label class="field"><span>연결 열쇠 (토큰)</span><input type="password" id="st-token" placeholder="ntn_..." autocomplete="off"></label>
+    <label class="field"><span>데이터베이스 링크 (또는 ID)</span><input type="text" id="st-db" autocomplete="off"></label>
+    <label class="field"><span>자동 동기화 간격</span>
+      <select id="st-poll">
+        <option value="15">15초 — 거의 실시간</option>
+        <option value="30" selected>30초 — 추천</option>
+        <option value="60">1분</option>
+        <option value="180">3분 — 데이터 아끼기</option>
+      </select>
+    </label>
+    <details>
+      <summary>고급 — 연결이 자꾸 실패할 때</summary>
+      <div class="step">
+        <p>노션은 웹페이지가 직접 데이터를 가져가는 걸 막아서, 중간에 <b>무료 중계 서버</b>를 거쳐요. 기본 중계 서버가 모두 막히면 아래에 나만의 중계 주소를 넣을 수 있어요 (Cloudflare Workers 등에서 CORS 프록시를 만들어 붙여넣기).</p>
+        <label class="field"><span>나만의 중계 주소 (선택)</span><input type="text" id="st-proxy" placeholder="https://내프록시.workers.dev/?url="></label>
+      </div>
+    </details>
+    <div class="testout hidden" id="st-out"></div>
+    <div class="m-actions">
+      <button class="btn danger" id="st-unlink">연결 끊기</button>
+      <span style="flex:1"></span>
+      <button class="btn" id="st-cancel">닫기</button>
+      <button class="btn primary" id="st-save">테스트 후 저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 꾸미기 ===== -->
+<div class="backdrop hidden" id="m-theme">
+  <div class="modal">
+    <h2>🎨 내 마음대로 꾸미기</h2>
+    <p class="desc">고르는 즉시 화면에 바로 적용돼요. 완성한 색은 「내 주소」 링크에도 함께 담겨요.</p>
+    <div class="presets" id="presets"></div>
+    <div id="crows"></div>
+    <div class="rrow">
+      <label style="font-size:13.5px; font-weight:650">모서리 둥글기</label>
+      <input type="range" id="th-radius" min="0" max="26" step="1">
+      <span class="hex" id="th-radius-v" style="font-size:12px; color:var(--muted)"></span>
+    </div>
+    <div class="m-actions">
+      <button class="btn" id="th-reset">기본값으로</button>
+      <span style="flex:1"></span>
+      <button class="btn primary" id="th-done">완료</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 내 주소 ===== -->
+<div class="backdrop hidden" id="m-url">
+  <div class="modal">
+    <h2>🔗 나만의 주소 만들기</h2>
+    <p class="desc">아카이브의 이름·이모지·주소 이름을 정하면 <b>나만의 고유 주소</b>가 완성돼요. 이 주소를 즐겨찾기 해두면 어디서든 내 색깔 그대로 열려요.</p>
+    <label class="field"><span>아카이브 이름</span><input type="text" id="u-name" maxlength="24" placeholder="예: 재아의 영감 창고"></label>
+    <label class="field"><span>대표 이모지 (1개)</span><input type="text" id="u-emoji" maxlength="4" placeholder="📦"></label>
+    <label class="field"><span>고유 주소 이름 (영문·한글·숫자·하이픈)</span><input type="text" id="u-slug" maxlength="30" placeholder="예: jaea-archive">
+      <div class="fnote">주소 뒤에 <code class="k">#/jaea-archive</code>처럼 붙어서 나만의 주소가 돼요.</div>
+    </label>
+    <div class="urlprev" id="u-prev"></div>
+    <details>
+      <summary>주소 앞부분(도메인)도 바꾸고 싶다면?</summary>
+      <div class="step">
+        <p>GitHub Pages 주소는 <code class="k">https://아이디.github.io/저장소이름/archive.html</code> 구조예요.</p>
+        <ol>
+          <li><b>저장소 이름</b>을 바꾸면 가운데 부분이 바뀌어요 (GitHub → Settings → Repository name)</li>
+          <li><b>파일 이름</b>(archive.html)을 바꾸면 마지막 부분이 바뀌어요</li>
+          <li>완전한 나만의 주소(예: archive.jaea.com)는 GitHub → Settings → Pages → <b>Custom domain</b>에서 내 도메인을 연결하면 돼요 (도메인 구입 필요)</li>
+        </ol>
+      </div>
+    </details>
+    <div class="m-actions">
+      <button class="btn" id="u-cancel">닫기</button>
+      <button class="btn primary" id="u-copy">💾 저장하고 주소 복사</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" role="status"></div>
+
+<script>
+"use strict";
+/* =====================================================================
+   센터 · 노션 아카이브 — 단일 파일 정적 앱
+   노션 공식 API(브라우저 CORS 차단) → 무료 중계 서버 자동 전환으로 우회
+   안전망: ① 여러 중계 서버 폴백 ② 마지막 성공 데이터 캐시 ③ 체험 모드
+===================================================================== */
+
+// ---------- 저장소 ----------
+const LS_PREFIX = "senterArchive:";
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem(LS_PREFIX+k); return v==null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){
+    try{ localStorage.setItem(LS_PREFIX+k, JSON.stringify(v)); return true; }
+    catch(e){ toast("저장 공간이 가득 찼어요. 브라우저 사이트 데이터를 정리해 주세요."); return false; }
+  },
+  del(k){ localStorage.removeItem(LS_PREFIX+k); }
+};
+
+let cfg   = store.get("cfg",   { token:"", db:"", poll:30, proxy:"", route:0 });
+let meta  = store.get("meta",  { name:"나의 아카이브", emoji:"📦", slug:"" });
+let theme = store.get("theme", null);
+let cache = store.get("cache", null); // {schema, pages, t}
+
+// ---------- 테마 ----------
+const THEME_KEYS = [
+  ["bg","배경"], ["surface","카드"], ["text","글자"],
+  ["accent","포인트"], ["accentSoft","포인트 배경"], ["line","테두리"]
+];
+const PRESETS = [
+  { id:"oat",    nm:"오트밀",   bg:"#f7f6f3", surface:"#ffffff", text:"#262522", accent:"#2e7d5b", accentSoft:"#e3f0e9", line:"#e5e2d9", radius:14 },
+  { id:"night",  nm:"미드나잇", bg:"#15171e", surface:"#1f222b", text:"#e8e6df", accent:"#7fb69b", accentSoft:"#263830", line:"#2b2f3a", radius:14 },
+  { id:"latte",  nm:"라떼",     bg:"#f5efe6", surface:"#fffdf9", text:"#3a2f28", accent:"#a4693c", accentSoft:"#f3e3d3", line:"#e8ddcc", radius:16 },
+  { id:"rose",   nm:"로즈",     bg:"#faf4f5", surface:"#ffffff", text:"#3b2a2e", accent:"#c25d7b", accentSoft:"#f7e3ea", line:"#eddfe2", radius:18 },
+  { id:"ocean",  nm:"오션",     bg:"#f2f6f8", surface:"#ffffff", text:"#223038", accent:"#3574a0", accentSoft:"#e0edf5", line:"#dde7ec", radius:12 },
+];
+function curTheme(){ return Object.assign({}, PRESETS[0], theme || {}); }
+function applyTheme(){
+  const t = curTheme(), r = document.documentElement.style;
+  r.setProperty("--bg", t.bg); r.setProperty("--surface", t.surface); r.setProperty("--text", t.text);
+  r.setProperty("--accent", t.accent); r.setProperty("--accent-soft", t.accentSoft); r.setProperty("--line", t.line);
+  r.setProperty("--radius", (t.radius ?? 14)+"px");
+  const mut = mixHex(t.text, t.bg, .45); r.setProperty("--muted", mut);
+}
+function mixHex(a, b, w){ // a·b: #rrggbb, w: a 비율
+  const pa = hex2rgb(a), pb = hex2rgb(b);
+  const m = pa.map((v,i)=>Math.round(v*w + pb[i]*(1-w)));
+  return "#"+m.map(v=>v.toString(16).padStart(2,"0")).join("");
+}
+function hex2rgb(h){ h=h.replace("#",""); if(h.length===3) h=h.split("").map(c=>c+c).join(""); return [0,2,4].map(i=>parseInt(h.slice(i,i+2),16)||0); }
+
+// ---------- 유틸 ----------
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let toastTimer = null;
+function toast(msg){
+  const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(()=>t.classList.remove("show"), 3200);
+}
+function b64uEnc(s){ return btoa(unescape(encodeURIComponent(s))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
+function b64uDec(s){ s = s.replace(/-/g,"+").replace(/_/g,"/"); while(s.length%4) s+="="; return decodeURIComponent(escape(atob(s))); }
+function fmtDate(iso, withTime){
+  if(!iso) return "";
+  const d = new Date(iso); if(isNaN(d)) return iso;
+  let out = `${d.getFullYear()}.${d.getMonth()+1}.${d.getDate()}`;
+  if(withTime && /T\d/.test(iso)) out += ` ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+  return out;
+}
+function parseDbId(input){
+  const m = String(input||"").replace(/-/g,"").match(/[0-9a-f]{32}/i);
+  return m ? m[0].toLowerCase() : "";
+}
+
+// 노션 태그 색상 → 화면 색
+const NCOLOR = {
+  default:["#eceae4","#57544c"], gray:["#e8e8e6","#5a5a56"], brown:["#efe4da","#7a5a43"],
+  orange:["#fbe7d2","#a05c1c"], yellow:["#faf0cf","#8a6d17"], green:["#e0efe4","#2e6b45"],
+  blue:["#ddebf5","#2b5f8a"], purple:["#eae2f5","#6543a0"], pink:["#f7e0ea","#a13a6d"], red:["#fbe0dc","#a03d33"]
+};
+function tagHtml(name, color){
+  const c = NCOLOR[color] || NCOLOR.default;
+  return `<span class="tag" style="background:${c[0]};color:${c[1]}">${esc(name)}</span>`;
+}
+
+// ---------- 노션 API (중계 서버 폴백) ----------
+const NOTION_VER = "2022-06-28";
+function routes(){
+  const list = [
+    { nm:"corsproxy.io",  wrap:u=>"https://corsproxy.io/?url="+encodeURIComponent(u) },
+    { nm:"cors.eu.org",   wrap:u=>"https://cors.eu.org/"+u },
+    { nm:"workers.dev",   wrap:u=>"https://test.cors.workers.dev/?"+u },
+    { nm:"직접 연결",     wrap:u=>u },
+  ];
+  const p = (cfg.proxy||"").trim();
+  if(p){
+    const wrap = /[?=]$/.test(p) ? (u=>p+encodeURIComponent(u)) : (u=>p.replace(/\/$/,"")+"/"+u);
+    list.unshift({ nm:"내 중계 서버", wrap });
+  }
+  return list;
+}
+let lastRouteName = "";
+async function notionApi(path, opt = {}){
+  const url = "https://api.notion.com/v1/" + path;
+  const rs = routes();
+  const start = Math.min(cfg.route || 0, rs.length-1);
+  let lastErr = null;
+  for(let i=0; i<rs.length; i++){
+    const r = rs[(start+i) % rs.length];
+    const ctrl = new AbortController();
+    const tm = setTimeout(()=>ctrl.abort(), 15000);
+    try{
+      const res = await fetch(r.wrap(url), {
+        method: opt.method || "GET",
+        headers: {
+          "Authorization": "Bearer " + cfg.token,
+          "Notion-Version": NOTION_VER,
+          ...(opt.body ? {"Content-Type":"application/json"} : {})
+        },
+        body: opt.body ? JSON.stringify(opt.body) : undefined,
+        signal: ctrl.signal
+      });
+      clearTimeout(tm);
+      // 4xx는 노션이 직접 준 대답 → 중계 서버 문제가 아니므로 그대로 전달
+      if(res.status >= 400 && res.status < 500 && res.status !== 403 && res.status !== 407 && res.status !== 429){
+        const j = await res.json().catch(()=>({}));
+        throw { notion:true, status:res.status, code:j.code, message:j.message };
+      }
+      if(!res.ok) throw new Error("relay "+res.status);
+      const data = await res.json();
+      if(data && data.object === "error") throw { notion:true, status:data.status, code:data.code, message:data.message };
+      cfg.route = (start+i) % rs.length; lastRouteName = r.nm;
+      return data;
+    }catch(e){
+      clearTimeout(tm);
+      if(e && e.notion) throw e;   // 진짜 노션 오류는 즉시 보고
+      lastErr = e;                 // 통로 문제 → 다음 중계 서버 시도
+    }
+  }
+  throw { relay:true, message: lastErr ? String(lastErr.message||lastErr) : "연결 실패" };
+}
+
+function friendlyError(e){
+  if(e && e.notion){
+    if(e.status === 401) return "🔑 연결 열쇠(토큰)가 맞지 않아요. ⚙️ 설정에서 토큰을 다시 붙여넣어 주세요 (앞뒤 공백 주의).";
+    if(e.status === 404) return "🔍 데이터베이스를 못 찾았어요. 노션에서 그 데이터베이스 페이지 → 오른쪽 위 ⋯ → <b>연결(Connections)</b>에 내 통합을 추가했는지 확인해 주세요.";
+    if(e.status === 429) return "⏳ 노션이 잠시 쉬어 달래요. 잠시 후 자동으로 다시 시도해요.";
+    return "노션 응답 오류: " + esc(e.message || e.code || e.status);
+  }
+  return "🌐 연결 통로가 모두 막혔어요. 인터넷 연결을 확인하거나, 잠시 후 ↻ 새로고침을 눌러 주세요. 계속 안 되면 ⚙️ 설정 → 고급에서 나만의 중계 주소를 넣을 수 있어요.";
+}
+
+// ---------- 데이터 정규화 ----------
+function plainRich(arr){ return (arr||[]).map(t=>t.plain_text||"").join(""); }
+function normProp(p){
+  switch(p.type){
+    case "title":        return { t:"title", v: plainRich(p.title) };
+    case "rich_text":    return { t:"text",  v: plainRich(p.rich_text) };
+    case "select":       return { t:"tags",  v: p.select ? [{n:p.select.name, c:p.select.color}] : [] };
+    case "status":       return { t:"tags",  v: p.status ? [{n:p.status.name, c:p.status.color}] : [] };
+    case "multi_select": return { t:"tags",  v: (p.multi_select||[]).map(o=>({n:o.name, c:o.color})) };
+    case "date":         return { t:"date",  v: p.date ? {s:p.date.start, e:p.date.end} : null };
+    case "url":          return { t:"url",   v: p.url || "" };
+    case "email":        return { t:"text",  v: p.email || "" };
+    case "phone_number": return { t:"text",  v: p.phone_number || "" };
+    case "number":       return { t:"text",  v: p.number == null ? "" : String(p.number) };
+    case "checkbox":     return { t:"check", v: !!p.checkbox };
+    case "people":       return { t:"text",  v: (p.people||[]).map(u=>u.name||"").filter(Boolean).join(", ") };
+    case "files": {
+      const fs = (p.files||[]).map(f => ({ name:f.name, url:(f.file&&f.file.url)||(f.external&&f.external.url)||"" }));
+      return { t:"files", v: fs };
+    }
+    case "created_time":     return { t:"date", v:{s:p.created_time} };
+    case "last_edited_time": return { t:"date", v:{s:p.last_edited_time} };
+    case "unique_id":        return { t:"text", v: p.unique_id ? (p.unique_id.prefix?p.unique_id.prefix+"-":"")+p.unique_id.number : "" };
+    case "formula": {
+      const f = p.formula || {};
+      if(f.type==="string")  return { t:"text",  v:f.string||"" };
+      if(f.type==="number")  return { t:"text",  v:f.number==null?"":String(f.number) };
+      if(f.type==="boolean") return { t:"check", v:!!f.boolean };
+      if(f.type==="date")    return { t:"date",  v:f.date?{s:f.date.start,e:f.date.end}:null };
+      return { t:"text", v:"" };
+    }
+    default: return { t:"text", v:"" };
+  }
+}
+function normPage(pg){
+  const props = [];
+  let title = "(제목 없음)";
+  for(const [name, p] of Object.entries(pg.properties||{})){
+    const np = normProp(p);
+    if(np.t==="title"){ title = np.v || title; continue; }
+    props.push({ name, ...np });
+  }
+  let cover = "";
+  if(pg.cover) cover = (pg.cover.external&&pg.cover.external.url) || (pg.cover.file&&pg.cover.file.url) || "";
+  if(!cover){
+    const imgProp = props.find(p=>p.t==="files" && p.v.some(f=>/\.(png|jpe?g|gif|webp|avif)(\?|$)/i.test(f.url)));
+    if(imgProp) cover = imgProp.v.find(f=>/\.(png|jpe?g|gif|webp|avif)(\?|$)/i.test(f.url)).url;
+  }
+  const icon = pg.icon && pg.icon.type==="emoji" ? pg.icon.emoji : "";
+  return {
+    id: pg.id, title, icon, cover, props,
+    url: pg.url || "",
+    created: pg.created_time, edited: pg.last_edited_time
+  };
+}
+
+// ---------- 동기화 ----------
+let pages = [];      // 정규화된 카드들
+let dbTitle = "";
+let schemaOpts = []; // [{prop, type, options:[{n,c}]}] 필터 칩용
+let demo = false;
+let lastSync = 0;
+let pollTimer = null;
+let syncing = false;
+
+function setDot(state, txt){
+  const d = $("#dot");
+  d.className = "dot " + (state||"");
+  $("#live-txt").textContent = txt;
+}
+function tickLiveText(){
+  if(demo){ setDot("on","체험 모드"); return; }
+  if(syncing || !lastSync) return;
+  const s = Math.round((Date.now()-lastSync)/1000);
+  setDot("on", "실시간 연동 중 · " + (s<5 ? "방금 동기화" : s<60 ? s+"초 전" : Math.floor(s/60)+"분 전"));
+}
+setInterval(tickLiveText, 5000);
+
+async function sync(manual){
+  if(demo || syncing || !cfg.token || !cfg.db) return;
+  syncing = true;
+  setDot("sync","동기화 중…");
+  try{
+    const db = await notionApi("databases/"+cfg.db);
+    let raw = [], cursor;
+    for(let i=0; i<3; i++){
+      const body = { page_size:100, sorts:[{timestamp:"last_edited_time", direction:"descending"}] };
+      if(cursor) body.start_cursor = cursor;
+      const r = await notionApi("databases/"+cfg.db+"/query", {method:"POST", body});
+      raw.push(...(r.results||[]));
+      if(!r.has_more) break;
+      cursor = r.next_cursor;
+    }
+    const fresh = raw.map(normPage);
+    // 변경 감지
+    const before = new Map(pages.map(p=>[p.id, p.edited]));
+    let changed = 0;
+    if(before.size){
+      for(const p of fresh) if(!before.has(p.id) || before.get(p.id)!==p.edited) changed++;
+      if(fresh.length < pages.length) changed += pages.length - fresh.length;
+    }
+    pages = fresh;
+    dbTitle = plainRich(db.title) || "";
+    schemaOpts = [];
+    for(const [name, p] of Object.entries(db.properties||{})){
+      if(p.type==="select" && p.select)             schemaOpts.push({prop:name, type:"tags",  options:p.select.options.map(o=>({n:o.name,c:o.color}))});
+      else if(p.type==="multi_select" && p.multi_select) schemaOpts.push({prop:name, type:"tags", options:p.multi_select.options.map(o=>({n:o.name,c:o.color}))});
+      else if(p.type==="status" && p.status)        schemaOpts.push({prop:name, type:"tags",  options:(p.status.options||[]).map(o=>({n:o.name,c:o.color}))});
+      else if(p.type==="checkbox")                  schemaOpts.push({prop:name, type:"check", options:[]});
+    }
+    lastSync = Date.now();
+    store.set("cache", { pages: pages.slice(0,300), schemaOpts, dbTitle, t:lastSync });
+    clearBanner();
+    renderChips(); render();
+    tickLiveText(); setDot("on", "실시간 연동 중 · 방금 동기화");
+    if(manual) toast("✅ 노션과 동기화했어요 ("+lastRouteName+" 경유)");
+    else if(before.size && changed>0) toast("🔄 노션에서 바뀐 내용 "+changed+"건을 반영했어요");
+  }catch(e){
+    setDot("err","연결 오류");
+    if(pages.length || (cache && cache.pages && cache.pages.length)){
+      showBanner("warn", friendlyError(e) + "<br>지금은 <b>마지막으로 성공한 데이터</b>를 보여주고 있어요.");
+      if(!pages.length){ restoreCache(); render(); renderChips(); }
+    }else{
+      showBanner("err", friendlyError(e));
+    }
+  }finally{
+    syncing = false;
+  }
+}
+function restoreCache(){
+  if(!cache) return;
+  pages = cache.pages || [];
+  schemaOpts = cache.schemaOpts || [];
+  dbTitle = cache.dbTitle || "";
+  lastSync = cache.t || 0;
+}
+function startPolling(){
+  clearInterval(pollTimer);
+  const sec = Math.max(15, Number(cfg.poll)||30);
+  pollTimer = setInterval(()=>{ if(!document.hidden) sync(false); }, sec*1000);
+}
+document.addEventListener("visibilitychange", ()=>{
+  if(!document.hidden && !demo && cfg.token && Date.now()-lastSync > 10000) sync(false);
+});
+
+// ---------- 배너 ----------
+function showBanner(kind, html){
+  $("#banner-slot").innerHTML =
+    `<div class="banner ${kind}"><div class="bx">${html}</div><button onclick="this.parentElement.remove()" aria-label="닫기">✕</button></div>`;
+}
+function clearBanner(){ $("#banner-slot").innerHTML = ""; }
+
+// ---------- 필터/렌더 ----------
+let q = "", sortBy = "edited", view = store.get("view","card");
+let activeFilters = {}; // {propName: Set}
+
+function renderChips(){
+  const box = $("#chips");
+  let html = "";
+  for(const g of schemaOpts){
+    if(g.type==="check"){
+      const on = activeFilters[g.prop] && activeFilters[g.prop].has("__YES__");
+      html += `<button class="chip ${on?"on":""}" data-prop="${esc(g.prop)}" data-val="__YES__">✔ ${esc(g.prop)}</button>`;
+      continue;
+    }
+    if(!g.options.length) continue;
+    html += `<span class="grp">${esc(g.prop)}</span>`;
+    for(const o of g.options){
+      const on = activeFilters[g.prop] && activeFilters[g.prop].has(o.n);
+      html += `<button class="chip ${on?"on":""}" data-prop="${esc(g.prop)}" data-val="${esc(o.n)}">${esc(o.n)}</button>`;
+    }
+  }
+  box.innerHTML = html;
+  box.querySelectorAll(".chip").forEach(ch=>{
+    ch.addEventListener("click", ()=>{
+      const p = ch.dataset.prop, v = ch.dataset.val;
+      activeFilters[p] = activeFilters[p] || new Set();
+      activeFilters[p].has(v) ? activeFilters[p].delete(v) : activeFilters[p].add(v);
+      if(!activeFilters[p].size) delete activeFilters[p];
+      renderChips(); render();
+    });
+  });
+}
+
+function matches(pg){
+  if(q){
+    const hay = (pg.title + " " + pg.props.map(p=>{
+      if(p.t==="text") return p.v;
+      if(p.t==="tags") return p.v.map(t=>t.n).join(" ");
+      return "";
+    }).join(" ")).toLowerCase();
+    if(!hay.includes(q)) return false;
+  }
+  for(const [prop, set] of Object.entries(activeFilters)){
+    const pp = pg.props.find(p=>p.name===prop);
+    if(set.has("__YES__")){ if(!pp || pp.t!=="check" || !pp.v) return false; continue; }
+    if(!pp || pp.t!=="tags" || !pp.v.some(t=>set.has(t.n))) return false;
+  }
+  return true;
+}
+function sorted(list){
+  const l = [...list];
+  if(sortBy==="title")   l.sort((a,b)=>a.title.localeCompare(b.title,"ko"));
+  if(sortBy==="created") l.sort((a,b)=>String(b.created).localeCompare(String(a.created)));
+  if(sortBy==="edited")  l.sort((a,b)=>String(b.edited).localeCompare(String(a.edited)));
+  return l;
+}
+
+function cardHtml(pg){
+  const tags = pg.props.filter(p=>p.t==="tags" && p.v.length).flatMap(p=>p.v);
+  const memoP = pg.props.find(p=>p.t==="text" && p.v);
+  const dateP = pg.props.find(p=>p.name!=="" && p.t==="date" && p.v && p.v.s);
+  const urlP  = pg.props.find(p=>p.t==="url" && p.v);
+  const starP = pg.props.find(p=>p.t==="check" && p.v);
+  const extras = pg.props.filter(p=>p.t==="text" && p.v && p!==memoP).slice(0,2);
+  const fileP = pg.props.find(p=>p.t==="files" && p.v.length);
+
+  let d = "";
+  if(dateP){ d = fmtDate(dateP.v.s); if(dateP.v.e) d += " → "+fmtDate(dateP.v.e); }
+  else d = fmtDate(pg.edited);
+
+  return `<article class="cardi" data-id="${esc(pg.id)}">
+    ${pg.cover ? `<img class="cover" src="${esc(pg.cover)}" alt="" loading="lazy" onerror="this.remove()">` : ""}
+    <div class="ci-body">
+      <div class="ci-top">
+        ${pg.icon ? `<span class="icon">${esc(pg.icon)}</span>` : ""}
+        <h3>${esc(pg.title)}</h3>
+        ${starP ? `<span class="star" title="${esc(starP.name)}">⭐</span>` : ""}
+      </div>
+      ${tags.length ? `<div class="tags">${tags.map(t=>tagHtml(t.n,t.c)).join("")}</div>` : ""}
+      ${memoP ? `<p class="memo">${esc(memoP.v)}</p>` : ""}
+      ${extras.length ? `<div class="ci-extra">${extras.map(p=>`<span><b>${esc(p.name)}</b> ${esc(p.v)}</span>`).join("")}</div>` : ""}
+      <div class="ci-foot">
+        <span class="date">🗓 ${esc(d)}</span>
+        ${urlP ? `<a class="mini" href="${esc(urlP.v)}" target="_blank" rel="noopener">🔗 링크</a>` : ""}
+        ${fileP && !urlP ? `<a class="mini" href="${esc(fileP.v[0].url)}" target="_blank" rel="noopener">📎 파일</a>` : ""}
+        ${pg.url ? `<a class="mini" href="${esc(pg.url)}" target="_blank" rel="noopener">노션에서 열기 ↗</a>` : ""}
+      </div>
+    </div>
+  </article>`;
+}
+
+function render(){
+  const list = sorted(pages.filter(matches));
+  $("#grid").className = "grid" + (view==="list" ? " list" : "");
+  $("#grid").innerHTML = list.map(cardHtml).join("");
+  $("#empty").classList.toggle("hidden", list.length>0);
+  if(!list.length){
+    $("#empty-msg").innerHTML = (q || Object.keys(activeFilters).length)
+      ? "조건에 맞는 기록이 없어요.<br>검색어나 필터를 지워보세요."
+      : "아직 표시할 기록이 없어요.<br>노션 데이터베이스에 기록을 추가해 보세요 — 여기 자동으로 나타나요.";
+  }
+  $("#count").textContent = pages.length
+    ? `${dbTitle ? "「"+dbTitle+"」 · " : ""}전체 ${pages.length}개 중 ${list.length}개 표시${pages.length>=300 ? " (최근 300개까지 보여요)" : ""}`
+    : "";
+}
+
+// ---------- 헤더/메타/주소 ----------
+function applyMeta(){
+  $("#h-name").textContent = meta.name || "나의 아카이브";
+  $("#h-emoji").textContent = meta.emoji || "📦";
+  document.title = (meta.emoji ? meta.emoji+" " : "") + (meta.name || "나의 아카이브");
+}
+function baseUrl(){ return location.href.split("#")[0]; }
+function buildShareUrl(){
+  const payload = b64uEnc(JSON.stringify({ m:meta, th:curTheme() }));
+  const slug = meta.slug ? encodeURIComponent(meta.slug) : "";
+  return baseUrl() + "#/" + slug + "?c=" + payload;
+}
+function syncHash(){
+  const slug = meta.slug ? encodeURIComponent(meta.slug) : "";
+  try{ history.replaceState(null, "", baseUrl() + (slug ? "#/"+slug : "#")); }catch(e){}
+}
+function readHash(){
+  const h = location.hash || "";
+  const m = h.match(/^#\/([^?]*)(?:\?(.*))?$/);
+  if(!m) return;
+  const slug = decodeURIComponent(m[1]||"");
+  const qs = new URLSearchParams(m[2]||"");
+  const c = qs.get("c");
+  if(c){
+    try{
+      const data = JSON.parse(b64uDec(c));
+      if(data.m){ meta = Object.assign({}, meta, data.m); store.set("meta", meta); }
+      if(data.th){ theme = data.th; store.set("theme", theme); }
+      toast("🎨 주소에 담긴 디자인을 불러왔어요");
+    }catch(e){}
+  }else if(slug && !meta.slug){
+    meta.slug = slug; store.set("meta", meta);
+  }
+}
+
+// ---------- 체험 모드 ----------
+const DEMO_PAGES = [
+  { id:"d1", title:"아카이브 시작! 노션과 연결하면 진짜 데이터가 보여요", icon:"✨", cover:"",
+    props:[ {name:"분류",t:"tags",v:[{n:"기타",c:"gray"}]}, {name:"태그",t:"tags",v:[{n:"리빙",c:"green"}]},
+      {name:"메모",t:"text",v:"이건 체험용 가짜 데이터예요. ⚙️ 설정에서 노션을 연결해 보세요."},
+      {name:"날짜",t:"date",v:{s:"2026-07-07"}}, {name:"즐겨찾기",t:"check",v:true} ],
+    url:"", created:"2026-07-07T09:00:00Z", edited:"2026-07-07T09:00:00Z" },
+  { id:"d2", title:"릴스 레퍼런스 — 오트밀 톤 주방 정리", icon:"💡", cover:"",
+    props:[ {name:"분류",t:"tags",v:[{n:"레퍼런스",c:"blue"}]}, {name:"태그",t:"tags",v:[{n:"인스타",c:"pink"},{n:"릴스",c:"purple"}]},
+      {name:"메모",t:"text",v:"도입 3초에 완성 컷 먼저 보여주는 구성이 좋았음."},
+      {name:"링크",t:"url",v:"https://www.instagram.com/"}, {name:"날짜",t:"date",v:{s:"2026-07-06"}} ],
+    url:"", created:"2026-07-06T09:00:00Z", edited:"2026-07-06T12:00:00Z" },
+  { id:"d3", title:"글감 메모 — 수납 바구니 하나로 달라지는 선반", icon:"📝", cover:"",
+    props:[ {name:"분류",t:"tags",v:[{n:"영감",c:"yellow"}]}, {name:"태그",t:"tags",v:[{n:"글쓰기",c:"blue"},{n:"리빙",c:"green"}]},
+      {name:"메모",t:"text",v:"비포/애프터 두 장이면 충분. 캡션은 '오늘 딱 한 칸만' 컨셉."},
+      {name:"날짜",t:"date",v:{s:"2026-07-05"}} ],
+    url:"", created:"2026-07-05T09:00:00Z", edited:"2026-07-05T10:00:00Z" },
+];
+const DEMO_SCHEMA = [
+  {prop:"분류", type:"tags", options:[{n:"영감",c:"yellow"},{n:"레퍼런스",c:"blue"},{n:"꿀팁",c:"green"},{n:"내 콘텐츠",c:"pink"},{n:"기타",c:"gray"}]},
+  {prop:"태그", type:"tags", options:[{n:"인스타",c:"pink"},{n:"릴스",c:"purple"},{n:"리빙",c:"green"},{n:"글쓰기",c:"blue"},{n:"마케팅",c:"orange"}]},
+  {prop:"즐겨찾기", type:"check", options:[]},
+];
+function enterDemo(){
+  demo = true;
+  pages = DEMO_PAGES; schemaOpts = DEMO_SCHEMA; dbTitle = "체험용 아카이브";
+  $("#m-setup").classList.add("hidden");
+  setDot("on","체험 모드");
+  showBanner("info", "👀 <b>체험 모드</b>예요 — 가짜 데이터로 둘러보는 중. 진짜 노션과 연결하려면 <b>⚙️ 설정</b>을 눌러 주세요.");
+  renderChips(); render();
+}
+
+// ---------- 연결 테스트 ----------
+async function testConnection(token, dbId, out){
+  out.classList.remove("hidden","ok","bad");
+  out.textContent = "⏳ 노션에 연결해 보는 중… (최대 30초)";
+  const bak = { token:cfg.token, db:cfg.db };
+  cfg.token = token; cfg.db = dbId;
+  try{
+    const db = await notionApi("databases/"+dbId);
+    out.classList.add("ok");
+    out.textContent = "✅ 연결 성공! 「"+(plainRich(db.title)||"데이터베이스")+"」를 찾았어요.";
+    return true;
+  }catch(e){
+    cfg.token = bak.token; cfg.db = bak.db;
+    out.classList.add("bad");
+    out.innerHTML = "❌ " + friendlyError(e);
+    return false;
+  }
+}
+
+// ---------- 모달 열기/닫기 공통 ----------
+function openModal(id){ $(id).classList.remove("hidden"); }
+function closeModal(id){ $(id).classList.add("hidden"); }
+document.querySelectorAll(".backdrop").forEach(b=>{
+  b.addEventListener("mousedown", e=>{ if(e.target===b && b.id!=="m-setup") b.classList.add("hidden"); });
+});
+
+// ---------- 이벤트: 툴바 ----------
+$("#q").addEventListener("input", e=>{ q = e.target.value.trim().toLowerCase(); render(); });
+$("#sort").addEventListener("change", e=>{ sortBy = e.target.value; render(); });
+$("#v-card").addEventListener("click", ()=>{ view="card"; store.set("view",view); $("#v-card").classList.add("on"); $("#v-list").classList.remove("on"); render(); });
+$("#v-list").addEventListener("click", ()=>{ view="list"; store.set("view",view); $("#v-list").classList.add("on"); $("#v-card").classList.remove("on"); render(); });
+$("#b-refresh").addEventListener("click", ()=>{
+  if(demo){ toast("체험 모드예요 — ⚙️ 설정에서 노션을 연결해 주세요"); return; }
+  if(!cfg.token || !cfg.db){ openModal("#m-setup"); return; }
+  sync(true);
+});
+
+// ---------- 이벤트: 처음 연결 ----------
+$("#su-go").addEventListener("click", async ()=>{
+  const token = $("#su-token").value.trim();
+  const dbId = parseDbId($("#su-db").value);
+  const out = $("#su-out");
+  if(!token){ out.classList.remove("hidden","ok"); out.classList.add("bad"); out.textContent = "1단계의 연결 열쇠(토큰)를 붙여넣어 주세요."; return; }
+  if(!dbId){ out.classList.remove("hidden","ok"); out.classList.add("bad"); out.textContent = "3단계의 데이터베이스 링크를 붙여넣어 주세요. (링크 안에 32자리 코드가 있어야 해요)"; return; }
+  if(await testConnection(token, dbId, out)){
+    store.set("cfg", cfg);
+    demo = false;
+    closeModal("#m-setup");
+    clearBanner();
+    await sync(false);
+    startPolling();
+    toast("🎉 연결 완료! 이제 노션과 실시간으로 동기화돼요");
+  }
+});
+$("#su-demo").addEventListener("click", enterDemo);
+
+// ---------- 이벤트: 설정 ----------
+$("#b-set").addEventListener("click", ()=>{
+  $("#st-token").value = cfg.token || "";
+  $("#st-db").value = cfg.db || "";
+  $("#st-poll").value = String(cfg.poll || 30);
+  $("#st-proxy").value = cfg.proxy || "";
+  $("#st-out").classList.add("hidden");
+  openModal("#m-set");
+});
+$("#st-cancel").addEventListener("click", ()=>closeModal("#m-set"));
+$("#st-save").addEventListener("click", async ()=>{
+  const token = $("#st-token").value.trim();
+  const dbId = parseDbId($("#st-db").value);
+  const out = $("#st-out");
+  cfg.poll = Number($("#st-poll").value)||30;
+  cfg.proxy = $("#st-proxy").value.trim();
+  if(!token || !dbId){ out.classList.remove("hidden","ok"); out.classList.add("bad"); out.textContent = "토큰과 데이터베이스 링크를 모두 입력해 주세요."; return; }
+  if(await testConnection(token, dbId, out)){
+    store.set("cfg", cfg);
+    demo = false;
+    closeModal("#m-set"); clearBanner();
+    await sync(false); startPolling();
+    toast("✅ 설정을 저장했어요");
+  }
+});
+$("#st-unlink").addEventListener("click", ()=>{
+  if(!confirm("노션 연결을 끊을까요?\n(저장된 토큰·링크·캐시가 이 브라우저에서 지워져요. 노션 데이터는 그대로예요.)")) return;
+  store.del("cfg"); store.del("cache");
+  cfg = { token:"", db:"", poll:30, proxy:"", route:0 }; cache = null;
+  pages = []; schemaOpts = []; dbTitle = ""; demo = false;
+  clearInterval(pollTimer);
+  closeModal("#m-set"); render(); renderChips();
+  setDot("","연결 전");
+  openModal("#m-setup");
+});
+
+// ---------- 이벤트: 꾸미기 ----------
+function renderThemeModal(){
+  const t = curTheme();
+  $("#presets").innerHTML = PRESETS.map(p=>
+    `<button class="preset" data-id="${p.id}">
+      <span class="sw"><i style="background:${p.bg}"></i><i style="background:${p.accent}"></i><i style="background:${p.surface}"></i></span>
+      <span class="nm">${p.nm}</span>
+    </button>`).join("");
+  $("#presets").querySelectorAll(".preset").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      theme = Object.assign({}, PRESETS.find(p=>p.id===b.dataset.id));
+      store.set("theme", theme); applyTheme(); renderThemeModal();
+    });
+  });
+  $("#crows").innerHTML = THEME_KEYS.map(([k, label])=>
+    `<div class="crow">
+      <label for="th-${k}">${label}</label>
+      <span class="hex" id="th-${k}-v">${t[k]}</span>
+      <input type="color" id="th-${k}" value="${t[k]}">
+    </div>`).join("");
+  THEME_KEYS.forEach(([k])=>{
+    $("#th-"+k).addEventListener("input", e=>{
+      theme = Object.assign({}, curTheme(), { [k]: e.target.value });
+      store.set("theme", theme); applyTheme();
+      $("#th-"+k+"-v").textContent = e.target.value;
+    });
+  });
+  $("#th-radius").value = t.radius ?? 14;
+  $("#th-radius-v").textContent = (t.radius ?? 14)+"px";
+}
+$("#th-radius").addEventListener("input", e=>{
+  theme = Object.assign({}, curTheme(), { radius: Number(e.target.value) });
+  store.set("theme", theme); applyTheme();
+  $("#th-radius-v").textContent = e.target.value+"px";
+});
+$("#b-theme").addEventListener("click", ()=>{ renderThemeModal(); openModal("#m-theme"); });
+$("#th-done").addEventListener("click", ()=>closeModal("#m-theme"));
+$("#th-reset").addEventListener("click", ()=>{
+  theme = null; store.del("theme"); applyTheme(); renderThemeModal(); toast("기본 디자인으로 되돌렸어요");
+});
+
+// ---------- 이벤트: 내 주소 ----------
+function updateUrlPreview(){
+  const nm = $("#u-name").value.trim() || "나의 아카이브";
+  const em = ($("#u-emoji").value.trim() || "📦");
+  const slug = $("#u-slug").value.trim().replace(/[^\w가-힣ㄱ-ㅎㅏ-ㅣ-]/g, "-").replace(/-+/g,"-").replace(/^-|-$/g,"").toLowerCase();
+  const tmp = Object.assign({}, meta, { name:nm, emoji:em, slug });
+  const bakMeta = meta; meta = tmp;
+  $("#u-prev").textContent = buildShareUrl();
+  meta = bakMeta;
+  return tmp;
+}
+$("#b-url").addEventListener("click", ()=>{
+  $("#u-name").value = meta.name || "";
+  $("#u-emoji").value = meta.emoji || "";
+  $("#u-slug").value = meta.slug || "";
+  updateUrlPreview();
+  openModal("#m-url");
+});
+["u-name","u-emoji","u-slug"].forEach(id=>$("#"+id).addEventListener("input", updateUrlPreview));
+$("#u-cancel").addEventListener("click", ()=>closeModal("#m-url"));
+$("#u-copy").addEventListener("click", async ()=>{
+  meta = updateUrlPreview();
+  store.set("meta", meta);
+  applyMeta(); syncHash();
+  const url = buildShareUrl();
+  try{
+    await navigator.clipboard.writeText(url);
+    toast("📋 내 아카이브 주소를 복사했어요! 즐겨찾기에 저장해 두세요");
+  }catch(e){
+    prompt("아래 주소를 직접 복사하세요:", url); // 클립보드 권한 없을 때 최후 수단
+  }
+  closeModal("#m-url");
+});
+
+// ---------- 시작 ----------
+function init(){
+  readHash();
+  applyTheme();
+  applyMeta();
+  view = store.get("view","card");
+  if(view==="list"){ $("#v-list").classList.add("on"); $("#v-card").classList.remove("on"); }
+
+  if(cfg.token && cfg.db){
+    restoreCache();
+    if(pages.length){ renderChips(); render(); setDot("on","저장된 데이터 표시 중"); }
+    sync(false);
+    startPolling();
+  }else{
+    // 시작용으로 만들어 둔 「📦 나의 아카이브」 DB 링크를 미리 채워 두기
+    $("#su-db").value = "f92f2f2b936d49a5b8917cfa61f3aa89";
+    openModal("#m-setup");
+    render();
+  }
+}
+init();
+
+// 테스트 훅
+window.__archive = { sync, render, enterDemo, parseDbId, get pages(){return pages;}, set pages(v){pages=v;}, get cfg(){return cfg;}, buildShareUrl, applyTheme };
+</script>
+</body>
+</html>

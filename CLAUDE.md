@@ -20,6 +20,7 @@
 | `app.js` | 전체 로직 (~2900줄, 섹션 주석으로 구분) |
 | `style.css` | 디자인 (오트밀/세이지 팔레트, `:root` 변수) |
 | `studio.html` | 크리에이터 스튜디오 (독립 앱, iframe으로 내장, 자체 localStorage 키) |
+| `archive.html` | 노션 아카이브 (독립 앱, 노션 API+CORS 중계 폴백, 자체 키 `senterArchive:`) |
 | `vendor/` | pdf.min.js + worker, jszip.min.js |
 | `claude-desk/` | 별도 로컬 Node 도구 (웹 배포와 무관, 건드리지 말 것) |
 | `docs/` | ARCHITECTURE.md(상세 설계), PROMPT-TEMPLATE.md(재사용 프롬프트) |

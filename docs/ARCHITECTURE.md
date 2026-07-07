@@ -15,6 +15,11 @@ app.js     ─ 모든 로직. 섹션: 저장소 → 멘토 페르소나 → AI�
              → 채팅 → 자료실(PDF) → 생산성 → 설정/백업
 style.css  ─ 오트밀/세이지 토큰 + 사무실 픽셀 스타일
 studio.html─ 크리에이터 스튜디오(허브/패턴/이모티콘/템플릿분할). 독립 스코프, iframe 내장
+archive.html─ 노션 아카이브(단일 파일 독립 앱). 노션 공식 API를 무료 CORS 중계 서버
+             폴백 체인(corsproxy.io → cors.eu.org → workers.dev → 커스텀)으로 호출,
+             30초 폴링 + 탭 복귀 시 동기화. 안전망: 마지막 성공 데이터 캐시 + 체험 모드.
+             테마(색 6종+둥글기)·이름·슬러그는 해시 URL(#/슬러그?c=base64)에 담아 공유
+             (토큰·DB ID는 URL에 절대 미포함). 설정 탭에서 링크로 진입.
 ```
 
 ## 3. localStorage 데이터 모델
@@ -30,6 +35,7 @@ studio.html─ 크리에이터 스튜디오(허브/패턴/이모티콘/템플릿
 | `senter:todos` `events` `notes` `focusLog` | 생산성 | - |
 | `senter:roadmapDone` `missions` `stageOpen` `currentPersona` `personaBarExpanded` | UI 상태 | - |
 | `studio_hq_v1` `emoticon_studio_v1` `pattern_studio_v1` `studio_shell_last` | 스튜디오(iframe) 자체 키 | - |
+| `senterArchive:cfg` `meta` `theme` `cache` `view` | 노션 아카이브(archive.html) 자체 키. cfg=토큰·DB ID·폴링·프록시, cache=마지막 동기화 데이터 | 캐시 300행 |
 
 백업: 설정 탭 내보내기/불러오기 (senter:* 전체, API 키 제외. 스튜디오 키는 스튜디오 자체 내보내기 사용).
 
