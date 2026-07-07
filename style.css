@@ -871,3 +871,14 @@ body {
 /* ===== 자율 근무 토글 ===== */
 .autopilot-off { background: var(--surface-2) !important; color: var(--text-soft) !important; }
 
+
+/* ===== 회의록 보관함 ===== */
+.minutes-list { display: flex; flex-direction: column; gap: 8px; max-height: 55vh; overflow-y: auto; }
+.minute-entry { border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.minute-entry summary {
+  cursor: pointer; padding: 11px 13px; display: flex; justify-content: space-between;
+  align-items: center; gap: 10px; font-size: .88rem; user-select: none;
+}
+.minute-entry summary::-webkit-details-marker { display: none; }
+.minute-when { font-size: .74rem; color: var(--text-soft); flex-shrink: 0; }
+.minute-body { padding: 4px 13px 12px; display: flex; flex-direction: column; gap: 6px; border-top: 1px dashed var(--line); }

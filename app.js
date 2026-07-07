@@ -1528,6 +1528,12 @@ async function holdScrum(quick = false) {
   const briefingExtras = [];
   if (todayEvents.length) briefingExtras.push(`오늘 일정 ${todayEvents.length}건 — ${todayEvents.slice(0, 2).map(e => `${e.time ? e.time + " " : ""}${e.title}`).join(", ")}${todayEvents.length > 2 ? " 외" : ""} 🗓️`);
   if (dueTodos.length) briefingExtras.push(`마감 임박 할 일 ${dueTodos.length}건 — "${dueTodos[0].text}"${dueTodos.length > 1 ? " 외" : ""} 서두르세요!`);
+  const snsNow = readStudioSns();
+  if (snsNow.length) {
+    const top = snsNow[0];
+    const d = top.delta === null ? "" : top.delta >= 0 ? ` (+${top.delta.toLocaleString("ko-KR")}) 📈` : ` (${top.delta.toLocaleString("ko-KR")}) 📉`;
+    briefingExtras.push(`채널 현황: ${top.platform} ${top.handle} 팔로워 ${top.count.toLocaleString("ko-KR")}명${d}${snsNow.length > 1 ? ` 외 ${snsNow.length - 1}개 채널` : ""}`);
+  }
 
   // 발표자: 빠른 브리핑은 업무 있는 직원만
   const speakers = OFFICE_AGENTS.filter(a => {
@@ -1783,6 +1789,26 @@ function fireStaff(id) {
   toast(`👋 ${c.name} 해고 완료`);
 }
 
+/* ----- 스튜디오 본부 연동: SNS 채널 팔로워 현황 읽기 ----- */
+function readStudioSns() {
+  try {
+    const raw = localStorage.getItem("studio_hq_v1");
+    if (!raw) return [];
+    return (JSON.parse(raw).sns || []).map(s => {
+      const hist = s.history || [];
+      const last = hist[hist.length - 1];
+      const prev = hist.length > 1 ? hist[hist.length - 2] : null;
+      return {
+        platform: s.platform || "SNS",
+        handle: s.handle || "",
+        count: last ? (Number(last.c) || 0) : null,
+        delta: last && prev ? (Number(last.c) || 0) - (Number(prev.c) || 0) : null,
+        date: last ? last.d : ""
+      };
+    }).filter(x => x.count !== null);
+  } catch { return []; }
+}
+
 /* ----- 보고서 생성 (앱 전체 데이터를 모아 작성 → 자료실 저장) ----- */
 function buildReportData() {
   const today = todayStr();
@@ -1828,6 +1854,19 @@ function reportMarkdown(d) {
   }
   L.push(`## 오늘의 집중`);
   L.push(`- 집중 ${d.focus.count}회 · ${d.focus.minutes}분`);
+  L.push("");
+  const sns = readStudioSns();
+  L.push(`## SNS 채널 현황 (🎨 스튜디오 본부 연동)`);
+  if (sns.length) {
+    L.push(`| 플랫폼 | 계정 | 팔로워 | 최근 변화 |`);
+    L.push(`|---|---|---|---|`);
+    sns.forEach(s => {
+      const delta = s.delta === null ? "—" : (s.delta >= 0 ? `+${s.delta.toLocaleString("ko-KR")} 📈` : `${s.delta.toLocaleString("ko-KR")} 📉`);
+      L.push(`| ${s.platform} | ${s.handle} | ${s.count.toLocaleString("ko-KR")}명 | ${delta} (${s.date}) |`);
+    });
+  } else {
+    L.push(`- 아직 연동된 채널이 없어요. 🎨 스튜디오 탭 > 본부 > SNS 계정에 계정과 팔로워 수를 기록하면 여기에 자동으로 나타나요.`);
+  }
   L.push("");
   L.push(`## 보유 자료`);
   L.push(`- 자료실 ${docs.length}개 (활성 ${docs.filter(x => x.enabled).length}개)`);
@@ -1929,6 +1968,29 @@ async function studyMeeting(docId, opts = {}) {
   $("#scrum-btn").disabled = false;
   $("#brief-btn").disabled = false;
   OFFICE_AGENTS.forEach(a => moveAgent(a.id, ...WORK_POS[a.id]));
+}
+
+/* ----- 회의록 보관함 ----- */
+function renderMinutesList() {
+  const list = $("#minutes-list");
+  if (!list) return;
+  if (!meetings.length) {
+    list.innerHTML = `<div class="mission-empty">아직 저장된 회의록이 없어요. 스크럼 미팅이나 스터디 회의를 열어보세요!</div>`;
+    return;
+  }
+  list.innerHTML = "";
+  meetings.forEach(m => {
+    const det = document.createElement("details");
+    det.className = "minute-entry";
+    const when = new Date(m.date).toLocaleString("ko-KR", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const kind = m.study ? `📖 스터디 — 『${m.study}』` : m.quick ? "⚡ 빠른 브리핑" : "📣 스크럼 미팅";
+    det.innerHTML = `<summary><b>${escapeHtml(kind)}</b><span class="minute-when">${when} · ${m.minutes.length}줄</span></summary>`;
+    const body = document.createElement("div");
+    body.className = "minute-body";
+    body.innerHTML = m.minutes.map(l => `<div class="meeting-line"><b>${escapeHtml(l.speaker)}</b> ${escapeHtml(l.text)}</div>`).join("");
+    det.appendChild(body);
+    list.appendChild(det);
+  });
 }
 
 /* ----- 활동 로그 ----- */
@@ -3753,6 +3815,9 @@ function bindEvents() {
   $("#scrum-btn").addEventListener("click", () => holdScrum(false));
   $("#brief-btn").addEventListener("click", () => holdScrum(true));
   $("#report-btn").addEventListener("click", () => generateReport(false));
+  $("#minutes-btn").addEventListener("click", () => { renderMinutesList(); $("#minutes-modal").classList.remove("hidden"); });
+  $("#minutes-close").addEventListener("click", () => $("#minutes-modal").classList.add("hidden"));
+  $("#minutes-modal").addEventListener("click", e => { if (e.target === $("#minutes-modal")) $("#minutes-modal").classList.add("hidden"); });
   $("#autopilot-btn").addEventListener("click", () => {
     settings.autoPilot = !settings.autoPilot;
     store.set("settings", settings);
