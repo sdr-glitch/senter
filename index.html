@@ -102,6 +102,7 @@
     <button class="tab" data-tab="home">🏠 홈</button>
     <button class="tab" data-tab="tools">✅ 생산성</button>
     <button class="tab" data-tab="reels">🎬 릴스/숏츠</button>
+    <button class="tab" data-tab="trend">📈 트렌드</button>
     <button class="tab" data-tab="studio">🎨 스튜디오</button>
     <button class="tab" data-tab="library">📚 자료실</button>
     <button class="tab" data-tab="settings">⚙️ 설정</button>
@@ -327,6 +328,36 @@
       </div>
       <p class="card-desc">만든 대본은 여기에 자동 저장돼요 (최근 20개). 예전 대본을 열어서 다시 쓰거나, 자막만 뽑아갈 수 있어요.</p>
       <div id="reels-lib" class="reels-lib"></div>
+    </section>
+  </main>
+
+  <!-- ===== 트렌드 탭 (웹에서 바로 보는 트렌드) ===== -->
+  <main id="tab-trend" class="tab-panel hidden">
+    <section class="card">
+      <div class="card-head">
+        <h3>🔥 실시간 급상승 (구글 트렌드 · 한국)</h3>
+        <button class="btn-small" id="trend-refresh">↻ 새로고침</button>
+      </div>
+      <p class="card-desc">지금 사람들이 검색하는 것. 항목의 ➕를 누르면 자료실로 보내져서 직원들이 스터디 회의로 소화해요.</p>
+      <div id="trend-hot" class="trend-list"></div>
+    </section>
+
+    <section class="card">
+      <h3>🔍 관심 키워드 뉴스</h3>
+      <p class="card-desc">키워드를 등록하면 최신 뉴스를 모아줘요. 뉴스도 ➕로 자료실에 보낼 수 있어요.</p>
+      <div class="idea-row">
+        <input type="text" id="trend-kw-input" placeholder="예: 리빙, 수납, 원룸 인테리어" maxlength="30">
+        <button class="btn-primary" id="trend-kw-add">추가</button>
+      </div>
+      <div id="trend-kw-chips" class="chip-row" style="margin-top:10px"></div>
+      <div id="trend-news"></div>
+    </section>
+
+    <section class="card">
+      <h3>🖥️ 전체 트렌드 관제판 (로컬 도구)</h3>
+      <p class="card-desc">유튜브·쇼츠·릴스·X·스레드·틱톡·AI뉴스까지 한 화면에 보려면 컴퓨터용 관제판을 쓰세요:
+      저장소의 <b>trend-viewer 폴더</b> → <b>시작하기.command</b>(맥)/<b>시작하기.bat</b>(윈도우) 더블클릭 (Python 3 필요, 맥은 기본 내장).
+      웹 탭은 브라우저 보안 제약으로 급상승·뉴스만 지원해요.</p>
     </section>
   </main>
 

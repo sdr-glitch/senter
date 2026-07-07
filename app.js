@@ -3868,6 +3868,186 @@ function renderTools() {
   timerRender();
 }
 
+/* ==================================================
+   트렌드 탭 — 웹에서 바로 보는 급상승·키워드 뉴스
+   (정적 앱은 CORS 제약이 있어 공개 프록시 체인으로 우회, 실패 시 안내)
+   ================================================== */
+let trendKeywords = store.get("trendKeywords", null);
+const trendCache = { hot: null, news: {} }; // {at, items}
+const TREND_TTL = 10 * 60 * 1000;
+
+function corsProxies(url) {
+  const enc = encodeURIComponent(url);
+  return [
+    url, // GitHub Pages에선 CORS로 막히지만 로컬/확장 환경에선 통과 가능
+    `https://api.allorigins.win/raw?url=${enc}`,
+    `https://corsproxy.io/?url=${enc}`
+  ];
+}
+
+async function fetchRss(url) {
+  let lastErr = null;
+  for (const target of corsProxies(url)) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      const res = await fetch(target, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const text = await res.text();
+      if (!text.includes("<item")) throw new Error("RSS 형식 아님");
+      return text;
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error("연결 실패");
+}
+
+function parseRssItems(xml, max = 10) {
+  const out = [];
+  const un = (s) => String(s || "")
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, "&")
+    .replace(/<[^>]+>/g, "").trim();
+  const grab = (b, t) => { const m = b.match(new RegExp(`<${t}[^>]*>([\\s\\S]*?)</${t}>`, "i")); return m ? un(m[1]) : ""; };
+  const re = /<item[\s>][\s\S]*?<\/item>/gi;
+  let m;
+  while ((m = re.exec(xml)) && out.length < max) {
+    const b = m[0];
+    out.push({ title: grab(b, "title"), link: grab(b, "link"), source: grab(b, "source"), date: grab(b, "pubDate"), traffic: grab(b, "ht:approx_traffic") });
+  }
+  return out.filter(i => i.title);
+}
+
+/* 트렌드 항목 → 자료실 (오늘의 트렌드 수집 문서에 누적) */
+function sendTrendToLibrary(line) {
+  const title = `📈 트렌드 수집 ${todayStr()}`;
+  let doc = docs.find(d => d.title === title);
+  if (!doc) {
+    doc = { id: Date.now() + "", title, content: "오늘 수집한 트렌드·뉴스:\n", enabled: true };
+    docs.push(doc);
+  }
+  if (doc.content.includes(line)) { toast("이미 자료실에 보냈어요!"); return; }
+  doc.content += `\n- ${line}`;
+  store.set("docs", docs);
+  renderLibrary();
+  toast("📚 자료실로 보냈어요! 직원들이 스터디 회의로 소화할 거예요.");
+}
+
+function trendItemRow(it, kind) {
+  const row = document.createElement("div");
+  row.className = "trend-row";
+  const text = document.createElement("span");
+  text.className = "trend-row-text";
+  if (kind === "hot") {
+    text.textContent = it.title + (it.traffic ? ` (${it.traffic})` : "");
+  } else {
+    const a = document.createElement("a");
+    a.href = it.link; a.target = "_blank"; a.rel = "noopener";
+    a.textContent = it.title;
+    text.appendChild(a);
+    if (it.source) {
+      const s = document.createElement("span");
+      s.className = "trend-src";
+      s.textContent = " · " + it.source;
+      text.appendChild(s);
+    }
+  }
+  const add = document.createElement("button");
+  add.className = "btn-small";
+  add.textContent = "➕";
+  add.title = "자료실로 보내기 (직원들이 활용)";
+  add.addEventListener("click", () => sendTrendToLibrary(
+    kind === "hot" ? `[급상승] ${it.title}${it.traffic ? ` (${it.traffic})` : ""}` : `[뉴스] ${it.title} — ${it.source || ""} ${it.link}`));
+  row.append(text, add);
+  return row;
+}
+
+function trendFailNote(box, what) {
+  box.innerHTML = "";
+  const d = document.createElement("div");
+  d.className = "stage-tip";
+  d.textContent = `⚠️ ${what}을 지금 가져오지 못했어요 (우회 경로도 막힘). 잠시 후 새로고침하거나, 전체 관제판(아래 로컬 도구)을 사용해주세요.`;
+  box.appendChild(d);
+}
+
+async function loadTrendHot(force = false) {
+  const box = $("#trend-hot");
+  if (!box) return;
+  if (!force && trendCache.hot && Date.now() - trendCache.hot.at < TREND_TTL) return renderTrendHot();
+  box.innerHTML = `<div class="mission-empty">불러오는 중...</div>`;
+  try {
+    const xml = await fetchRss("https://trends.google.com/trending/rss?geo=KR");
+    trendCache.hot = { at: Date.now(), items: parseRssItems(xml, 12) };
+    renderTrendHot();
+  } catch { trendFailNote(box, "급상승 검색어"); }
+}
+
+function renderTrendHot() {
+  const box = $("#trend-hot");
+  box.innerHTML = "";
+  (trendCache.hot?.items || []).forEach(it => box.appendChild(trendItemRow(it, "hot")));
+  if (!box.children.length) trendFailNote(box, "급상승 검색어");
+}
+
+function getTrendKeywords() {
+  if (!trendKeywords) trendKeywords = [topicWord()];
+  return trendKeywords;
+}
+
+async function loadTrendNews(force = false) {
+  const wrap = $("#trend-news");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  for (const kw of getTrendKeywords()) {
+    const sec = document.createElement("div");
+    sec.className = "trend-kw-sec";
+    sec.innerHTML = `<div class="trend-kw-title">🔍 ${escapeHtml(kw)}</div>`;
+    const list = document.createElement("div");
+    list.innerHTML = `<div class="mission-empty">불러오는 중...</div>`;
+    sec.appendChild(list);
+    wrap.appendChild(sec);
+    const cached = trendCache.news[kw];
+    if (!force && cached && Date.now() - cached.at < TREND_TTL) {
+      list.innerHTML = "";
+      cached.items.forEach(it => list.appendChild(trendItemRow(it, "news")));
+      continue;
+    }
+    try {
+      const xml = await fetchRss(`https://news.google.com/rss/search?q=${encodeURIComponent(kw)}&hl=ko&gl=KR&ceid=KR:ko`);
+      trendCache.news[kw] = { at: Date.now(), items: parseRssItems(xml, 6) };
+      list.innerHTML = "";
+      trendCache.news[kw].items.forEach(it => list.appendChild(trendItemRow(it, "news")));
+      if (!list.children.length) list.innerHTML = `<div class="mission-empty">관련 뉴스가 없어요.</div>`;
+    } catch { trendFailNote(list, `"${kw}" 뉴스`); }
+  }
+}
+
+function renderTrendChips() {
+  const wrap = $("#trend-kw-chips");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  getTrendKeywords().forEach(kw => {
+    const chip = document.createElement("button");
+    chip.className = "chip";
+    chip.innerHTML = `${escapeHtml(kw)} ✕`;
+    chip.title = "삭제";
+    chip.addEventListener("click", () => {
+      trendKeywords = getTrendKeywords().filter(k => k !== kw);
+      store.set("trendKeywords", trendKeywords);
+      renderTrendChips();
+      loadTrendNews();
+    });
+    wrap.appendChild(chip);
+  });
+}
+
+function renderTrendTab() {
+  renderTrendChips();
+  loadTrendHot();
+  loadTrendNews();
+}
+
 /* ---------- 스튜디오 탭 (iframe 지연 로드) ---------- */
 function renderStudio() {
   const frame = $("#studio-frame");
@@ -4016,6 +4196,7 @@ function switchTab(name) {
   if (name === "staff") renderStaff();
   if (name === "tools") renderTools();
   if (name === "reels") renderReels();
+  if (name === "trend") renderTrendTab();
   if (name === "studio") renderStudio();
   if (name === "chat") renderChat();
   if (name === "library") renderLibrary();
@@ -4122,6 +4303,24 @@ function bindEvents() {
   $("#timer-start").addEventListener("click", timerToggle);
   $("#timer-reset").addEventListener("click", timerReset);
   $("#timer-mins").addEventListener("change", timerReset);
+
+  // 트렌드 탭
+  $("#trend-refresh").addEventListener("click", () => { loadTrendHot(true); loadTrendNews(true); });
+  const addTrendKw = () => {
+    const v = $("#trend-kw-input").value.trim();
+    if (!v) return;
+    const list = getTrendKeywords();
+    if (list.includes(v)) { toast("이미 있는 키워드예요!"); return; }
+    if (list.length >= 8) { toast("키워드는 8개까지예요."); return; }
+    list.push(v);
+    trendKeywords = list;
+    store.set("trendKeywords", trendKeywords);
+    $("#trend-kw-input").value = "";
+    renderTrendChips();
+    loadTrendNews();
+  };
+  $("#trend-kw-add").addEventListener("click", addTrendKw);
+  $("#trend-kw-input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) addTrendKw(); });
 
   // 자료 입력 모달
   $("#dm-save").addEventListener("click", saveDocModal);
