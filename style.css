@@ -652,6 +652,35 @@ body {
   font-size: .74rem; font-weight: 700; color: var(--accent-strong);
   background: var(--accent-soft); padding: 3px 10px; border-radius: 999px;
 }
+
+.step-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--accent); color: #fff;
+  font-size: .78rem; font-weight: 700; margin-right: 8px; vertical-align: -3px;
+}
+.reels-step-label { font-size: .95rem; font-weight: 700; margin: 4px 0 10px; }
+
+.reels-howto {
+  background: var(--accent-soft); border: 1px solid var(--accent);
+  border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;
+}
+.reels-howto-title { font-weight: 700; color: var(--accent-strong); margin-bottom: 10px; }
+.reels-howto-steps { display: flex; gap: 10px; flex-wrap: wrap; }
+.reels-howto-step {
+  flex: 1; min-width: 150px; background: var(--surface); border-radius: 10px;
+  padding: 10px 12px; font-size: .86rem; font-weight: 600;
+}
+.reels-howto-step b {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #fff;
+  font-size: .74rem; margin-right: 6px;
+}
+.reels-howto-step span { display: block; font-size: .76rem; font-weight: 400; color: var(--text-soft); margin-top: 3px; }
+.reels-howto-close {
+  border: none; background: none; color: var(--accent-strong);
+  font-size: .78rem; cursor: pointer; margin-top: 10px; text-decoration: underline; padding: 0;
+}
 .reels-drop {
   border: 2px dashed var(--line); border-radius: var(--radius);
   background: var(--surface-2); padding: 28px 18px; text-align: center;
@@ -661,6 +690,7 @@ body {
 .reels-drop-icon { font-size: 2.2rem; }
 .reels-drop-title { font-weight: 600; margin-top: 6px; }
 .reels-drop-sub { font-size: .82rem; color: var(--text-soft); margin-top: 4px; }
+.reels-drop-sub2 { font-size: .8rem; color: var(--accent-strong); margin-top: 8px; }
 
 .reels-media { margin-top: 14px; }
 .reels-media-summary { font-size: .84rem; color: var(--text-soft); margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
@@ -700,6 +730,19 @@ body {
 
 .reels-result-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .reels-loading { padding: 30px; text-align: center; color: var(--text-soft); }
+.reels-loading::after { content: ""; display: inline-block; width: 1.2em; text-align: left; animation: reels-dots 1.5s steps(4) infinite; }
+@keyframes reels-dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+
+.reels-guide { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
+.reels-guide summary {
+  cursor: pointer; font-weight: 600; font-size: .9rem; color: var(--accent-strong);
+  list-style-position: inside;
+}
+.reels-guide summary:hover { text-decoration: underline; }
+.reels-guide-cols { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 12px; }
+.reels-guide-cols > div { flex: 1; min-width: 240px; font-size: .86rem; }
+.reels-guide-cols ol { margin: 8px 0 0 18px; }
+.reels-guide-cols li { margin: 5px 0; line-height: 1.5; }
 .reels-result { line-height: 1.6; }
 .reels-result h1 { font-size: 1.25rem; margin: 4px 0 12px; }
 .reels-result h2 { font-size: 1.05rem; margin: 20px 0 8px; padding-top: 12px; border-top: 1px solid var(--line); }

@@ -177,10 +177,22 @@
       </div>
       <p class="card-desc">사진·영상을 올리면 <b>캡컷·프리미어 프로에서 바로 따라 만들 수 있는 편집 대본</b>을 만들어드려요. 컷 편집표·자막·나레이션·BGM·내보내기 설정까지 한 번에. <b>파일은 인터넷으로 올라가지 않고 내 브라우저 안에서만 처리</b>돼서 용량 제한도, 요금도 없어요. (AI는 무료 모드로 작동 — 첫 사용 시 무료 계정 로그인 1회)</p>
 
+      <div id="reels-howto" class="reels-howto hidden">
+        <div class="reels-howto-title">🐣 처음이세요? 딱 3단계예요</div>
+        <div class="reels-howto-steps">
+          <div class="reels-howto-step"><b>1</b> 사진·영상 올리기<span>없으면 설명만 적어도 돼요</span></div>
+          <div class="reels-howto-step"><b>2</b> 형식·길이·톤 고르기<span>버튼만 누르면 끝</span></div>
+          <div class="reels-howto-step"><b>3</b> 대본 만들기<span>복사·자막 저장 → 캡컷/프리미어</span></div>
+        </div>
+        <button class="reels-howto-close" id="reels-howto-close">알겠어요, 그만 보기 ✕</button>
+      </div>
+
+      <div class="reels-step-label"><span class="step-num">1</span>재료 올리기</div>
       <div id="reels-drop" class="reels-drop">
         <div class="reels-drop-icon">📎</div>
         <div class="reels-drop-title">여기에 사진·영상을 끌어다 놓거나 눌러서 선택하세요</div>
         <div class="reels-drop-sub">jpg · png · mp4 · mov 등 · 여러 개 한꺼번에 · 용량 제한 없음</div>
+        <div class="reels-drop-sub2">💡 올릴 게 없어도 괜찮아요 — 아래에 설명만 적으면 촬영할 컷까지 짜드려요</div>
         <input type="file" id="reels-file-input" accept="image/*,video/*" multiple hidden>
       </div>
 
@@ -188,7 +200,7 @@
     </section>
 
     <section class="card">
-      <h3>🎯 어떤 영상으로 만들까요?</h3>
+      <h3><span class="step-num">2</span>🎯 어떤 영상으로 만들까요?</h3>
       <label class="field">
         <span>주제 · 설명 (무슨 내용인지, 강조할 점) — 자세할수록 대본이 좋아져요 <button type="button" class="reels-example-btn" id="reels-example">✨ 예시 넣기</button></span>
         <textarea id="reels-topic" rows="3" placeholder="예: 좁은 주방 수납 꿀템 소개. 3천 원짜리 걸이로 공간이 두 배로 넓어진 걸 보여주고 싶어요. 마지막에 '프로필 링크에서 구매' 유도."></textarea>
@@ -242,7 +254,7 @@
 
     <section class="card reels-result-card hidden" id="reels-result-card">
       <div class="card-head">
-        <h3>📄 완성된 대본</h3>
+        <h3><span class="step-num">3</span>📄 완성된 대본</h3>
         <div class="reels-result-actions">
           <button class="btn-small" id="reels-copy">📋 대본 복사</button>
           <button class="btn-small" id="reels-srt">💬 자막 저장(.srt)</button>
@@ -251,6 +263,31 @@
         </div>
       </div>
       <div id="reels-result" class="reels-result markdown-body"></div>
+      <details class="reels-guide">
+        <summary>📖 이 대본, 캡컷·프리미어에 어떻게 넣나요? (처음이라면 열어보세요)</summary>
+        <div class="reels-guide-cols">
+          <div>
+            <b>✂️ 캡컷 (무료, 폰·PC)</b>
+            <ol>
+              <li><b>새 프로젝트</b> → 올렸던 사진·영상을 <b>컷 편집표 순서대로</b> 추가</li>
+              <li>컷 편집표의 시간에 맞춰 클립을 <b>분할(자르기)</b> — 타임라인에서 클립 선택 → 분할</li>
+              <li><b>텍스트 → 자막 가져오기</b>에서 방금 저장한 <b>자막.srt</b> 선택 (또는 '자동 캡션'으로 나레이션 인식)</li>
+              <li><b>오디오</b>에서 대본의 BGM 키워드로 음악 검색 → 비트에 컷 맞추기</li>
+              <li><b>내보내기</b>: 해상도 1080p · 프레임 30 → 릴스/쇼츠 업로드!</li>
+            </ol>
+          </div>
+          <div>
+            <b>🎞️ 프리미어 프로 (PC)</b>
+            <ol>
+              <li><b>새 시퀀스</b> → 사전 설정에서 세로(1080×1920) 선택</li>
+              <li>소스를 타임라인에 배치하고 컷 편집표 시간대로 <b>자르기(C 키)</b></li>
+              <li>상단 <b>텍스트 → 캡션 → 캡션 가져오기</b>로 <b>자막.srt</b> 넣기 (또는 '음성을 텍스트로'로 자동 자막)</li>
+              <li>나레이션은 대본 보면서 <b>보이스오버 녹음</b>(타임라인 마이크 버튼)</li>
+              <li><b>내보내기</b>: H.264 · 1080×1920 · 30fps</li>
+            </ol>
+          </div>
+        </div>
+      </details>
     </section>
   </main>
 

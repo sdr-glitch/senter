@@ -3496,10 +3496,26 @@ async function generateReelsScript() {
   const card = $("#reels-result-card");
   const out = $("#reels-result");
   btn.disabled = true; btn.textContent = "🎬 대본 만드는 중...";
-  note.textContent = "AI가 소스를 보고 편집 대본을 짜고 있어요. 잠시만요...";
   card.classList.remove("hidden");
-  out.innerHTML = `<div class="reels-loading">✍️ 대본 작성 중...</div>`;
   card.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  // 무료 AI는 스트리밍이 없어 조용히 오래 걸릴 수 있음 — 진행 멘트로 안심시키기
+  const stages = [
+    "📦 올린 소스를 살펴보는 중...",
+    "🪝 스크롤을 멈출 후크를 짜는 중...",
+    "✂️ 컷 편집표에 소스를 배치하는 중...",
+    "🎙️ 나레이션과 자막을 쓰는 중...",
+    "🎵 어울리는 BGM을 고르는 중...",
+    "📝 캡션과 해시태그를 다듬는 중... (거의 다 됐어요!)"
+  ];
+  let stageIdx = 0;
+  let streamed = false;
+  const showStage = () => {
+    out.innerHTML = `<div class="reels-loading">${stages[Math.min(stageIdx, stages.length - 1)]}</div>`;
+    note.textContent = "보통 10~30초 걸려요. 화면을 벗어나지 말고 잠시만요...";
+  };
+  showStage();
+  const stageTimer = setInterval(() => { stageIdx++; if (!streamed) showStage(); }, 5000);
 
   // 내 API 키(Anthropic)가 있으면 미리보기 이미지를 함께 보내 AI가 직접 보게 함
   const promptText = buildReelsPrompt();
@@ -3517,6 +3533,7 @@ async function generateReelsScript() {
 
   try {
     const md = await aiChat(REELS_SYSTEM, [{ role: "user", content: userContent }], (partial) => {
+      streamed = true;
       out.innerHTML = renderMarkdown(partial);
     });
     reelsResult = md;
@@ -3526,9 +3543,10 @@ async function generateReelsScript() {
   } catch (e) {
     out.innerHTML = "";
     card.classList.add("hidden");
-    note.textContent = "";
+    note.innerHTML = `⚠️ AI 연결이 안 됐어요. 걱정 마세요 — 위의 <b>[📋 프롬프트만 복사]</b>를 눌러 <a href="https://gemini.google.com" target="_blank" rel="noopener">Gemini</a>나 <a href="https://chatgpt.com" target="_blank" rel="noopener">ChatGPT</a> 새 대화에 붙여넣으면 똑같은 대본을 무료로 받을 수 있어요!`;
     toast("⚠️ " + friendlyApiError(e), 6000);
   } finally {
+    clearInterval(stageTimer);
     reelsBusy = false;
     btn.disabled = false; btn.textContent = "🎬 대본 만들기";
   }
@@ -3690,6 +3708,15 @@ function renderReels() {
   if (reelsInited) { renderReelsMedia(); return; }
   reelsInited = true;
   setupReelsChips();
+
+  // 처음 3단계 안내 (닫으면 다시 안 보임)
+  if (!store.get("reelsHowtoDismissed", false)) {
+    $("#reels-howto").classList.remove("hidden");
+  }
+  $("#reels-howto-close").addEventListener("click", () => {
+    $("#reels-howto").classList.add("hidden");
+    store.set("reelsHowtoDismissed", true);
+  });
 
   const drop = $("#reels-drop");
   const input = $("#reels-file-input");
