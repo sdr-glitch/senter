@@ -16,6 +16,8 @@
 | 🔥 **성장 멘토** | 계정 세팅부터 성장까지 멱살 잡고 끌고 가는 팀원. "오늘의 미션"도 뽑아줘요 |
 | ✍️ **카피라이터** | 캡션·제목·해시태그·프로필 소개글을 바로 쓸 수 있게 대신 써주는 팀원 |
 | 🗓️ **기획자** | 콘텐츠 캘린더, 벤치마킹, 수익화 전략을 짜주는 팀원 |
+| ✅ **생산성** | 할 일(D-day)·월간 캘린더·메모·집중 타이머(뽀모도로)를 한 탭에서. API 키 연결 시 할 일 우선순위 AI 추천 |
+| 🎨 **크리에이터 스튜디오** | 본부(계정·협찬 관리), 패턴 제작, 이모티콘 제작, 템플릿 분할 — 4가지 창작 도구 내장 |
 | 🗺️ **성장 로드맵** | 계정 세팅 → 콘텐츠 → 성장 → 체험단 → 수익화, 5단계 체크리스트 |
 
 ## 🚀 사용 방법 (코딩 몰라도 OK)
@@ -71,4 +73,5 @@ console.anthropic.com의 Billing에서 잔액을 확인하고 충전해 주세�
 - 순수 HTML/CSS/JavaScript — 빌드·서버·설치 불필요, 정적 호스팅이면 어디서든 동작
 - Anthropic Messages API를 브라우저에서 직접 호출 (CORS: `anthropic-dangerous-direct-browser-access`)
 - 모든 데이터는 `localStorage`에 저장 (접두사 `senter:`)
-- 파일 구성: `index.html`(구조) · `style.css`(디자인) · `app.js`(로직) · `vendor/`(PDF 텍스트 추출용 pdf.js — 첫 PDF 업로드 시에만 로드)
+- 파일 구성: `index.html`(구조) · `style.css`(디자인) · `app.js`(로직) · `studio.html`(크리에이터 스튜디오, iframe 내장) · `vendor/`(pdf.js·JSZip)
+- `claude-desk/`: 팀용 Claude Code 웹 데스크 (별도 로컬 실행용 — Node.js 필요, 웹 배포와 무관)

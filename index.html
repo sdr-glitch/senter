@@ -93,9 +93,90 @@
     <button class="tab" data-tab="staff">🧑‍💼 AI 직원</button>
     <button class="tab" data-tab="chat">💬 멘토 채팅</button>
     <button class="tab" data-tab="home">🏠 홈</button>
+    <button class="tab" data-tab="tools">✅ 생산성</button>
+    <button class="tab" data-tab="studio">🎨 스튜디오</button>
     <button class="tab" data-tab="library">📚 자료실</button>
     <button class="tab" data-tab="settings">⚙️ 설정</button>
   </nav>
+
+  <!-- ===== 생산성 탭 (Claude Desk에서 이식) ===== -->
+  <main id="tab-tools" class="tab-panel hidden">
+    <div class="tools-grid">
+      <section class="card">
+        <div class="card-head">
+          <h3>✅ 할 일</h3>
+          <button class="btn-small" id="todo-ai-btn">🧠 우선순위 추천</button>
+        </div>
+        <div class="todo-add">
+          <input type="text" id="todo-input" placeholder="할 일을 입력하세요" maxlength="200">
+          <input type="date" id="todo-due" title="마감일 (선택)">
+          <button class="btn-primary" id="todo-add-btn">추가</button>
+        </div>
+        <div id="todo-ai-box" class="todo-ai hidden"></div>
+        <div id="todo-list" class="todo-list"></div>
+      </section>
+
+      <section class="card">
+        <h3>⏱️ 집중 타이머</h3>
+        <p class="card-desc">뽀모도로 방식: 정한 시간 동안 딴짓 금지! 끝나면 기록됩니다.</p>
+        <div class="timer-box">
+          <div id="timer-display" class="timer-display">25:00</div>
+          <div class="timer-controls">
+            <select id="timer-mins">
+              <option value="15">15분</option>
+              <option value="25" selected>25분</option>
+              <option value="50">50분</option>
+            </select>
+            <button class="btn-primary" id="timer-start">시작</button>
+            <button class="btn-ghost" id="timer-reset">초기화</button>
+          </div>
+          <div id="focus-stats" class="focus-stats"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h3>🗓️ 캘린더</h3>
+          <div class="cal-nav">
+            <button class="btn-small" id="cal-prev">◀</button>
+            <span id="cal-title" class="cal-title"></span>
+            <button class="btn-small" id="cal-next">▶</button>
+          </div>
+        </div>
+        <div id="calendar" class="calendar"></div>
+        <div id="event-form" class="event-form hidden">
+          <div class="event-form-date" id="event-form-date"></div>
+          <div class="todo-add">
+            <input type="text" id="event-title" placeholder="일정 제목" maxlength="100">
+            <input type="time" id="event-time">
+            <button class="btn-primary" id="event-add-btn">추가</button>
+          </div>
+          <div id="event-list" class="event-list"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>📝 메모</h3>
+        <div class="note-add">
+          <textarea id="note-input" rows="3" placeholder="빠르게 메모하세요 (아이디어, 벤치마킹 링크, 떠오른 콘텐츠 소재...)"></textarea>
+          <button class="btn-primary" id="note-add-btn">저장</button>
+        </div>
+        <div id="note-list" class="note-list"></div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ===== 스튜디오 탭 (크리에이터 스튜디오 내장) ===== -->
+  <main id="tab-studio" class="tab-panel hidden">
+    <section class="card studio-card">
+      <div class="card-head">
+        <h3>🎨 크리에이터 스튜디오</h3>
+        <a class="btn-small" href="studio.html" target="_blank" rel="noopener">↗ 새 창에서 크게 열기</a>
+      </div>
+      <p class="card-desc">본부(계정·협찬 관리) · 패턴 제작 · 이모티콘 제작 · 템플릿 분할 — 4가지 도구가 들어있어요. 데이터는 이 브라우저에 저장됩니다.</p>
+      <iframe id="studio-frame" class="studio-frame" title="크리에이터 스튜디오"></iframe>
+    </section>
+  </main>
 
   <!-- ===== 사무실 탭 ===== -->
   <main id="tab-office" class="tab-panel">

@@ -2337,6 +2337,297 @@ async function addDocsByFiles(files) {
   else toast(`⚠️ 파일을 읽지 못했어요. ${failed[0] || "(.txt / .md / .pdf 지원)"}`, 6000);
 }
 
+/* ==================================================
+   생산성 탭 (Claude Desk에서 이식: 할 일·캘린더·메모·집중 타이머)
+   ================================================== */
+let todos = store.get("todos", []);
+let events = store.get("events", []);
+let notes = store.get("notes", []);
+let focusLog = store.get("focusLog", {}); // { "2026-07-07": {count, minutes} }
+
+const todayStr = (d = new Date()) => {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+
+/* ----- 할 일 ----- */
+function addTodo() {
+  const text = $("#todo-input").value.trim();
+  if (!text) { $("#todo-input").focus(); return; }
+  todos.unshift({ id: Date.now() + "", text, due: $("#todo-due").value || "", done: false });
+  store.set("todos", todos);
+  $("#todo-input").value = ""; $("#todo-due").value = "";
+  renderTodos();
+}
+
+function ddayLabel(due) {
+  if (!due) return "";
+  const diff = Math.round((new Date(due + "T00:00:00") - new Date(todayStr() + "T00:00:00")) / 86400000);
+  if (diff < 0) return `D+${-diff}`;
+  if (diff === 0) return "D-DAY";
+  return `D-${diff}`;
+}
+
+function renderTodos() {
+  const list = $("#todo-list");
+  if (!list) return;
+  const sorted = [...todos].sort((a, b) =>
+    (a.done !== b.done) ? (a.done ? 1 : -1) : ((a.due || "9999") < (b.due || "9999") ? -1 : 1));
+  list.innerHTML = "";
+  if (!sorted.length) {
+    list.innerHTML = `<div class="mission-empty">할 일을 추가해보세요. 마감일을 넣으면 D-day가 표시돼요.</div>`;
+    return;
+  }
+  sorted.forEach(t => {
+    const row = document.createElement("div");
+    row.className = "todo-item" + (t.done ? " done" : "");
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = t.done;
+    cb.addEventListener("change", () => {
+      t.done = cb.checked;
+      store.set("todos", todos);
+      renderTodos();
+      if (t.done) toast("🎉 완료! 잘하고 있어요.");
+    });
+    const text = document.createElement("span");
+    text.className = "todo-text";
+    text.textContent = t.text;
+    row.append(cb, text);
+    if (t.due) {
+      const d = document.createElement("span");
+      const label = ddayLabel(t.due);
+      d.className = "todo-due " + (label === "D-DAY" || label.startsWith("D+") ? "due-hot" : "");
+      d.textContent = label;
+      d.title = t.due;
+      row.appendChild(d);
+    }
+    const del = document.createElement("button");
+    del.className = "btn-small btn-task-del";
+    del.textContent = "🗑";
+    del.addEventListener("click", () => {
+      todos = todos.filter(x => x.id !== t.id);
+      store.set("todos", todos);
+      renderTodos();
+    });
+    row.appendChild(del);
+    list.appendChild(row);
+  });
+}
+
+async function todoAiPriority() {
+  const open = todos.filter(t => !t.done);
+  if (!open.length) { toast("아직 할 일이 없어요!"); return; }
+  if (!(settings.apiKey || "").trim()) { toast("🧠 우선순위 추천은 API 키 연결 후 사용할 수 있어요. (설정 탭)", 4500); return; }
+  const btn = $("#todo-ai-btn");
+  btn.disabled = true; btn.textContent = "생각 중...";
+  try {
+    const result = await callClaudeSystem(
+      `너는 SNS 마케팅 코치다. 사용자의 할 일 목록을 보고 어떤 순서로 하는 게 좋은지 추천하라. 형식: 추천 순서대로 번호 목록, 각 항목에 한 줄 이유. 마지막에 "오늘은 여기까지만!" 하고 현실적인 컷라인을 제안. 한국어로 간결하게.\n\n${staffContext()}`,
+      [{ role: "user", content: "내 할 일 목록:\n" + open.map(t => `- ${t.text}${t.due ? ` (마감 ${t.due})` : ""}`).join("\n") }],
+      () => {}
+    );
+    const box = $("#todo-ai-box");
+    box.innerHTML = renderMarkdown(result);
+    box.classList.remove("hidden");
+  } catch (e) {
+    toast("⚠️ " + friendlyApiError(e), 5000);
+  } finally {
+    btn.disabled = false; btn.textContent = "🧠 우선순위 추천";
+  }
+}
+
+/* ----- 캘린더 ----- */
+let calCursor = { y: new Date().getFullYear(), m: new Date().getMonth() };
+let selectedDate = todayStr();
+
+function renderCalendar() {
+  const cal = $("#calendar");
+  if (!cal) return;
+  const { y, m } = calCursor;
+  $("#cal-title").textContent = `${y}년 ${m + 1}월`;
+  const first = new Date(y, m, 1).getDay();
+  const days = new Date(y, m + 1, 0).getDate();
+  const today = todayStr();
+
+  let html = ["일", "월", "화", "수", "목", "금", "토"].map(d => `<div class="cal-head">${d}</div>`).join("");
+  for (let i = 0; i < first; i++) html += `<div class="cal-cell empty"></div>`;
+  for (let d = 1; d <= days; d++) {
+    const dateStr = `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const has = events.some(e => e.date === dateStr);
+    const cls = ["cal-cell", dateStr === today ? "today" : "", dateStr === selectedDate ? "selected" : ""].join(" ");
+    html += `<div class="${cls}" data-date="${dateStr}">${d}${has ? '<span class="cal-dot"></span>' : ""}</div>`;
+  }
+  cal.innerHTML = html;
+  cal.querySelectorAll(".cal-cell[data-date]").forEach(cell => {
+    cell.addEventListener("click", () => {
+      selectedDate = cell.dataset.date;
+      renderCalendar();
+      renderEventForm();
+    });
+  });
+  renderEventForm();
+}
+
+function renderEventForm() {
+  const form = $("#event-form");
+  if (!form) return;
+  form.classList.remove("hidden");
+  const d = new Date(selectedDate + "T00:00:00");
+  $("#event-form-date").textContent = `${d.getMonth() + 1}월 ${d.getDate()}일 (${["일", "월", "화", "수", "목", "금", "토"][d.getDay()]}) 일정`;
+  const list = $("#event-list");
+  const dayEvents = events.filter(e => e.date === selectedDate).sort((a, b) => (a.time || "99") < (b.time || "99") ? -1 : 1);
+  list.innerHTML = dayEvents.length ? "" : `<div class="mission-empty">이 날짜에 일정이 없어요. 위에서 추가해보세요.</div>`;
+  dayEvents.forEach(e => {
+    const row = document.createElement("div");
+    row.className = "todo-item";
+    row.innerHTML = `<span class="event-time">${e.time || "종일"}</span><span class="todo-text">${escapeHtml(e.title)}</span>`;
+    const del = document.createElement("button");
+    del.className = "btn-small btn-task-del";
+    del.textContent = "🗑";
+    del.addEventListener("click", () => {
+      events = events.filter(x => x.id !== e.id);
+      store.set("events", events);
+      renderCalendar();
+    });
+    row.appendChild(del);
+    list.appendChild(row);
+  });
+}
+
+function addEvent() {
+  const title = $("#event-title").value.trim();
+  if (!title) { $("#event-title").focus(); return; }
+  events.push({ id: Date.now() + "", title, date: selectedDate, time: $("#event-time").value || "" });
+  store.set("events", events);
+  $("#event-title").value = ""; $("#event-time").value = "";
+  renderCalendar();
+  toast("🗓️ 일정이 추가됐어요!");
+}
+
+/* ----- 메모 ----- */
+function addNote() {
+  const body = $("#note-input").value.trim();
+  if (!body) { $("#note-input").focus(); return; }
+  notes.unshift({ id: Date.now() + "", body, at: Date.now() });
+  store.set("notes", notes);
+  $("#note-input").value = "";
+  renderNotes();
+}
+
+function renderNotes() {
+  const list = $("#note-list");
+  if (!list) return;
+  list.innerHTML = notes.length ? "" : `<div class="mission-empty">아이디어가 떠오르면 바로 적어두세요!</div>`;
+  notes.forEach(n => {
+    const item = document.createElement("div");
+    item.className = "note-item";
+    const body = document.createElement("div");
+    body.className = "note-body";
+    body.textContent = n.body;
+    const meta = document.createElement("div");
+    meta.className = "note-meta";
+    meta.textContent = new Date(n.at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const edit = document.createElement("button");
+    edit.className = "btn-small btn-task-del";
+    edit.textContent = "✏️";
+    edit.addEventListener("click", () => {
+      $("#note-input").value = n.body;
+      notes = notes.filter(x => x.id !== n.id);
+      store.set("notes", notes);
+      renderNotes();
+      $("#note-input").focus();
+    });
+    const del = document.createElement("button");
+    del.className = "btn-small btn-task-del";
+    del.textContent = "🗑";
+    del.addEventListener("click", () => {
+      if (!confirm("이 메모를 삭제할까요?")) return;
+      notes = notes.filter(x => x.id !== n.id);
+      store.set("notes", notes);
+      renderNotes();
+    });
+    meta.append(edit, del);
+    item.append(body, meta);
+    list.appendChild(item);
+  });
+}
+
+/* ----- 집중 타이머 ----- */
+const timerState = { running: false, remain: 25 * 60, total: 25 * 60, tick: null };
+
+function timerRender() {
+  const el = $("#timer-display");
+  if (!el) return;
+  const m = Math.floor(timerState.remain / 60), s = timerState.remain % 60;
+  el.textContent = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  el.classList.toggle("timer-running", timerState.running);
+  $("#timer-start").textContent = timerState.running ? "일시정지" : (timerState.remain < timerState.total ? "계속" : "시작");
+}
+
+function focusComplete(minutes) {
+  const t = focusLog[todayStr()] || { count: 0, minutes: 0 };
+  t.count += 1; t.minutes += minutes;
+  focusLog[todayStr()] = t;
+  store.set("focusLog", focusLog);
+  renderFocusStats();
+  toast(`🎉 ${minutes}분 집중 완료! 대단해요!`, 5000);
+  speak && officeState.built && speak("pm", `사장님이 ${minutes}분 집중을 해내셨습니다! 👏`);
+}
+
+function timerToggle() {
+  if (timerState.running) {
+    clearInterval(timerState.tick);
+    timerState.running = false;
+  } else {
+    timerState.running = true;
+    timerState.tick = setInterval(() => {
+      timerState.remain--;
+      if (timerState.remain <= 0) {
+        clearInterval(timerState.tick);
+        timerState.running = false;
+        focusComplete(Math.round(timerState.total / 60));
+        timerState.remain = timerState.total;
+      }
+      timerRender();
+    }, 1000);
+  }
+  timerRender();
+}
+
+function timerReset() {
+  clearInterval(timerState.tick);
+  timerState.running = false;
+  timerState.total = timerState.remain = Number($("#timer-mins").value) * 60;
+  timerRender();
+}
+
+function renderFocusStats() {
+  const el = $("#focus-stats");
+  if (!el) return;
+  const t = focusLog[todayStr()] || { count: 0, minutes: 0 };
+  let wc = 0, wm = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const r = focusLog[todayStr(d)];
+    if (r) { wc += r.count || 0; wm += r.minutes || 0; }
+  }
+  el.textContent = `오늘 ${t.count}회 · ${t.minutes}분  |  이번 주 ${wc}회 · ${wm}분`;
+}
+
+function renderTools() {
+  renderTodos();
+  renderCalendar();
+  renderNotes();
+  renderFocusStats();
+  timerRender();
+}
+
+/* ---------- 스튜디오 탭 (iframe 지연 로드) ---------- */
+function renderStudio() {
+  const frame = $("#studio-frame");
+  if (frame && !frame.src) frame.src = "studio.html";
+}
+
 /* ---------- 설정 탭 ---------- */
 function renderSettings() {
   const s = settings;
@@ -2386,7 +2677,8 @@ function exportBackup() {
     version: 1,
     exportedAt: new Date().toISOString(),
     settings: { ...settings, apiKey: "" }, // 보안을 위해 키는 제외
-    docs, chats, roadmapDone, missions, tasks, activity, meetings, customStaff, teamChat
+    docs, chats, roadmapDone, missions, tasks, activity, meetings, customStaff, teamChat,
+    todos, events, notes, focusLog
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
@@ -2414,6 +2706,14 @@ function importBackup(file) {
       meetings = data.meetings || [];
       customStaff = data.customStaff || [];
       teamChat = data.teamChat || [];
+      todos = data.todos || [];
+      events = data.events || [];
+      notes = data.notes || [];
+      focusLog = data.focusLog || {};
+      store.set("todos", todos);
+      store.set("events", events);
+      store.set("notes", notes);
+      store.set("focusLog", focusLog);
       store.set("settings", settings);
       store.set("docs", docs);
       store.set("chats", chats);
@@ -2443,6 +2743,8 @@ function switchTab(name) {
   window.scrollTo({ top: 0 });
   if (name === "office") renderOffice();
   if (name === "staff") renderStaff();
+  if (name === "tools") renderTools();
+  if (name === "studio") renderStudio();
   if (name === "chat") renderChat();
   if (name === "library") renderLibrary();
   if (name === "settings") renderSettings();
@@ -2459,6 +2761,7 @@ function renderAll() {
   renderChat();
   renderLibrary();
   renderSettings();
+  renderTools();
 }
 
 /* ---------- 이벤트 바인딩 ---------- */
@@ -2495,6 +2798,19 @@ function bindEvents() {
   $("#sm-close").addEventListener("click", () => $("#staff-modal").classList.add("hidden"));
   $("#staff-modal").addEventListener("click", e => { if (e.target === $("#staff-modal")) $("#staff-modal").classList.add("hidden"); });
   $("#hire-go").addEventListener("click", hireStaff);
+
+  // 생산성 탭
+  $("#todo-add-btn").addEventListener("click", addTodo);
+  $("#todo-input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) addTodo(); });
+  $("#todo-ai-btn").addEventListener("click", todoAiPriority);
+  $("#cal-prev").addEventListener("click", () => { calCursor.m--; if (calCursor.m < 0) { calCursor.m = 11; calCursor.y--; } renderCalendar(); });
+  $("#cal-next").addEventListener("click", () => { calCursor.m++; if (calCursor.m > 11) { calCursor.m = 0; calCursor.y++; } renderCalendar(); });
+  $("#event-add-btn").addEventListener("click", addEvent);
+  $("#event-title").addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) addEvent(); });
+  $("#note-add-btn").addEventListener("click", addNote);
+  $("#timer-start").addEventListener("click", timerToggle);
+  $("#timer-reset").addEventListener("click", timerReset);
+  $("#timer-mins").addEventListener("change", timerReset);
 
   // 자료 입력 모달
   $("#dm-save").addEventListener("click", saveDocModal);
@@ -2596,4 +2912,4 @@ function init() {
 init();
 
 // 자동 테스트용 훅 (앱 동작에는 영향 없음)
-window.__senter = { chatterTick, holdScrum, rebuildStaff, taskBrief, verifyBrief };
+window.__senter = { chatterTick, holdScrum, rebuildStaff, taskBrief, verifyBrief, focusComplete };
