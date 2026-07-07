@@ -663,8 +663,13 @@ body {
 .reels-drop-sub { font-size: .82rem; color: var(--text-soft); margin-top: 4px; }
 
 .reels-media { margin-top: 14px; }
-.reels-media-summary { font-size: .84rem; color: var(--text-soft); margin-bottom: 10px; }
+.reels-media-summary { font-size: .84rem; color: var(--text-soft); margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .reels-media-order-hint { display: inline-block; margin-left: 4px; font-size: .78rem; opacity: .85; }
+.reels-clear-btn { border: 1px solid var(--line); background: var(--surface); color: var(--danger); border-radius: 8px; font-size: .78rem; padding: 4px 10px; cursor: pointer; white-space: nowrap; }
+.reels-clear-btn:hover { background: var(--surface-2); }
+.reels-example-btn { border: none; background: var(--accent-soft); color: var(--accent-strong); border-radius: 999px; font-size: .74rem; font-weight: 600; padding: 2px 9px; margin-left: 6px; cursor: pointer; }
+.reels-example-btn:hover { background: var(--accent); color: #fff; }
+.reels-prompt-btn { width: 100%; margin-top: 8px; font-size: .88rem; }
 .reels-thumb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
 .reels-thumb {
   position: relative; border: 1px solid var(--line); border-radius: 12px;

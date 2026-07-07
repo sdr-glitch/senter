@@ -589,7 +589,7 @@ async function callClaudeSystem(system, messages, onDelta) {
     },
     body: JSON.stringify({
       model: (settings && settings.model) || "claude-sonnet-5",
-      max_tokens: 2048,
+      max_tokens: 4096,
       system,
       messages: messages.map(m => ({ role: m.role, content: m.content })),
       stream: true
@@ -3361,7 +3361,7 @@ function renderReelsMedia() {
   const totalVid = reelsMedia.filter(m => m.kind === "video").reduce((a, m) => a + (m.duration || 0), 0);
   const imgCount = reelsMedia.filter(m => m.kind === "image").length;
   const vidCount = reelsMedia.filter(m => m.kind === "video").length;
-  const summary = `<div class="reels-media-summary">📦 소스 ${reelsMedia.length}개 · 영상 ${vidCount}개(${fmtDur(totalVid)})${imgCount ? " · 사진 " + imgCount + "장" : ""} <span class="reels-media-order-hint">← 순서가 곧 컷 순서예요. 화살표로 바꿀 수 있어요</span></div>`;
+  const summary = `<div class="reels-media-summary"><span>📦 소스 ${reelsMedia.length}개 · 영상 ${vidCount}개(${fmtDur(totalVid)})${imgCount ? " · 사진 " + imgCount + "장" : ""} <span class="reels-media-order-hint">← 순서가 곧 컷 순서예요</span></span><button class="reels-clear-btn" id="reels-clear">🗑️ 전체 비우기</button></div>`;
   const cards = reelsMedia.map((m, idx) => {
     const thumb = m.thumbs[0];
     const badge = m.kind === "video"
@@ -3502,6 +3502,7 @@ async function generateReelsScript() {
       out.innerHTML = renderMarkdown(partial);
     });
     reelsResult = md;
+    store.set("reelsLast", md);
     out.innerHTML = renderMarkdown(md);
     note.textContent = "✅ 완성! 대본을 복사하거나 자막(.srt)으로 저장해 캡컷·프리미어에 넣어보세요.";
   } catch (e) {
@@ -3515,18 +3516,28 @@ async function generateReelsScript() {
   }
 }
 
-/* 자막 타임라인 → SRT 변환 */
-function reelsToSrt(md) {
-  const re = /(\d{1,2}):(\d{2})(?::(\d{2}))?\s*[-~–]\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*[|｜]\s*(.+)/g;
-  const cues = [];
-  let mt;
-  while ((mt = re.exec(md)) !== null) {
-    const toSec = (a, b, c) => c !== undefined ? (+a) * 60 + (+b) : (+a) * 60 + (+b); // mm:ss 기준
-    const startSec = mt[3] !== undefined ? (+mt[1]) * 3600 + (+mt[2]) * 60 + (+mt[3]) : (+mt[1]) * 60 + (+mt[2]);
-    const endSec = mt[6] !== undefined ? (+mt[4]) * 3600 + (+mt[5]) * 60 + (+mt[6]) : (+mt[4]) * 60 + (+mt[5]);
-    const text = mt[7].trim().replace(/^["'`]|["'`]$/g, "");
-    if (endSec > startSec && text) cues.push({ startSec, endSec, text });
+/* 문서에서 특정 소제목(## …) 섹션의 본문만 잘라내기 */
+function sliceSection(md, titleRe) {
+  const lines = md.split("\n");
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^#{1,4}\s/.test(lines[i]) && titleRe.test(lines[i])) { start = i + 1; break; }
   }
+  if (start < 0) return "";
+  const body = [];
+  for (let i = start; i < lines.length; i++) {
+    if (/^#{1,4}\s/.test(lines[i])) break; // 다음 소제목에서 멈춤
+    body.push(lines[i]);
+  }
+  return body.join("\n");
+}
+
+/* 자막 타임라인 → SRT 변환
+   ① '자막 타임라인' 섹션의 mm:ss-mm:ss | 자막 줄  ②없으면 컷 편집표에서 폴백  ③최후: 전체에서 추출 */
+function reelsToSrt(md) {
+  let cues = parseCueLines(sliceSection(md, /자막\s*타임라인/));
+  if (!cues.length) cues = parseCueTable(md);
+  if (!cues.length) cues = parseCueLines(md);
   if (!cues.length) return "";
   const stamp = (sec) => {
     const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60), ms = Math.round((sec - Math.floor(sec)) * 1000);
@@ -3534,6 +3545,50 @@ function reelsToSrt(md) {
     return `${p(h)}:${p(m)}:${p(s)},${p(ms, 3)}`;
   };
   return cues.map((c, i) => `${i + 1}\n${stamp(c.startSec)} --> ${stamp(c.endSec)}\n${c.text}`).join("\n\n") + "\n";
+}
+
+/* "mm:ss-mm:ss | 자막" 형식 줄 파싱 (자막은 다음 파이프 전까지만 잡아 표 행 오염 방지) */
+function parseCueLines(md) {
+  if (!md) return [];
+  const re = /(\d{1,2}):(\d{2})(?::(\d{2}))?\s*[-~–]\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*[|｜]\s*([^|｜\n]+)/g;
+  const cues = [];
+  let mt;
+  while ((mt = re.exec(md)) !== null) {
+    const startSec = mt[3] !== undefined ? (+mt[1]) * 3600 + (+mt[2]) * 60 + (+mt[3]) : (+mt[1]) * 60 + (+mt[2]);
+    const endSec = mt[6] !== undefined ? (+mt[4]) * 3600 + (+mt[5]) * 60 + (+mt[6]) : (+mt[4]) * 60 + (+mt[5]);
+    const text = mt[7].trim().replace(/^["'`]+|["'`]+$/g, "").trim();
+    if (endSec > startSec && text) cues.push({ startSec, endSec, text });
+  }
+  return cues;
+}
+
+/* 폴백: 컷 편집표(| 시간 | ... | 화면 자막 |)에서 자막 추출 */
+function parseCueTable(md) {
+  const lines = md.split("\n").filter(l => l.includes("|"));
+  if (lines.length < 2) return [];
+  const header = lines[0].replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+  const timeCol = header.findIndex(c => /시간|타임|time/i.test(c));
+  const capCol = header.findIndex(c => /자막|텍스트|caption|자막/i.test(c));
+  if (timeCol < 0 || capCol < 0) return [];
+  const toSec = (str) => {
+    const m = str.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (!m) return null;
+    return m[3] !== undefined ? (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) : (+m[1]) * 60 + (+m[2]);
+  };
+  const cues = [];
+  for (let i = 1; i < lines.length; i++) {
+    if (/^[\s:|-]+$/.test(lines[i])) continue; // 구분선
+    const cells = lines[i].replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+    const tcell = cells[timeCol] || "";
+    const range = tcell.split(/[-~–]/);
+    const startSec = toSec(range[0] || "");
+    let endSec = range[1] !== undefined ? toSec(range[1]) : null;
+    const text = (cells[capCol] || "").replace(/^["'`]+|["'`]+$/g, "").trim();
+    if (startSec === null || !text || /^[-–—]*$/.test(text)) continue;
+    if (endSec === null || endSec <= startSec) endSec = startSec + 2.5;
+    cues.push({ startSec, endSec, text });
+  }
+  return cues;
 }
 
 function downloadTextFile(filename, text, mime) {
@@ -3545,12 +3600,58 @@ function downloadTextFile(filename, text, mime) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function copyToClipboard(text, okMsg) {
+  const done = () => toast(okMsg);
+  const fail = () => {
+    // 클립보드 API 실패 시 폴백 (구형/비보안 컨텍스트)
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      if (ok) done(); else toast("복사가 안 됐어요. 직접 드래그해 복사해주세요.");
+    } catch { toast("복사가 안 됐어요. 직접 드래그해 복사해주세요."); }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, fail);
+  } else { fail(); }
+}
+
 function copyReelsScript() {
   if (!reelsResult) return;
-  navigator.clipboard.writeText(reelsResult).then(
-    () => toast("📋 대본을 복사했어요. 캡컷·프리미어 메모나 대본란에 붙여넣으세요."),
-    () => toast("복사에 실패했어요. 대본을 직접 드래그해 복사해주세요.")
-  );
+  copyToClipboard(reelsResult, "📋 대본을 복사했어요. 캡컷·프리미어 메모나 대본란에 붙여넣으세요.");
+}
+
+/* 무료 챗봇(Gemini·ChatGPT·Claude)에 붙여넣어 쓸 프롬프트 통째로 복사 */
+function copyReelsPrompt() {
+  const topic = ($("#reels-topic").value || "").trim();
+  if (!reelsMedia.length && !topic) {
+    toast("먼저 사진·영상을 올리거나 영상 설명을 적어주세요.");
+    $("#reels-topic").focus();
+    return;
+  }
+  const hasMedia = reelsMedia.length > 0;
+  const mediaNote = hasMedia
+    ? "\n\n※ 아래 소스 목록에 해당하는 사진·영상을 이 채팅에 함께 첨부하면 더 정확한 대본이 나와요."
+    : "";
+  const full = REELS_SYSTEM + "\n\n----- 아래는 내 요청 -----\n\n" + buildReelsPrompt() + mediaNote;
+  copyToClipboard(full, "📋 프롬프트를 복사했어요! Gemini·ChatGPT·Claude 새 대화에 붙여넣으세요" + (hasMedia ? " (사진·영상도 함께 첨부!)." : "."));
+}
+
+function fillReelsExample() {
+  const t = $("#reels-topic");
+  t.value = "좁은 주방 수납 꿀템 소개 영상. 3천 원짜리 걸이 하나로 조리도구가 깔끔하게 정리되고 공간이 두 배로 넓어진 걸 보여주고 싶어요. Before(지저분)→After(깔끔) 비교가 핵심이고, 마지막엔 '프로필 링크에서 구매' 유도로 마무리.";
+  t.focus();
+  toast("✨ 예시를 넣었어요. 내 상황에 맞게 고쳐 쓰면 돼요.");
+}
+
+function clearReelsMedia() {
+  if (!reelsMedia.length) return;
+  if (!confirm("올린 사진·영상을 모두 뺄까요?")) return;
+  reelsMedia.forEach(m => { try { URL.revokeObjectURL(m.url); } catch {} });
+  reelsMedia = [];
+  renderReelsMedia();
 }
 
 function setupReelsChips() {
@@ -3583,8 +3684,9 @@ function renderReels() {
     if (e.dataTransfer && e.dataTransfer.files.length) addReelsFiles(e.dataTransfer.files);
   });
 
-  // 썸네일 카드 액션 (이벤트 위임)
+  // 썸네일 카드 액션 + 전체 비우기 (이벤트 위임)
   $("#reels-media").addEventListener("click", (e) => {
+    if (e.target.closest("#reels-clear")) { clearReelsMedia(); return; }
     const btn = e.target.closest(".reels-thumb-btn");
     if (!btn) return;
     const id = btn.closest(".reels-thumb").dataset.id;
@@ -3594,6 +3696,8 @@ function renderReels() {
     else if (act === "down") moveReelsMedia(id, 1);
   });
 
+  $("#reels-example").addEventListener("click", fillReelsExample);
+  $("#reels-prompt").addEventListener("click", copyReelsPrompt);
   $("#reels-gen").addEventListener("click", generateReelsScript);
   $("#reels-regen").addEventListener("click", generateReelsScript);
   $("#reels-copy").addEventListener("click", copyReelsScript);
@@ -3609,6 +3713,15 @@ function renderReels() {
     downloadTextFile("자막.srt", srt, "application/x-subrip");
     toast("💬 자막(.srt)을 저장했어요! 캡컷은 '자막 → 자막 가져오기', 프리미어는 '캡션 가져오기'로 넣으세요.");
   });
+
+  // 지난번에 만든 대본 복원 (사진·영상은 용량상 저장하지 않아요)
+  const last = store.get("reelsLast", "");
+  if (last) {
+    reelsResult = last;
+    $("#reels-result").innerHTML = renderMarkdown(last);
+    $("#reels-result-card").classList.remove("hidden");
+    $("#reels-gen-note").textContent = "↑ 지난번에 만든 대본이에요. 새로 만들면 바뀝니다.";
+  }
 
   renderReelsMedia();
 }
