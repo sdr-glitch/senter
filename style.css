@@ -190,6 +190,7 @@ body {
 }
 .persona-btn:hover { background: var(--surface-2); }
 .persona-btn.active { border-color: var(--accent); background: var(--accent-soft); }
+.persona-btn.persona-more { border-style: dashed; color: var(--text-soft); }
 .persona-emoji { font-size: 1.3rem; }
 .persona-name { font-weight: 700; font-size: .86rem; display: block; }
 .persona-role { font-size: .72rem; color: var(--text-soft); display: block; }

@@ -89,14 +89,14 @@
   </header>
 
   <nav class="tabs">
-    <button class="tab active" data-tab="home">🏠 홈</button>
-    <button class="tab" data-tab="chat">💬 멘토 채팅</button>
+    <button class="tab active" data-tab="chat">💬 멘토 채팅</button>
+    <button class="tab" data-tab="home">🏠 홈</button>
     <button class="tab" data-tab="library">📚 자료실</button>
     <button class="tab" data-tab="settings">⚙️ 설정</button>
   </nav>
 
   <!-- ===== 홈 탭 ===== -->
-  <main id="tab-home" class="tab-panel">
+  <main id="tab-home" class="tab-panel hidden">
     <section class="hero">
       <h2 id="home-greeting">안녕하세요!</h2>
       <p id="home-sub" class="hero-sub"></p>
@@ -131,7 +131,7 @@
   </main>
 
   <!-- ===== 채팅 탭 ===== -->
-  <main id="tab-chat" class="tab-panel hidden">
+  <main id="tab-chat" class="tab-panel">
     <div class="chat-layout">
       <aside class="persona-bar" id="persona-bar"></aside>
       <div class="chat-main">

@@ -113,6 +113,10 @@ const PERSONAS = [
 
 let currentPersona = store.get("currentPersona", "coach");
 
+/* 핵심 멘토 2명 먼저, 나머지 팀원은 "더 보기"로 하나씩 */
+const CORE_PERSONAS = ["coach", "knowledge"];
+let personaBarExpanded = store.get("personaBarExpanded", false);
+
 /* ---------- 성장 로드맵 (리빙 계정 · 체험단/수익화 기준) ---------- */
 const ROADMAP = [
   {
@@ -537,13 +541,26 @@ let sending = false;
 function renderPersonaBar() {
   const bar = $("#persona-bar");
   bar.innerHTML = "";
-  PERSONAS.forEach(p => {
+  const expanded = personaBarExpanded || !CORE_PERSONAS.includes(currentPersona);
+  const visible = expanded ? PERSONAS : PERSONAS.filter(p => CORE_PERSONAS.includes(p.id));
+  visible.forEach(p => {
     const btn = document.createElement("button");
     btn.className = "persona-btn" + (p.id === currentPersona ? " active" : "");
     btn.innerHTML = `<span class="persona-emoji">${p.emoji}</span><span><span class="persona-name">${p.name}</span><span class="persona-role">${p.role}</span></span>`;
     btn.addEventListener("click", () => selectPersona(p.id));
     bar.appendChild(btn);
   });
+  if (!expanded) {
+    const more = document.createElement("button");
+    more.className = "persona-btn persona-more";
+    more.innerHTML = `<span class="persona-emoji">👥</span><span><span class="persona-name">팀원 더 보기</span><span class="persona-role">성장·카피·기획 (${PERSONAS.length - visible.length}명)</span></span>`;
+    more.addEventListener("click", () => {
+      personaBarExpanded = true;
+      store.set("personaBarExpanded", true);
+      renderPersonaBar();
+    });
+    bar.appendChild(more);
+  }
 }
 
 function selectPersona(id) {
