@@ -89,7 +89,7 @@
   </header>
 
   <nav class="tabs">
-    <button class="tab active" data-tab="office">🏢 사무실</button>
+    <button class="tab active" data-tab="office">🏢 사무실<span id="office-badge" class="tab-badge hidden"></span></button>
     <button class="tab" data-tab="staff">🧑‍💼 AI 직원</button>
     <button class="tab" data-tab="chat">💬 멘토 채팅</button>
     <button class="tab" data-tab="home">🏠 홈</button>
@@ -109,6 +109,12 @@
         <div class="meeting-log-title">📝 회의록 <span id="meeting-log-date"></span></div>
         <div id="meeting-log" class="meeting-log"></div>
       </div>
+    </section>
+
+    <section class="card">
+      <h3>💬 팀 채팅</h3>
+      <p class="card-desc">직원들이 업무 얘기와 수다를 나누는 단체 채팅방이에요. 사무실에서 직원 둘이 만나면 여기에 대화가 올라옵니다.</p>
+      <div id="team-chat" class="team-chat"></div>
     </section>
 
     <section class="card">
@@ -151,6 +157,24 @@
       ③ 잘 나온 결과물은 "앞으로 이 스타일 유지해줘"라고 말해서 기준으로 굳히세요</div>
     </section>
     <div id="staff-list" class="staff-list"></div>
+
+    <section class="card">
+      <h3>➕ 새 직원 채용하기</h3>
+      <p class="card-desc">필요한 직원을 직접 채용하세요. 채용하면 <b>사무실 책상·회의 좌석·업무 배정까지 자동으로 반영</b>됩니다. (예: "블로그 작가 — 네이버 블로그 글 작성 담당")</p>
+      <div class="hire-grid">
+        <label class="field"><span>이름 (직책)</span><input type="text" id="hire-name" placeholder="예: 블로그 작가" maxlength="12"></label>
+        <label class="field"><span>아바타</span>
+          <select id="hire-emoji">
+            <option>🧑‍🎨</option><option>🧑‍🔬</option><option>🧑‍🍳</option><option>🕵️</option>
+            <option>🧑‍🚀</option><option>🦸</option><option>🧙</option><option>🧑‍⚕️</option>
+          </select>
+        </label>
+      </div>
+      <label class="field"><span>역할 한 줄</span><input type="text" id="hire-role" placeholder="예: 네이버 블로그 글 담당 직원" maxlength="30"></label>
+      <label class="field"><span>하는 일 (구체적으로)</span><textarea id="hire-duty" rows="3" placeholder="예: 체험단 리뷰용 블로그 포스팅 작성. 검색 상위 노출을 위한 제목과 소제목 구성. 사진 배치 위치 제안."></textarea></label>
+      <label class="field"><span>배정 키워드 (쉼표로 구분 — 지시에 이 단어가 있으면 이 직원에게 배정)</span><input type="text" id="hire-keywords" placeholder="예: 블로그, 포스팅, 글"></label>
+      <button class="btn-primary" id="hire-go">채용하기</button>
+    </section>
   </main>
 
   <!-- ===== 홈 탭 ===== -->
@@ -268,6 +292,17 @@
       </div>
     </section>
   </main>
+</div>
+
+<!-- ===== 직원 상세 팝업 ===== -->
+<div id="staff-modal" class="modal-backdrop hidden">
+  <div class="modal">
+    <div id="sm-head" class="sm-head"></div>
+    <div id="sm-body"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="sm-close">닫기</button>
+    </div>
+  </div>
 </div>
 
 <div id="toast" class="toast hidden"></div>

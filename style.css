@@ -269,12 +269,34 @@ body {
 /* ===== 사무실 ===== */
 .office-clock { font-size: .78rem; color: var(--text-soft); font-weight: 400; margin-left: 6px; }
 .office {
-  position: relative; height: 540px; border-radius: 12px; overflow: hidden;
+  position: relative; height: 560px; border-radius: 12px; overflow: hidden;
+  background: linear-gradient(175deg, #eef0ea 0%, #dfe3da 45%, #c9cec2 100%);
+  border: 1px solid var(--line);
+}
+
+/* --- 아이소메트릭 바닥판 --- */
+.office-floor {
+  position: absolute; left: 50%; top: 50%;
+  width: 880px; height: 620px;
+  transform: translate(-50%, -48%) scale(var(--zoom, 1)) rotateX(54deg) rotateZ(-40deg);
+  border-radius: 16px;
   background:
     repeating-linear-gradient(90deg, transparent 0 30px, rgba(0,0,0,.02) 30px 31px),
     linear-gradient(160deg, #d9cdb2, #cfc2a4);
-  border: 1px solid var(--line);
+  box-shadow:
+    -14px 14px 0 rgba(150,125,90,.55),
+    -28px 28px 0 rgba(110,90,62,.35),
+    -40px 55px 70px rgba(0,0,0,.3);
 }
+
+/* 바닥에 붙는 요소는 그대로, 서 있어야 하는 요소는 .stand로 세움 */
+.stand {
+  transform: rotateZ(40deg) rotateX(-54deg);
+  transform-origin: 50% 100%;
+  display: inline-block;
+}
+.f-prop .stand { font-size: 22px; }
+.f-monitor { font-size: 18px; position: absolute; left: 50%; top: -4px; margin-left: -11px; }
 
 /* --- 방 --- */
 .room { position: absolute; border-radius: 10px; box-shadow: inset 0 0 0 3px rgba(110,86,55,.4), 0 2px 6px rgba(0,0,0,.06); }
@@ -296,14 +318,9 @@ body {
   background: linear-gradient(150deg, #c9a06c, #b78d58);
   border: 2px solid #a07f52; box-shadow: 0 3px 6px rgba(0,0,0,.14);
 }
-.f-desk::after {
-  content: ""; position: absolute; top: -9px; left: 50%; transform: translateX(-50%);
-  width: 20px; height: 13px; background: #2f3542; border-radius: 3px;
-  border-bottom: 3px solid #57606f;
-}
 .f-bigdesk { width: 86px; height: 34px; }
 .f-table {
-  position: absolute; left: 76.5%; top: 24%; transform: translate(-50%, -50%); z-index: 1;
+  position: absolute; left: 76.5%; top: 25%; transform: translate(-50%, -50%); z-index: 1;
   width: 175px; height: 92px; border-radius: 50%;
   background: linear-gradient(150deg, #c9a97d, #b28e5f);
   border: 4px solid #a07f52; box-shadow: 0 6px 14px rgba(0,0,0,.12);
@@ -345,25 +362,26 @@ body {
 /* --- 캐릭터 --- */
 .agent {
   position: absolute; transform: translate(-50%, -50%);
-  display: flex; flex-direction: column; align-items: center;
   transition: left 1.9s cubic-bezier(.45,.05,.35,1), top 1.9s cubic-bezier(.45,.05,.35,1);
-  z-index: 5;
+  z-index: 5; cursor: pointer;
 }
+.agent:hover .agent-tag { background: var(--accent); color: #fff; }
+.agent-stand { display: flex; flex-direction: column; align-items: center; position: relative; }
 .char-flip { transition: transform .25s; }
 .char { position: relative; display: flex; flex-direction: column; align-items: center; }
-.char-crown { position: absolute; top: -11px; left: 50%; transform: translateX(-50%); font-size: 10px; z-index: 3; }
-.char-head { width: 15px; height: 15px; background: #f3cfa4; border-radius: 50%; position: relative; z-index: 2; box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+.char-crown { position: absolute; top: -13px; left: 50%; transform: translateX(-50%); font-size: 12px; z-index: 3; }
+.char-head { width: 19px; height: 19px; background: #f3cfa4; border-radius: 50%; position: relative; z-index: 2; box-shadow: 0 1px 2px rgba(0,0,0,.15); }
 .char-head::before {
-  content: ""; position: absolute; top: -1px; left: -1px; right: -1px; height: 8px;
-  border-radius: 8px 8px 3px 3px; background: var(--hair);
+  content: ""; position: absolute; top: -1px; left: -1px; right: -1px; height: 10px;
+  border-radius: 10px 10px 4px 4px; background: var(--hair);
 }
 .char-body {
-  width: 19px; height: 14px; background: var(--shirt);
-  border-radius: 6px 6px 3px 3px; margin-top: -2px; z-index: 1;
-  box-shadow: inset -3px 0 0 rgba(0,0,0,.12);
+  width: 24px; height: 17px; background: var(--shirt);
+  border-radius: 8px 8px 4px 4px; margin-top: -3px; z-index: 1;
+  box-shadow: inset -4px 0 0 rgba(0,0,0,.12);
 }
-.char-legs { display: flex; gap: 5px; }
-.char-legs span { width: 4px; height: 7px; background: #39404d; border-radius: 0 0 2px 2px; }
+.char-legs { display: flex; gap: 6px; }
+.char-legs span { width: 5px; height: 9px; background: #39404d; border-radius: 0 0 2px 2px; }
 .agent.walking .char { animation: bob .35s infinite; }
 .agent.walking .char-legs span:nth-child(1) { animation: step .35s infinite; }
 .agent.walking .char-legs span:nth-child(2) { animation: step .35s infinite .175s; }
@@ -371,9 +389,9 @@ body {
 @keyframes bob { 50% { transform: translateY(-1.5px); } }
 .agent-tag {
   display: flex; align-items: center; gap: 4px;
-  font-size: .6rem; font-weight: 700; color: var(--text);
-  background: rgba(255,255,255,.9); padding: 1px 7px; border-radius: 999px;
-  box-shadow: 0 1px 3px rgba(0,0,0,.12); white-space: nowrap;
+  font-size: .68rem; font-weight: 700; color: var(--text);
+  background: rgba(255,255,255,.92); padding: 2px 8px; border-radius: 999px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.12); white-space: nowrap; margin-top: 1px;
 }
 .agent-dot { width: 7px; height: 7px; border-radius: 50%; background: #b9b4a8; }
 .agent-dot.dot-work { background: #2e9e5b; box-shadow: 0 0 5px #2e9e5b; }
@@ -382,8 +400,8 @@ body {
 .bubble {
   position: absolute; bottom: calc(100% + 5px); left: 50%; transform: translateX(-50%);
   background: #fff; border: 1px solid var(--line); border-radius: 10px;
-  padding: 6px 10px; font-size: .7rem; line-height: 1.45;
-  width: max-content; max-width: 190px; box-shadow: 0 4px 12px rgba(0,0,0,.12);
+  padding: 6px 10px; font-size: .76rem; line-height: 1.45;
+  width: max-content; max-width: 210px; box-shadow: 0 4px 12px rgba(0,0,0,.12);
   z-index: 10; animation: bubble-pop .18s ease;
 }
 .bubble::after {
@@ -398,6 +416,47 @@ body {
 .meeting-log { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 .meeting-line { font-size: .82rem; line-height: 1.5; }
 .meeting-line b { color: var(--accent-strong); margin-right: 4px; }
+
+/* --- 탭 배지 --- */
+.tab-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 17px; height: 17px; padding: 0 4px; margin-left: 5px;
+  border-radius: 999px; background: #e74c3c; color: #fff;
+  font-size: .68rem; font-weight: 800; vertical-align: 1px;
+}
+.tab.active .tab-badge { background: #fff; color: #e74c3c; }
+
+/* --- 팀 채팅 --- */
+.team-chat { max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 7px; }
+.chatline { display: flex; align-items: baseline; gap: 8px; font-size: .84rem; line-height: 1.5; }
+.chatline-name { font-weight: 700; color: var(--accent-strong); white-space: nowrap; flex-shrink: 0; }
+.chatline-text { flex: 1; word-break: break-word; }
+.chatline-time { font-size: .68rem; color: var(--text-soft); flex-shrink: 0; }
+
+/* --- 직원 팝업 --- */
+.sm-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.sm-emoji { font-size: 2.2rem; }
+.sm-name { font-weight: 800; font-size: 1.1rem; }
+.sm-role { font-size: .82rem; color: var(--text-soft); }
+.sm-desc { font-size: .88rem; color: var(--text-soft); margin-bottom: 10px; }
+.sm-section { font-size: .78rem; font-weight: 800; color: var(--accent-strong); margin: 12px 0 6px; }
+.sm-task {
+  font-size: .86rem; background: var(--surface-2); border-radius: 8px;
+  padding: 8px 11px; margin-bottom: 5px; display: flex; justify-content: space-between; gap: 8px;
+}
+.sm-status { font-size: .72rem; color: var(--text-soft); white-space: nowrap; }
+.sm-assign { display: flex; gap: 8px; margin-top: 14px; }
+.sm-assign input { flex: 1; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font-family: inherit; font-size: .9rem; }
+.sm-assign .btn-primary { padding: 10px 16px; }
+.sm-fire { margin-top: 12px; }
+
+/* --- 채용 --- */
+.hire-grid { display: grid; grid-template-columns: 1fr 120px; gap: 12px; }
+.staff-badge {
+  font-size: .62rem; background: var(--accent-soft); color: var(--accent-strong);
+  padding: 2px 7px; border-radius: 999px; vertical-align: 2px; font-weight: 700;
+}
+.staff-fire { margin-left: auto; flex-shrink: 0; }
 
 /* ===== 업무 보드 ===== */
 .kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
@@ -429,14 +488,10 @@ body {
 .activity-time { color: var(--text-soft); font-size: .72rem; margin-right: 6px; }
 
 @media (max-width: 720px) {
-  .office { height: 430px; }
-  .f-table { width: 120px; height: 66px; }
-  .f-desk { width: 44px; height: 24px; }
-  .f-bigdesk { width: 62px; }
-  .f-sofa { width: 64px; }
-  .f-counter { width: 56px; }
+  .office { height: 400px; }
   .agent-tag { font-size: .52rem; }
   .kanban { grid-template-columns: 1fr 1fr; }
+  .hire-grid { grid-template-columns: 1fr; }
 }
 
 /* ===== AI 직원 ===== */

@@ -134,7 +134,7 @@ function staffEnding() {
 준비됐으면 "출근했습니다, ${name}님! 🙌" 하고 인사한 뒤, 일을 시작하는 데 꼭 필요한 질문만 최대 3개 해줘. 한꺼번에 많이 묻지 말 것.`;
 }
 
-const STAFF = [
+const BASE_STAFF = [
   {
     id: "planner", emoji: "📋", name: "콘텐츠 기획자", role: "무엇을 올릴지 정해주는 직원",
     tasks: ["이번 주 콘텐츠 캘린더 짜줘", "다음 달 콘텐츠 아이디어 20개 뽑아줘", "이 아이디어 중에 뭐가 제일 통할까?"],
@@ -279,6 +279,118 @@ ${staffContext()}
 ${staffEnding()}`
   }
 ];
+
+/* ---------- 커스텀 직원 (채용) ---------- */
+let customStaff = store.get("customStaff", []);
+
+const LOOK_PALETTE = [
+  { shirt: "#d35400", hair: "#241d18" }, { shirt: "#27ae60", hair: "#4a3625" },
+  { shirt: "#f1c40f", hair: "#2a2118" }, { shirt: "#34495e", hair: "#3b2d23" },
+  { shirt: "#1abc9c", hair: "#553a24" }, { shirt: "#9b59b6", hair: "#241d18" }
+];
+const MAX_STAFF = 11; // 사무공간 책상 한계 (매니저 포함 12자리)
+
+function customPrompt(c) {
+  return `지금부터 너는 나의 '${c.name}' 직원이야. 역할: ${c.role}
+
+${staffContext()}
+
+[담당 업무]
+${c.duty}
+
+[업무 규칙]
+1. 결과물은 바로 복사해서 쓸 수 있는 완성된 형태로 만들 것
+2. 여러 안이 가능하면 2~3가지 버전을 라벨 붙여 제시할 것
+3. 전문 용어는 쓰되 즉시 쉬운 말로 풀어줄 것
+4. 내가 피드백하면 기억하고 다음 결과물에 반영할 것
+
+${staffEnding()}`;
+}
+
+/* STAFF·사무실 배치·배정 규칙을 전부 데이터에서 자동 생성 — 직원을 채용/해고하면 바로 반영됨 */
+let STAFF = [];
+let OFFICE_AGENTS = [];
+let DESK_POS = {};
+let WORK_POS = {};
+let SEATS = [];
+let ROUTES = [];
+
+const BASE_ROUTES = [
+  [/릴스|영상|쇼츠|대본|촬영/, "reels"],
+  [/캡션|해시태그|카피|문구|제목/, "copywriter"],
+  [/컨셉|닉네임|프로필|브랜딩|소개글/, "brand"],
+  [/벤치마킹|분석|경쟁|참고계정/, "analyst"],
+  [/체험단|협찬|리뷰|지원서/, "review"],
+  [/강의|전자책|노트|요약|공부/, "digest"],
+  [/기획|캘린더|아이디어|계획|전략/, "planner"]
+];
+
+function seatRing(n) {
+  // 회의 테이블(중심 76.5, 24) 주변에 n개 좌석을 타원으로 배치
+  const cx = 76.5, cy = 25, rx = 14.5, ry = 15;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const angle = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+    out.push([cx + rx * Math.cos(angle), cy + ry * Math.sin(angle)]);
+  }
+  return out;
+}
+
+function rebuildStaff() {
+  STAFF = [
+    ...BASE_STAFF,
+    ...customStaff.map(c => ({
+      id: c.id, emoji: c.emoji, name: c.name, role: c.role,
+      custom: true,
+      tasks: [c.duty.split(/[.\n]/)[0] || "업무를 시켜보세요"],
+      prompt: () => customPrompt(c)
+    }))
+  ];
+
+  OFFICE_AGENTS = [
+    { id: "boss", emoji: "👑", name: "사장님" },
+    { id: "pm", emoji: "🧑‍💼", name: "매니저" },
+    ...STAFF.map(s => ({ id: s.id, emoji: s.emoji, name: s.name }))
+  ];
+
+  // 책상 자동 배치: 사무공간에 4열 그리드
+  DESK_POS = { boss: [12, 15] };
+  WORK_POS = { boss: [12, 26] };
+  const deskIds = ["pm", ...STAFF.map(s => s.id)];
+  deskIds.forEach((id, i) => {
+    const col = i % 4, row = Math.floor(i / 4);
+    DESK_POS[id] = [9 + 12.8 * col, 50 + 18 * row];
+    WORK_POS[id] = [9 + 12.8 * col, 58 + 18 * row];
+  });
+
+  SEATS = seatRing(OFFICE_AGENTS.length);
+
+  // 배정 규칙: 커스텀 직원 키워드가 우선
+  ROUTES = [
+    ...customStaff
+      .filter(c => c.keywords && c.keywords.length)
+      .map(c => [new RegExp(c.keywords.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")), c.id]),
+    ...BASE_ROUTES
+  ];
+}
+rebuildStaff();
+
+function getLook(id) {
+  const AGENT_LOOK_BASE = {
+    boss: { shirt: "#3d3d4d", hair: "#2a2118", crown: true },
+    pm: { shirt: "#5b6ee1", hair: "#3b2d23" },
+    planner: { shirt: "#e67e22", hair: "#4a3625" },
+    copywriter: { shirt: "#e75480", hair: "#241d18" },
+    reels: { shirt: "#8e44ad", hair: "#3b2d23" },
+    analyst: { shirt: "#16a085", hair: "#553a24" },
+    review: { shirt: "#c0392b", hair: "#2a2118" },
+    brand: { shirt: "#2980b9", hair: "#4a3625" },
+    digest: { shirt: "#7f8c8d", hair: "#241d18" }
+  };
+  if (AGENT_LOOK_BASE[id]) return AGENT_LOOK_BASE[id];
+  const c = customStaff.find(x => x.id === id);
+  return (c && c.look) || LOOK_PALETTE[0];
+}
 
 /* ---------- 성장 로드맵 (리빙 계정 · 체험단/수익화 기준) ---------- */
 const ROADMAP = [
@@ -729,7 +841,14 @@ function renderStaff() {
 
     const head = document.createElement("div");
     head.className = "staff-head";
-    head.innerHTML = `<span class="staff-emoji">${st.emoji}</span><div><div class="staff-name">${st.name}</div><div class="staff-role">${st.role}</div></div>`;
+    head.innerHTML = `<span class="staff-emoji">${st.emoji}</span><div><div class="staff-name">${escapeHtml(st.name)}${st.custom ? ' <span class="staff-badge">직접 채용</span>' : ""}</div><div class="staff-role">${escapeHtml(st.role)}</div></div>`;
+    if (st.custom) {
+      const fire = document.createElement("button");
+      fire.className = "btn-small btn-task-del staff-fire";
+      fire.textContent = "해고";
+      fire.addEventListener("click", () => fireStaff(st.id));
+      head.appendChild(fire);
+    }
 
     const tasks = document.createElement("div");
     tasks.className = "staff-tasks";
@@ -772,25 +891,6 @@ let tasks = store.get("tasks", []);
 let activity = store.get("activity", []);
 let meetings = store.get("meetings", []);
 
-const OFFICE_AGENTS = [
-  { id: "boss", emoji: "👑", name: "사장님" },
-  { id: "pm", emoji: "🧑‍💼", name: "매니저" },
-  ...STAFF.map(s => ({ id: s.id, emoji: s.emoji, name: s.name }))
-];
-
-/* 캐릭터 외형 (셔츠·머리 색) */
-const AGENT_LOOK = {
-  boss: { shirt: "#3d3d4d", hair: "#2a2118", crown: true },
-  pm: { shirt: "#5b6ee1", hair: "#3b2d23" },
-  planner: { shirt: "#e67e22", hair: "#4a3625" },
-  copywriter: { shirt: "#e75480", hair: "#241d18" },
-  reels: { shirt: "#8e44ad", hair: "#3b2d23" },
-  analyst: { shirt: "#16a085", hair: "#553a24" },
-  review: { shirt: "#c0392b", hair: "#2a2118" },
-  brand: { shirt: "#2980b9", hair: "#4a3625" },
-  digest: { shirt: "#7f8c8d", hair: "#241d18" }
-};
-
 /* 사무실 구조 (좌표는 % 단위) */
 const ROOMS = [
   { id: "ceo", name: "대표실", x: 1.5, y: 2, w: 26, h: 34 },
@@ -798,25 +898,6 @@ const ROOMS = [
   { id: "work", name: "사무공간", x: 1.5, y: 40, w: 50, h: 58 },
   { id: "pantry", name: "탕비실", x: 55, y: 50, w: 20.5, h: 48 },
   { id: "lounge", name: "휴게공간", x: 78, y: 50, w: 20.5, h: 48 }
-];
-
-/* 책상(가구) 위치와 직원이 일할 때 서는 자리 */
-const DESK_POS = {
-  boss: [12, 15],
-  pm: [9, 52], planner: [22, 52], copywriter: [35, 52], reels: [47, 52],
-  analyst: [9, 79], review: [22, 79], brand: [35, 79], digest: [47, 79]
-};
-const WORK_POS = {};
-Object.keys(DESK_POS).forEach(id => {
-  const [x, y] = DESK_POS[id];
-  WORK_POS[id] = [x, y + 10];
-});
-WORK_POS.boss = [12, 26];
-
-/* 회의실 테이블 좌석 (OFFICE_AGENTS 순서대로) */
-const SEATS = [
-  [64, 16], [76.5, 11], [87, 14], [92, 25], [87, 36],
-  [76.5, 41], [67, 37], [61, 28], [70, 12]
 ];
 
 /* 휴식 공간 자리 */
@@ -829,7 +910,7 @@ const officeState = { built: false, meeting: false, agents: {} };
 
 function staffName(id) {
   const a = OFFICE_AGENTS.find(x => x.id === id);
-  return a ? a.name : id;
+  return a ? a.name : "(퇴사한 직원)";
 }
 function staffEmoji(id) {
   const a = OFFICE_AGENTS.find(x => x.id === id);
@@ -847,10 +928,24 @@ function addFurniture(office, cls, x, y, html = "") {
   return el;
 }
 
+function fitOffice() {
+  const office = $("#office");
+  const floor = $("#office-floor");
+  if (!office || !floor) return;
+  const zoom = Math.min(office.clientWidth / 920, 1);
+  floor.style.setProperty("--zoom", zoom.toFixed(3));
+}
+
 function buildOffice() {
   if (officeState.built) return;
   const office = $("#office");
   office.innerHTML = "";
+
+  // 아이소메트릭 바닥판 — 모든 요소는 이 위에 배치
+  const floor = document.createElement("div");
+  floor.id = "office-floor";
+  floor.className = "office-floor";
+  office.appendChild(floor);
 
   // 방
   ROOMS.forEach(r => {
@@ -860,62 +955,66 @@ function buildOffice() {
     room.style.top = r.y + "%";
     room.style.width = r.w + "%";
     room.style.height = r.h + "%";
-    room.innerHTML = `<span class="room-label">${r.name}</span>`;
-    office.appendChild(room);
+    room.innerHTML = `<span class="room-label stand">${r.name}</span>`;
+    floor.appendChild(room);
   });
 
   // 가구 — 대표실
-  addFurniture(office, "f-desk f-bigdesk", DESK_POS.boss[0], DESK_POS.boss[1]);
-  addFurniture(office, "f-prop", 23, 8, "📚");
-  addFurniture(office, "f-prop", 4, 30, "🪴");
+  addFurniture(floor, "f-desk f-bigdesk", DESK_POS.boss[0], DESK_POS.boss[1], `<span class="stand f-monitor">🖥️</span>`);
+  addFurniture(floor, "f-prop", 23, 8, `<span class="stand">📚</span>`);
+  addFurniture(floor, "f-prop", 4, 30, `<span class="stand">🪴</span>`);
 
   // 가구 — 회의실
-  addFurniture(office, "f-table", 76.5, 24, "<span>회의 테이블</span>");
-  SEATS.forEach(([x, y]) => addFurniture(office, "f-chair", x, y));
-  addFurniture(office, "f-prop", 93, 7, "📊");
-  addFurniture(office, "f-prop", 58, 7, "🪴");
+  addFurniture(floor, "f-table", 76.5, 25, "<span>회의 테이블</span>");
+  SEATS.forEach(([x, y]) => addFurniture(floor, "f-chair", x, y));
+  addFurniture(floor, "f-prop", 93, 7, `<span class="stand">📊</span>`);
+  addFurniture(floor, "f-prop", 58, 7, `<span class="stand">🪴</span>`);
 
-  // 가구 — 사무공간 책상 (직원용)
+  // 가구 — 사무공간 책상 (직원 수만큼 자동 생성)
   OFFICE_AGENTS.forEach(a => {
     if (a.id === "boss") return;
-    addFurniture(office, "f-desk", DESK_POS[a.id][0], DESK_POS[a.id][1]);
+    addFurniture(floor, "f-desk", DESK_POS[a.id][0], DESK_POS[a.id][1], `<span class="stand f-monitor">🖥️</span>`);
   });
-  addFurniture(office, "f-prop", 4, 44, "🖨️");
-  addFurniture(office, "f-prop", 48, 94, "🌿");
+  addFurniture(floor, "f-prop", 4, 44, `<span class="stand">🖨️</span>`);
+  addFurniture(floor, "f-prop", 48, 94, `<span class="stand">🌿</span>`);
 
   // 가구 — 탕비실
-  addFurniture(office, "f-counter", 65, 58, "☕🫖🍪");
-  addFurniture(office, "f-prop", 58, 93, "🧃");
+  addFurniture(floor, "f-counter", 65, 58, `<span class="stand">☕🫖🍪</span>`);
+  addFurniture(floor, "f-prop", 58, 93, `<span class="stand">🧃</span>`);
 
   // 가구 — 휴게공간
-  addFurniture(office, "f-sofa", 88, 61);
-  addFurniture(office, "f-rug", 88, 80);
-  addFurniture(office, "f-prop", 95, 55, "🪴");
+  addFurniture(floor, "f-sofa", 88, 61);
+  addFurniture(floor, "f-rug", 88, 80);
+  addFurniture(floor, "f-prop", 95, 55, `<span class="stand">🪴</span>`);
 
   // 복도 소품
-  addFurniture(office, "f-prop", 52.5, 20, "🌿");
+  addFurniture(floor, "f-prop", 52.5, 20, `<span class="stand">🌿</span>`);
 
   // 캐릭터
   OFFICE_AGENTS.forEach(a => {
-    const look = AGENT_LOOK[a.id];
+    const look = getLook(a.id);
     const [wx, wy] = WORK_POS[a.id];
     const el = document.createElement("div");
     el.className = "agent";
     el.style.left = wx + "%";
     el.style.top = wy + "%";
+    el.style.zIndex = String(200 + Math.round(wy * 10));
     const tagName = a.id === "boss" ? `👑 ${(settings && settings.name) || "사장"}님` : a.name;
     el.innerHTML = `
-      <div class="bubble hidden"></div>
-      <div class="char-flip">
-        <div class="char" style="--shirt:${look.shirt};--hair:${look.hair}">
-          ${look.crown ? '<div class="char-crown">👑</div>' : ""}
-          <div class="char-head"></div>
-          <div class="char-body"></div>
-          <div class="char-legs"><span></span><span></span></div>
+      <div class="stand agent-stand">
+        <div class="bubble hidden"></div>
+        <div class="char-flip">
+          <div class="char" style="--shirt:${look.shirt};--hair:${look.hair}">
+            ${look.crown ? '<div class="char-crown">👑</div>' : ""}
+            <div class="char-head"></div>
+            <div class="char-body"></div>
+            <div class="char-legs"><span></span><span></span></div>
+          </div>
         </div>
-      </div>
-      <div class="agent-tag"><span class="agent-dot"></span>${tagName}</div>`;
-    office.appendChild(el);
+        <div class="agent-tag"><span class="agent-dot"></span>${tagName}</div>
+      </div>`;
+    el.addEventListener("click", () => openStaffModal(a.id));
+    floor.appendChild(el);
     officeState.agents[a.id] = {
       el,
       bubble: el.querySelector(".bubble"),
@@ -926,11 +1025,29 @@ function buildOffice() {
   });
 
   officeState.built = true;
+  fitOffice();
+  ensureOfficeTimers();
+}
+
+/* 채용/해고 후 사무실을 새 구성으로 다시 짓기 */
+function rebuildOffice() {
+  officeState.built = false;
+  officeState.agents = {};
+  buildOffice();
+  updateOfficeStatuses();
+}
+
+let officeTimersStarted = false;
+function ensureOfficeTimers() {
+  if (officeTimersStarted) return;
+  officeTimersStarted = true;
   setInterval(wanderTick, 4200);
+  setInterval(chatterTick, 42000);
   setInterval(() => {
     const el = $("#office-clock");
     if (el) el.textContent = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
   }, 1000);
+  window.addEventListener("resize", fitOffice);
 }
 
 function moveAgent(id, x, y) {
@@ -946,6 +1063,7 @@ function moveAgent(id, x, y) {
   a.x = x; a.y = y;
   a.el.style.left = x + "%";
   a.el.style.top = y + "%";
+  a.el.style.zIndex = String(200 + Math.round(y * 10));
 }
 
 function speak(id, text, ms = 3200) {
@@ -1088,10 +1206,211 @@ async function holdScrum() {
   meetings = meetings.slice(0, 10);
   store.set("meetings", meetings);
   logActivity("📝 스크럼 미팅 완료 — 회의록 저장됨");
+  postChat("pm", `스크럼 미팅 끝! 열린 업무 ${open}건, 검토 대기 ${review}건입니다. 다들 수고하셨어요 📝`);
 
   officeState.meeting = false;
   btn.disabled = false; btn.textContent = "📣 스크럼 미팅 소집";
   OFFICE_AGENTS.forEach(a => moveAgent(a.id, ...WORK_POS[a.id]));
+}
+
+/* ----- 팀 채팅 ----- */
+let teamChat = store.get("teamChat", []);
+
+function postChat(id, text) {
+  const name = id === "boss" ? `👑 ${(settings && settings.name) || "사장"}님` : staffName(id);
+  teamChat.push({ at: Date.now(), id, name, emoji: id === "boss" ? "" : staffEmoji(id), text });
+  teamChat = teamChat.slice(-60);
+  store.set("teamChat", teamChat);
+  renderTeamChat();
+}
+
+function renderTeamChat() {
+  const el = $("#team-chat");
+  if (!el) return;
+  if (!teamChat.length) {
+    el.innerHTML = `<div class="mission-empty">아직 대화가 없어요. 직원들이 곧 수다를 떨기 시작할 거예요 ☕</div>`;
+    return;
+  }
+  el.innerHTML = teamChat.slice(-25).map(m => {
+    const t = new Date(m.at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+    return `<div class="chatline"><span class="chatline-name">${m.emoji} ${escapeHtml(m.name)}</span><span class="chatline-text">${escapeHtml(m.text)}</span><span class="chatline-time">${t}</span></div>`;
+  }).join("");
+  el.scrollTop = el.scrollHeight;
+}
+
+/* 직원 둘이 만나서 나누는 잡담 (사무실 연출 + 팀 채팅 기록) */
+function chatterScript(aId, bId) {
+  const a = staffName(aId), b = staffName(bId);
+  const open = tasks.find(t => t.status === "doing" || t.status === "review");
+  const topic = (settings && settings.topic) || "리빙";
+  const pools = [
+    open ? [
+      [aId, `「${open.title.slice(0, 14)}」 건 방향 잠깐 봐줄래요?`],
+      [bId, `오 좋은데요? 저장을 부르는 쪽으로 살짝 틀면 더 좋을 듯!`],
+      [aId, `역시 ${b}님! 바로 반영할게요 🙌`]
+    ] : null,
+    [
+      [aId, `요즘 ${topic} 계정들 뭐가 잘 되나 봤어요?`],
+      [bId, `비포/애프터 형식이 확실히 반응 좋더라고요.`],
+      [aId, `오, 다음 기획 회의 때 공유해주세요!`]
+    ],
+    [
+      [aId, `커피 한 잔 하실래요? ☕`],
+      [bId, `좋죠! 5분만 쉬고 다시 달립시다 🔥`]
+    ],
+    [
+      [aId, `사장님 계정 요즘 성장세 어때요?`],
+      [bId, `이제 시작이죠! 우리가 제대로 밀어드려야죠 💪`]
+    ],
+    [
+      [aId, `${b}님 지난번 결과물 진짜 좋았어요.`],
+      [bId, `헉 감사해요 😊 ${a}님 것도 참고 많이 했어요!`]
+    ]
+  ].filter(Boolean);
+  return pick(pools);
+}
+
+let chatterBusy = false;
+async function chatterTick() {
+  if (officeState.meeting || chatterBusy || document.hidden) return;
+  if (Math.random() < 0.35) return; // 매번 일어나지는 않게
+  const idle = STAFF.filter(s => !agentActiveTask(s.id)).map(s => s.id);
+  if (idle.length < 2) return;
+  chatterBusy = true;
+  try {
+    const aId = pick(idle);
+    const bId = pick(idle.filter(x => x !== aId));
+    const [mx, my] = pick([...HALL_SPOTS, ...PANTRY_SPOTS.slice(0, 2), ...LOUNGE_SPOTS.slice(0, 2)]);
+    moveAgent(aId, mx - 2.5, my);
+    moveAgent(bId, mx + 2.5, my);
+    await sleep(2100);
+    for (const [who, line] of chatterScript(aId, bId)) {
+      speak(who, line, 2600);
+      postChat(who, line);
+      await sleep(2900);
+    }
+  } finally {
+    chatterBusy = false;
+  }
+}
+
+/* ----- 직원 상세 팝업 ----- */
+function openStaffModal(id) {
+  const modal = $("#staff-modal");
+  const head = $("#sm-head");
+  const body = $("#sm-body");
+  const agent = OFFICE_AGENTS.find(a => a.id === id);
+  if (!agent) return;
+
+  const bossName = (settings && settings.name) || "사장";
+
+  if (id === "boss") {
+    head.innerHTML = `<span class="sm-emoji">👑</span><div><div class="sm-name">${escapeHtml(bossName)}님 (사장)</div><div class="sm-role">이 사무실의 주인 — 바로 당신!</div></div>`;
+    const done = tasks.filter(t => t.status === "done").length;
+    const open = tasks.filter(t => t.status !== "done").length;
+    body.innerHTML = `<p class="sm-desc">지금까지 팀이 완료한 업무 <b>${done}건</b>, 열린 업무 <b>${open}건</b>.<br>지시를 내리고 검토·승인만 하면 됩니다. 사장님은 큰 그림만! 😎</p>`;
+    modal.classList.remove("hidden");
+    return;
+  }
+
+  const st = STAFF.find(s => s.id === id);
+  const mine = tasks.filter(t => t.assignee === id);
+  const byStatus = (s) => mine.filter(t => t.status === s);
+  const doneCount = byStatus("done").length;
+
+  if (id === "pm") {
+    head.innerHTML = `<span class="sm-emoji">🧑‍💼</span><div><div class="sm-name">매니저</div><div class="sm-role">업무 배정과 회의 진행 담당</div></div>`;
+    const open = tasks.filter(t => t.status !== "done");
+    body.innerHTML = `<p class="sm-desc">팀 전체 현황을 관리해요.</p>` + (open.length
+      ? `<div class="sm-section">열린 업무 전체 (${open.length})</div>` + open.map(t => `<div class="sm-task">${staffEmoji(t.assignee)} ${escapeHtml(t.title)} <span class="sm-status">${t.status === "todo" ? "대기" : t.status === "doing" ? "진행 중" : "검토 대기"}</span></div>`).join("")
+      : `<p class="sm-desc">현재 열린 업무가 없어요. 지시를 내려보세요!</p>`);
+    modal.classList.remove("hidden");
+    return;
+  }
+
+  head.innerHTML = `<span class="sm-emoji">${st.emoji}</span><div><div class="sm-name">${escapeHtml(st.name)}</div><div class="sm-role">${escapeHtml(st.role)} · 완료 ${doneCount}건</div></div>`;
+
+  let html = "";
+  const sections = [["doing", "🔨 진행 중"], ["review", "👀 검토 대기"], ["todo", "⏳ 대기"], ["done", "✅ 최근 완료"]];
+  sections.forEach(([s, label]) => {
+    let list = byStatus(s);
+    if (s === "done") list = list.slice(0, 3);
+    if (!list.length) return;
+    html += `<div class="sm-section">${label} (${list.length})</div>` + list.map(t => `<div class="sm-task">${escapeHtml(t.title)}</div>`).join("");
+  });
+  if (!html) html = `<p class="sm-desc">지금 맡은 업무가 없어요. 아래에서 바로 일을 시켜보세요!</p>`;
+
+  html += `<div class="sm-assign"><input type="text" id="sm-assign-input" placeholder="예: ${escapeHtml(st.tasks[0] || "업무 지시")}"><button class="btn-primary" id="sm-assign-go">지시</button></div>`;
+  if (st.custom) html += `<button class="btn-danger btn-small sm-fire" id="sm-fire">이 직원 해고하기</button>`;
+  body.innerHTML = html;
+
+  $("#sm-assign-go").addEventListener("click", () => {
+    const v = $("#sm-assign-input").value.trim();
+    if (!v) return;
+    const t = createTask(v, id);
+    renderBoard(); updateOfficeStatuses();
+    modal.classList.add("hidden");
+    toast(`🎯 ${st.name}에게 배정 완료!`);
+    if ((settings.apiKey || "").trim() && t.status === "doing") autoWork(t);
+  });
+  $("#sm-assign-input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) $("#sm-assign-go").click(); });
+  const fireBtn = $("#sm-fire");
+  if (fireBtn) fireBtn.addEventListener("click", () => { modal.classList.add("hidden"); fireStaff(id); });
+
+  modal.classList.remove("hidden");
+}
+
+/* ----- 채용 / 해고 ----- */
+function hireStaff() {
+  const name = $("#hire-name").value.trim();
+  const role = $("#hire-role").value.trim();
+  const duty = $("#hire-duty").value.trim();
+  const emoji = $("#hire-emoji").value;
+  const keywords = $("#hire-keywords").value.split(",").map(k => k.trim()).filter(Boolean);
+
+  if (!name || !duty) { toast("⚠️ 이름과 하는 일은 꼭 채워주세요!"); return; }
+  if (STAFF.length >= MAX_STAFF) { toast(`⚠️ 사무실 책상이 가득 찼어요 (최대 ${MAX_STAFF}명). 먼저 한 명을 해고해주세요.`); return; }
+  if (STAFF.some(s => s.name === name)) { toast("⚠️ 같은 이름의 직원이 이미 있어요."); return; }
+
+  const c = {
+    id: "c" + Date.now(),
+    name, role: role || `${name} 담당 직원`, duty, emoji, keywords,
+    look: LOOK_PALETTE[customStaff.length % LOOK_PALETTE.length]
+  };
+  customStaff.push(c);
+  store.set("customStaff", customStaff);
+  rebuildStaff();
+  rebuildOffice();
+  renderStaff();
+  renderBoard();
+  ["hire-name", "hire-role", "hire-duty", "hire-keywords"].forEach(i => $("#" + i).value = "");
+  logActivity(`🎉 새 직원 입사: ${emoji} ${name} (${c.role})`);
+  postChat("pm", `모두 환영해주세요! 오늘부터 ${name}님이 합류합니다 🎉`);
+  setTimeout(() => { postChat(c.id, `안녕하세요, ${name}입니다! 잘 부탁드려요 🙇`); speak(c.id, "첫 출근입니다! 🙇"); }, 1200);
+  toast(`🎉 ${name} 채용 완료! 사무실에 책상이 생겼어요.`);
+}
+
+function fireStaff(id) {
+  const c = customStaff.find(x => x.id === id);
+  if (!c) return;
+  if (!confirm(`정말 ${c.name} 직원을 해고할까요? 진행 중이던 업무는 콘텐츠 기획자에게 인계됩니다.`)) return;
+
+  tasks.forEach(t => {
+    if (t.assignee === id && t.status !== "done") {
+      t.assignee = "planner";
+      t.note = (t.note ? t.note + " / " : "") + `${c.name} 퇴사로 인계받음`;
+    }
+  });
+  store.set("tasks", tasks);
+  customStaff = customStaff.filter(x => x.id !== id);
+  store.set("customStaff", customStaff);
+  rebuildStaff();
+  rebuildOffice();
+  renderStaff();
+  renderBoard();
+  logActivity(`👋 ${c.name} 퇴사 — 남은 업무는 콘텐츠 기획자에게 인계`);
+  postChat("pm", `${c.name}님이 퇴사했습니다. 남은 업무는 콘텐츠 기획자가 이어받아요.`);
+  toast(`👋 ${c.name} 해고 완료`);
 }
 
 /* ----- 활동 로그 ----- */
@@ -1116,16 +1435,6 @@ function renderActivity() {
 }
 
 /* ----- 지시 → 배정 ----- */
-const ROUTES = [
-  [/릴스|영상|쇼츠|대본|촬영/, "reels"],
-  [/캡션|해시태그|카피|문구|제목/, "copywriter"],
-  [/컨셉|닉네임|프로필|브랜딩|소개글/, "brand"],
-  [/벤치마킹|분석|경쟁|참고계정/, "analyst"],
-  [/체험단|협찬|리뷰|지원서/, "review"],
-  [/강의|전자책|노트|요약|공부/, "digest"],
-  [/기획|캘린더|아이디어|계획|전략/, "planner"]
-];
-
 function routeDirective(text) {
   for (const [re, id] of ROUTES) if (re.test(text)) return id;
   return "planner";
@@ -1142,24 +1451,44 @@ function createTask(title, assignee) {
   tasks.unshift(task);
   store.set("tasks", tasks);
   logActivity(`🧑‍💼 매니저 → ${staffName(assignee)}: 「${title}」 배정${hasActive ? " (대기열)" : ""}`);
+  postChat("pm", `@${staffName(assignee)} 「${title}」 부탁해요!`);
   speak("pm", `${staffName(assignee)}님, 새 업무 배정했어요!`);
-  setTimeout(() => speak(assignee, hasActive ? "접수! 현재 건 마치고 시작할게요." : "새 업무 접수했습니다! 바로 시작합니다 💪"), 1400);
+  setTimeout(() => {
+    const reply = hasActive ? "접수! 현재 건 마치고 시작할게요." : "새 업무 접수했습니다! 바로 시작합니다 💪";
+    speak(assignee, reply);
+    postChat(assignee, reply);
+  }, 1400);
   return task;
 }
 
 async function handleDirective() {
   const input = $("#directive-input");
-  const text = input.value.trim();
+  let text = input.value.trim();
   if (!text) { input.focus(); return; }
   input.value = "";
   const btn = $("#directive-go");
   btn.disabled = true;
 
+  // "@직원이름 지시내용" 으로 담당 직접 지정
+  const mention = text.match(/^@(\S+)\s+(.+)/);
+  if (mention) {
+    const target = STAFF.find(s => s.name.replace(/\s/g, "").includes(mention[1].replace(/\s/g, "")));
+    if (target) {
+      const t = createTask(mention[2].trim(), target.id);
+      renderBoard(); updateOfficeStatuses();
+      toast(`🎯 ${target.name}에게 직접 배정!`);
+      btn.disabled = false;
+      if ((settings.apiKey || "").trim() && t.status === "doing") autoWork(t);
+      return;
+    }
+    text = mention[2].trim(); // 못 찾으면 일반 배정으로
+  }
+
   let assignments = null;
   if ((settings.apiKey || "").trim()) {
     try {
       const system = `너는 SNS 마케팅 팀의 PM이다. 사장의 지시를 팀원별 작업으로 분해하라.
-팀원 id: planner(콘텐츠 기획), copywriter(카피·캡션·해시태그), reels(릴스 대본), analyst(벤치마킹 분석), review(체험단·협찬), brand(계정 컨셉·프로필), digest(강의 자료 소화)
+팀원 id: ${STAFF.map(s => `${s.id}(${s.role})`).join(", ")}
 규칙: 꼭 필요한 작업만 1~4개. 각 작업 제목은 결과물이 명확한 한 문장. 다른 말 없이 JSON 배열만 출력: [{"assignee":"copywriter","title":"..."}]`;
       const raw = await callClaudeSystem(system, [{ role: "user", content: text }], () => {});
       const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
@@ -1214,6 +1543,7 @@ async function autoWork(task) {
     task.autoWorking = false;
     store.set("tasks", tasks);
     logActivity(`${staffEmoji(task.assignee)} ${staffName(task.assignee)}: 「${task.title}」 결과물 제출 → 검토 대기`);
+    postChat(task.assignee, `「${task.title}」 결과물 올렸습니다. 검토 부탁드려요 👀`);
     speak(task.assignee, "결과물 올렸습니다! 검토 부탁드려요 👀");
     renderBoard();
     updateOfficeStatuses();
@@ -1312,6 +1642,8 @@ function renderBoard() {
           t.status = "done"; t.doneAt = Date.now();
           store.set("tasks", tasks);
           logActivity(`✅ 「${t.title}」 승인 완료 (${staffName(t.assignee)})`);
+          postChat("boss", `「${t.title}」 승인! 수고했어요 👍`);
+          postChat(t.assignee, "감사합니다! 🎉");
           speak(t.assignee, "승인 감사합니다! 🎉");
           renderBoard(); updateOfficeStatuses();
           promoteQueue(t.assignee);
@@ -1322,6 +1654,8 @@ function renderBoard() {
           t.note = note.trim(); t.status = "doing";
           store.set("tasks", tasks);
           logActivity(`↩ 「${t.title}」 보완 요청 → ${staffName(t.assignee)} 재작업`);
+          if (t.note) postChat("boss", `「${t.title}」 보완 부탁해요: ${t.note}`);
+          postChat(t.assignee, "피드백 확인! 보완해서 다시 올릴게요 💪");
           speak(t.assignee, "피드백 확인! 보완해서 다시 올릴게요 💪");
           renderBoard(); updateOfficeStatuses();
           if ((settings.apiKey || "").trim()) autoWork(t);
@@ -1395,6 +1729,13 @@ function renderBoard() {
   const review = tasks.filter(t => t.status === "review").length;
   const done = tasks.filter(t => t.status === "done").length;
   $("#board-stats").textContent = `열린 업무 ${open} · 검토 ${review} · 완료 ${done}`;
+
+  // 검토 대기 알림 배지 (사무실 탭)
+  const badge = $("#office-badge");
+  if (badge) {
+    badge.textContent = review;
+    badge.classList.toggle("hidden", review === 0);
+  }
 }
 
 function renderOffice() {
@@ -1402,6 +1743,8 @@ function renderOffice() {
   updateOfficeStatuses();
   renderBoard();
   renderActivity();
+  renderTeamChat();
+  fitOffice();
 }
 
 /* ---------- 채팅 탭 ---------- */
@@ -1691,7 +2034,7 @@ function exportBackup() {
     version: 1,
     exportedAt: new Date().toISOString(),
     settings: { ...settings, apiKey: "" }, // 보안을 위해 키는 제외
-    docs, chats, roadmapDone, missions, tasks, activity, meetings
+    docs, chats, roadmapDone, missions, tasks, activity, meetings, customStaff, teamChat
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
@@ -1717,6 +2060,8 @@ function importBackup(file) {
       tasks = data.tasks || [];
       activity = data.activity || [];
       meetings = data.meetings || [];
+      customStaff = data.customStaff || [];
+      teamChat = data.teamChat || [];
       store.set("settings", settings);
       store.set("docs", docs);
       store.set("chats", chats);
@@ -1725,6 +2070,10 @@ function importBackup(file) {
       store.set("tasks", tasks);
       store.set("activity", activity);
       store.set("meetings", meetings);
+      store.set("customStaff", customStaff);
+      store.set("teamChat", teamChat);
+      rebuildStaff();
+      rebuildOffice();
       renderAll();
       toast("📥 백업을 불러왔어요!");
     } catch (e) {
@@ -1787,6 +2136,11 @@ function bindEvents() {
   $("#scrum-btn").addEventListener("click", holdScrum);
   $("#directive-go").addEventListener("click", handleDirective);
   $("#directive-input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) handleDirective(); });
+
+  // 직원 팝업 & 채용
+  $("#sm-close").addEventListener("click", () => $("#staff-modal").classList.add("hidden"));
+  $("#staff-modal").addEventListener("click", e => { if (e.target === $("#staff-modal")) $("#staff-modal").classList.add("hidden"); });
+  $("#hire-go").addEventListener("click", hireStaff);
 
   // 아이디어 변환기
   const ideaGo = () => {
@@ -1860,3 +2214,6 @@ function init() {
 }
 
 init();
+
+// 자동 테스트용 훅 (앱 동작에는 영향 없음)
+window.__senter = { chatterTick, holdScrum, rebuildStaff };
