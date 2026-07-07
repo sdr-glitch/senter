@@ -468,7 +468,7 @@ function toast(msg, ms = 3200) {
 }
 
 function escapeHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 /* 간단한 마크다운 렌더러 (멘토 답변용) */
@@ -478,8 +478,27 @@ function renderMarkdown(text) {
   const out = [];
   let inList = null; // "ul" | "ol" | null
   const closeList = () => { if (inList) { out.push(`</${inList}>`); inList = null; } };
+  const splitRow = (l) => l.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+  const isSep = (l) => /\|/.test(l) && /^[\s:|-]+$/.test(l.trim()) && /-/.test(l);
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // GitHub 스타일 표: 헤더 | 구분선 | 데이터 행
+    if (line.includes("|") && i + 1 < lines.length && isSep(lines[i + 1]) && !isSep(line)) {
+      closeList();
+      const header = splitRow(line);
+      const rows = [];
+      i += 2;
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim() !== "") {
+        rows.push(splitRow(lines[i]));
+        i++;
+      }
+      i--; // 바깥 루프에서 1 증가하므로 보정
+      const th = header.map(c => `<th>${inline(c)}</th>`).join("");
+      const trs = rows.map(r => "<tr>" + header.map((_, k) => `<td>${inline(r[k] || "")}</td>`).join("") + "</tr>").join("");
+      out.push(`<table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`);
+      continue;
+    }
     const h = line.match(/^(#{1,4})\s+(.*)/);
     const ul = line.match(/^\s*[-*•]\s+(.*)/);
     const ol = line.match(/^\s*\d+[.)]\s+(.*)/);
@@ -570,7 +589,7 @@ async function callClaudeSystem(system, messages, onDelta) {
     },
     body: JSON.stringify({
       model: (settings && settings.model) || "claude-sonnet-5",
-      max_tokens: 2048,
+      max_tokens: 4096,
       system,
       messages: messages.map(m => ({ role: m.role, content: m.content })),
       stream: true
@@ -3054,6 +3073,7 @@ function switchTab(name) {
   if (name === "office") renderOffice();
   if (name === "staff") renderStaff();
   if (name === "tools") renderTools();
+  if (name === "reels") renderReels();
   if (name === "studio") renderStudio();
   if (name === "chat") renderChat();
   if (name === "library") renderLibrary();
@@ -3226,6 +3246,552 @@ function bindEvents() {
     Object.keys(localStorage).filter(k => k.startsWith("senter:")).forEach(k => localStorage.removeItem(k));
     location.reload();
   });
+}
+
+/* ==========================================================================
+   릴스·숏츠 대본 생성기
+   - 사진/영상을 브라우저 안에서만 처리(업로드 없음 → 용량 제한·요금 없음)
+   - 영상은 길이·해상도 추출 + 미리보기 프레임 캡처
+   - 무료 AI(Puter) 또는 내 API 키로 캡컷·프리미어용 편집 대본 생성
+   ========================================================================== */
+let reelsMedia = [];        // {id, kind, name, url, size, duration, w, h, thumbs:[dataURL]}
+let reelsResult = "";       // 마지막으로 생성된 대본(마크다운)
+let reelsBusy = false;
+let reelsInited = false;
+
+function fmtDur(sec) {
+  if (!sec || !isFinite(sec)) return "0초";
+  const s = Math.round(sec);
+  if (s < 60) return s + "초";
+  return Math.floor(s / 60) + "분 " + (s % 60) + "초";
+}
+function fmtBytes(n) {
+  if (!n) return "";
+  if (n < 1024 * 1024) return Math.round(n / 1024) + "KB";
+  return (n / 1024 / 1024).toFixed(1) + "MB";
+}
+function orient(w, h) {
+  if (!w || !h) return "";
+  if (h > w * 1.1) return "세로";
+  if (w > h * 1.1) return "가로";
+  return "정사각";
+}
+
+/* 영상/이미지에서 미리보기 프레임 + 메타데이터 추출 */
+function captureFrame(source, sw, sh) {
+  const canvas = document.createElement("canvas");
+  const scale = Math.min(1, 360 / Math.max(sw || 360, sh || 360));
+  canvas.width = Math.max(1, Math.round((sw || 360) * scale));
+  canvas.height = Math.max(1, Math.round((sh || 360) * scale));
+  canvas.getContext("2d").drawImage(source, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.6);
+}
+
+function loadImageMeta(url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let thumb = "";
+      try { thumb = captureFrame(img, img.naturalWidth, img.naturalHeight); } catch {}
+      resolve({ duration: 0, w: img.naturalWidth, h: img.naturalHeight, thumbs: thumb ? [thumb] : [] });
+    };
+    img.onerror = () => resolve({ duration: 0, w: 0, h: 0, thumbs: [] });
+    img.src = url;
+  });
+}
+
+function seekAndCapture(video, t) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return; done = true;
+      video.removeEventListener("seeked", onSeeked);
+      try { resolve(captureFrame(video, video.videoWidth, video.videoHeight)); }
+      catch { resolve(""); }
+    };
+    const onSeeked = () => finish();
+    video.addEventListener("seeked", onSeeked);
+    setTimeout(finish, 2500); // 시크가 막히면 넘어가기
+    try { video.currentTime = t; } catch { finish(); }
+  });
+}
+
+/* 일부 영상(화면 녹화, 앱 녹화 webm 등)은 길이가 Infinity로 나옴 —
+   끝쪽으로 시크하면 브라우저가 실제 길이를 계산해줌 */
+function resolveVideoDuration(v) {
+  return new Promise((resolve) => {
+    if (isFinite(v.duration) && v.duration > 0) { resolve(v.duration); return; }
+    let done = false;
+    const finish = () => {
+      if (done) return; done = true;
+      v.removeEventListener("durationchange", onChange);
+      resolve(isFinite(v.duration) && v.duration > 0 ? v.duration : 0);
+    };
+    const onChange = () => { if (isFinite(v.duration) && v.duration > 0) finish(); };
+    v.addEventListener("durationchange", onChange);
+    setTimeout(finish, 3000);
+    try { v.currentTime = 1e7; } catch { finish(); }
+  });
+}
+
+function loadVideoMeta(url) {
+  return new Promise((resolve) => {
+    const v = document.createElement("video");
+    v.preload = "auto"; v.muted = true; v.playsInline = true; v.src = url;
+    let settled = false;
+    const bail = () => { if (!settled) { settled = true; resolve({ duration: 0, w: 0, h: 0, thumbs: [] }); } };
+    v.addEventListener("error", bail);
+    setTimeout(bail, 15000);
+    v.addEventListener("loadeddata", async () => {
+      if (settled) return; settled = true;
+      const dur = await resolveVideoDuration(v);
+      const w = v.videoWidth, h = v.videoHeight;
+      const points = dur > 0.5
+        ? [dur * 0.1, dur * 0.5, dur * 0.85].map(t => Math.min(Math.max(t, 0.05), dur - 0.05))
+        : [0];
+      const thumbs = [];
+      for (const t of points) {
+        const f = await seekAndCapture(v, t);
+        if (f) thumbs.push(f);
+      }
+      resolve({ duration: dur, w, h, thumbs });
+    });
+  });
+}
+
+async function addReelsFiles(fileList) {
+  const files = Array.from(fileList).filter(f => f.type.startsWith("image/") || f.type.startsWith("video/"));
+  if (!files.length) { toast("사진이나 영상 파일만 올릴 수 있어요."); return; }
+  const note = $("#reels-gen-note");
+  for (const file of files) {
+    const kind = file.type.startsWith("video/") ? "video" : "image";
+    const url = URL.createObjectURL(file);
+    const item = { id: "m" + Date.now() + Math.round(Math.random() * 1e4), kind, name: file.name, url, size: file.size, duration: 0, w: 0, h: 0, thumbs: [], loading: true };
+    reelsMedia.push(item);
+    renderReelsMedia();
+    if (note) note.textContent = "📥 " + file.name + " 읽는 중...";
+    const meta = kind === "video" ? await loadVideoMeta(url) : await loadImageMeta(url);
+    Object.assign(item, meta, { loading: false });
+    renderReelsMedia();
+  }
+  if (note) note.textContent = "";
+}
+
+function removeReelsMedia(id) {
+  const i = reelsMedia.findIndex(m => m.id === id);
+  if (i < 0) return;
+  try { URL.revokeObjectURL(reelsMedia[i].url); } catch {}
+  reelsMedia.splice(i, 1);
+  renderReelsMedia();
+}
+function moveReelsMedia(id, dir) {
+  const i = reelsMedia.findIndex(m => m.id === id);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= reelsMedia.length) return;
+  const [x] = reelsMedia.splice(i, 1);
+  reelsMedia.splice(j, 0, x);
+  renderReelsMedia();
+}
+
+function renderReelsMedia() {
+  const wrap = $("#reels-media");
+  if (!wrap) return;
+  if (!reelsMedia.length) { wrap.innerHTML = ""; return; }
+  const totalVid = reelsMedia.filter(m => m.kind === "video").reduce((a, m) => a + (m.duration || 0), 0);
+  const imgCount = reelsMedia.filter(m => m.kind === "image").length;
+  const vidCount = reelsMedia.filter(m => m.kind === "video").length;
+  const summary = `<div class="reels-media-summary"><span>📦 소스 ${reelsMedia.length}개 · 영상 ${vidCount}개(${fmtDur(totalVid)})${imgCount ? " · 사진 " + imgCount + "장" : ""} <span class="reels-media-order-hint">← 순서가 곧 컷 순서예요</span></span><button class="reels-clear-btn" id="reels-clear">🗑️ 전체 비우기</button></div>`;
+  const cards = reelsMedia.map((m, idx) => {
+    const thumb = m.thumbs[0];
+    const badge = m.kind === "video"
+      ? `🎬 ${fmtDur(m.duration)}`
+      : "🖼️ 사진";
+    const meta = m.loading ? "읽는 중..." : `${badge}${m.w ? " · " + m.w + "×" + m.h + " " + orient(m.w, m.h) : ""}${m.size ? " · " + fmtBytes(m.size) : ""}`;
+    const thumbHtml = thumb
+      ? `<img src="${thumb}" alt="" class="reels-thumb-img">`
+      : `<div class="reels-thumb-ph">${m.loading ? "⏳" : (m.kind === "video" ? "🎬" : "🖼️")}</div>`;
+    return `<div class="reels-thumb" data-id="${m.id}">
+      <div class="reels-thumb-num">${idx + 1}</div>
+      ${thumbHtml}
+      <div class="reels-thumb-name" title="${escapeHtml(m.name)}">${escapeHtml(m.name)}</div>
+      <div class="reels-thumb-meta">${escapeHtml(meta)}</div>
+      <div class="reels-thumb-actions">
+        <button class="reels-thumb-btn" data-act="up" ${idx === 0 ? "disabled" : ""} title="앞으로">◀</button>
+        <button class="reels-thumb-btn" data-act="down" ${idx === reelsMedia.length - 1 ? "disabled" : ""} title="뒤로">▶</button>
+        <button class="reels-thumb-btn reels-thumb-del" data-act="del" title="빼기">✕</button>
+      </div>
+    </div>`;
+  }).join("");
+  wrap.innerHTML = summary + `<div class="reels-thumb-grid">${cards}</div>`;
+}
+
+/* AI 프롬프트 구성 */
+function reelsChoice(sel, fallback) {
+  const el = $(sel + " .chip.selected");
+  return (el && el.dataset.value) || fallback;
+}
+
+function buildReelsMediaSummary() {
+  if (!reelsMedia.length) return "(올린 소스 없음 — 사용자가 설명만 준 경우, 필요한 촬영 컷을 직접 제안하세요.)";
+  return reelsMedia.map((m, i) => {
+    if (m.kind === "video") {
+      return `${i + 1}. [영상] "${m.name}" — 길이 ${fmtDur(m.duration)}${m.w ? `, ${m.w}×${m.h}(${orient(m.w, m.h)})` : ""}`;
+    }
+    return `${i + 1}. [사진] "${m.name}"${m.w ? ` — ${m.w}×${m.h}(${orient(m.w, m.h)})` : ""}`;
+  }).join("\n");
+}
+
+const REELS_SYSTEM = `당신은 조회수가 잘 나오는 릴스·쇼츠 전문 편집 PD이자 대본 작가입니다. 사용자가 올린 사진·영상 소스와 설명을 바탕으로, 편집 초보자도 캡컷(CapCut)과 어도비 프리미어 프로에서 그대로 따라 만들 수 있는 완성형 편집 대본을 만듭니다.
+
+핵심 원칙:
+- 사용자가 올린 소스(파일명과 길이)를 실제로 배치하세요. 영상 소스는 길이를 고려해 어느 구간을 쓸지 정하고, 사진은 몇 초 보여줄지 정하세요.
+- 전체 길이는 목표 길이에 맞추고, 첫 2초 후크로 스크롤을 멈추게 하세요.
+- 편집 기능을 말할 땐 캡컷과 프리미어 이름을 함께 적으세요 (예: 자동자막 = 캡컷 '자동 캡션' / 프리미어 '음성을 텍스트로').
+- 사용자는 완전 초보이므로 전문 용어는 쉬운 말로 풀어주세요.
+- 반드시 한국어로, 아래 형식(마크다운)을 정확히 지켜 출력하세요.
+
+# 🎬 제목 후보
+- 조회수 잘 나올 제목 3개 (이모지 포함)
+
+## 🪝 후크 (0~2초)
+- 첫 화면에 띄울 문구 1줄과 첫 나레이션 1줄. 왜 이게 멈추게 하는지 짧게.
+
+## ✂️ 컷 편집표
+| 컷 | 사용 소스 | 화면 시간 | 화면 자막 | 나레이션/소리 | 전환·효과 |
+표로 정리. '사용 소스'에는 올린 파일명(또는 '추가 촬영: ~')을 쓰고, '화면 시간'은 0:00~0:03 처럼. 전체 합이 목표 길이가 되게.
+
+## 🎙️ 나레이션 전체 대본
+- 처음부터 끝까지 이어 읽는 대본. 문장은 짧고 말하듯이. (더빙·TTS·직접 녹음용)
+
+## 💬 자막 타임라인
+- 반드시 각 줄을 \`mm:ss-mm:ss | 자막 문구\` 형식으로만 나열하세요. (이 부분으로 자막 파일 .srt 을 자동 생성합니다. 다른 설명은 넣지 마세요.)
+- 예: \`00:00-00:03 | 좁은 주방, 이거 하나면 끝\`
+
+## 🎵 BGM·사운드
+- 어울리는 음악 무드, 비트에 컷을 맞출 포인트, 캡컷에서 찾을 사운드 키워드.
+
+## 🎞️ 편집 팁 (캡컷 / 프리미어)
+- 이 영상에 꼭 쓰면 좋은 기능 3~5가지. 캡컷 기능명과 프리미어 기능명을 함께.
+
+## 📤 내보내기 설정
+- 비율(보통 9:16 세로), 해상도(1080×1920), 프레임(30fps), 캡컷/프리미어에서의 위치를 초보자용으로.
+
+## 📝 업로드용
+- 캡션 1개, 해시태그 15개, 커버(썸네일) 문구 1줄.`;
+
+function buildReelsPrompt() {
+  const platform = reelsChoice("#reels-platform", "릴스+쇼츠 공용");
+  const length = reelsChoice("#reels-length", "30초");
+  const tone = reelsChoice("#reels-tone", "감성적이고 잔잔한");
+  const narration = reelsChoice("#reels-narration", "자막 위주 + 짧은 나레이션");
+  const topic = ($("#reels-topic").value || "").trim() || "(설명 없음 — 올린 소스만 보고 판단)";
+  const s = settings || {};
+  return `아래 조건으로 릴스/숏츠 편집 대본을 만들어줘.
+
+[내 계정] 주제: ${s.topic || "리빙"} · 목표: ${s.goal || "체험단·수익화"}
+[형식] ${platform}
+[목표 길이] ${length}
+[톤·분위기] ${tone}
+[나레이션] ${narration}
+
+[영상 설명·강조점]
+${topic}
+
+[내가 올린 소스 목록 — 이 순서가 곧 편집 순서]
+${buildReelsMediaSummary()}
+
+위 소스들을 실제로 배치해서, 캡컷·프리미어에서 바로 따라 만들 수 있게 정해준 형식대로 대본을 완성해줘.`;
+}
+
+async function generateReelsScript() {
+  if (reelsBusy) return;
+  const topic = ($("#reels-topic").value || "").trim();
+  if (!reelsMedia.length && !topic) {
+    toast("사진·영상을 올리거나, 최소한 어떤 영상인지 설명을 적어주세요.");
+    $("#reels-topic").focus();
+    return;
+  }
+  reelsBusy = true;
+  const btn = $("#reels-gen");
+  const note = $("#reels-gen-note");
+  const card = $("#reels-result-card");
+  const out = $("#reels-result");
+  btn.disabled = true; btn.textContent = "🎬 대본 만드는 중...";
+  card.classList.remove("hidden");
+  card.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  // 무료 AI는 스트리밍이 없어 조용히 오래 걸릴 수 있음 — 진행 멘트로 안심시키기
+  const stages = [
+    "📦 올린 소스를 살펴보는 중...",
+    "🪝 스크롤을 멈출 후크를 짜는 중...",
+    "✂️ 컷 편집표에 소스를 배치하는 중...",
+    "🎙️ 나레이션과 자막을 쓰는 중...",
+    "🎵 어울리는 BGM을 고르는 중...",
+    "📝 캡션과 해시태그를 다듬는 중... (거의 다 됐어요!)"
+  ];
+  let stageIdx = 0;
+  let streamed = false;
+  const showStage = () => {
+    out.innerHTML = `<div class="reels-loading">${stages[Math.min(stageIdx, stages.length - 1)]}</div>`;
+    note.textContent = "보통 10~30초 걸려요. 화면을 벗어나지 말고 잠시만요...";
+  };
+  showStage();
+  const stageTimer = setInterval(() => { stageIdx++; if (!streamed) showStage(); }, 5000);
+
+  // 내 API 키(Anthropic)가 있으면 미리보기 이미지를 함께 보내 AI가 직접 보게 함
+  const promptText = buildReelsPrompt();
+  const hasKey = (settings && settings.apiKey || "").trim();
+  let userContent = promptText;
+  if (hasKey) {
+    const blocks = [];
+    for (const m of reelsMedia) {
+      if (m.thumbs[0] && blocks.length < 8) {
+        blocks.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: m.thumbs[0].split(",")[1] } });
+      }
+    }
+    if (blocks.length) userContent = [{ type: "text", text: promptText }, ...blocks];
+  }
+
+  try {
+    const md = await aiChat(REELS_SYSTEM, [{ role: "user", content: userContent }], (partial) => {
+      streamed = true;
+      out.innerHTML = renderMarkdown(partial);
+    });
+    reelsResult = md;
+    store.set("reelsLast", md);
+    out.innerHTML = renderMarkdown(md);
+    note.textContent = "✅ 완성! 대본을 복사하거나 자막(.srt)으로 저장해 캡컷·프리미어에 넣어보세요.";
+  } catch (e) {
+    out.innerHTML = "";
+    card.classList.add("hidden");
+    note.innerHTML = `⚠️ AI 연결이 안 됐어요. 걱정 마세요 — 위의 <b>[📋 프롬프트만 복사]</b>를 눌러 <a href="https://gemini.google.com" target="_blank" rel="noopener">Gemini</a>나 <a href="https://chatgpt.com" target="_blank" rel="noopener">ChatGPT</a> 새 대화에 붙여넣으면 똑같은 대본을 무료로 받을 수 있어요!`;
+    toast("⚠️ " + friendlyApiError(e), 6000);
+  } finally {
+    clearInterval(stageTimer);
+    reelsBusy = false;
+    btn.disabled = false; btn.textContent = "🎬 대본 만들기";
+  }
+}
+
+/* 문서에서 특정 소제목(## …) 섹션의 본문만 잘라내기 */
+function sliceSection(md, titleRe) {
+  const lines = md.split("\n");
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^#{1,4}\s/.test(lines[i]) && titleRe.test(lines[i])) { start = i + 1; break; }
+  }
+  if (start < 0) return "";
+  const body = [];
+  for (let i = start; i < lines.length; i++) {
+    if (/^#{1,4}\s/.test(lines[i])) break; // 다음 소제목에서 멈춤
+    body.push(lines[i]);
+  }
+  return body.join("\n");
+}
+
+/* 자막 타임라인 → SRT 변환
+   ① '자막 타임라인' 섹션의 mm:ss-mm:ss | 자막 줄  ②없으면 컷 편집표에서 폴백  ③최후: 전체에서 추출 */
+function reelsToSrt(md) {
+  let cues = parseCueLines(sliceSection(md, /자막\s*타임라인/));
+  if (!cues.length) cues = parseCueTable(sliceSection(md, /컷\s*편집표/) || md);
+  if (!cues.length) cues = parseCueLines(md);
+  if (!cues.length) return "";
+  const stamp = (sec) => {
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60), ms = Math.round((sec - Math.floor(sec)) * 1000);
+    const p = (n, l = 2) => String(n).padStart(l, "0");
+    return `${p(h)}:${p(m)}:${p(s)},${p(ms, 3)}`;
+  };
+  return cues.map((c, i) => `${i + 1}\n${stamp(c.startSec)} --> ${stamp(c.endSec)}\n${c.text}`).join("\n\n") + "\n";
+}
+
+/* "mm:ss-mm:ss | 자막" 형식 줄 파싱 (자막은 다음 파이프 전까지만 잡아 표 행 오염 방지) */
+function parseCueLines(md) {
+  if (!md) return [];
+  const re = /(\d{1,2}):(\d{2})(?::(\d{2}))?\s*[-~–]\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*[|｜]\s*([^|｜\n]+)/g;
+  const cues = [];
+  let mt;
+  while ((mt = re.exec(md)) !== null) {
+    const startSec = mt[3] !== undefined ? (+mt[1]) * 3600 + (+mt[2]) * 60 + (+mt[3]) : (+mt[1]) * 60 + (+mt[2]);
+    const endSec = mt[6] !== undefined ? (+mt[4]) * 3600 + (+mt[5]) * 60 + (+mt[6]) : (+mt[4]) * 60 + (+mt[5]);
+    const text = mt[7].trim().replace(/^["'`]+|["'`]+$/g, "").trim();
+    if (endSec > startSec && text) cues.push({ startSec, endSec, text });
+  }
+  return cues;
+}
+
+/* 폴백: 컷 편집표(| 시간 | ... | 화면 자막 |)에서 자막 추출 */
+function parseCueTable(md) {
+  if (!md) return [];
+  const lines = md.split("\n").filter(l => l.includes("|"));
+  if (lines.length < 2) return [];
+  const header = lines[0].replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+  const timeCol = header.findIndex(c => /시간|타임|time/i.test(c));
+  const capCol = header.findIndex(c => /자막|텍스트|caption|자막/i.test(c));
+  if (timeCol < 0 || capCol < 0) return [];
+  const toSec = (str) => {
+    const m = str.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (!m) return null;
+    return m[3] !== undefined ? (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) : (+m[1]) * 60 + (+m[2]);
+  };
+  const cues = [];
+  for (let i = 1; i < lines.length; i++) {
+    if (/^[\s:|-]+$/.test(lines[i])) continue; // 구분선
+    const cells = lines[i].replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+    const tcell = cells[timeCol] || "";
+    const range = tcell.split(/[-~–]/);
+    const startSec = toSec(range[0] || "");
+    let endSec = range[1] !== undefined ? toSec(range[1]) : null;
+    const text = (cells[capCol] || "").replace(/^["'`]+|["'`]+$/g, "").trim();
+    if (startSec === null || !text || /^[-–—]*$/.test(text)) continue;
+    if (endSec === null || endSec <= startSec) endSec = startSec + 2.5;
+    cues.push({ startSec, endSec, text });
+  }
+  return cues;
+}
+
+function downloadTextFile(filename, text, mime) {
+  const blob = new Blob([text], { type: (mime || "text/plain") + ";charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function copyToClipboard(text, okMsg) {
+  const done = () => toast(okMsg);
+  const fail = () => {
+    // 클립보드 API 실패 시 폴백 (구형/비보안 컨텍스트)
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      if (ok) done(); else toast("복사가 안 됐어요. 직접 드래그해 복사해주세요.");
+    } catch { toast("복사가 안 됐어요. 직접 드래그해 복사해주세요."); }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, fail);
+  } else { fail(); }
+}
+
+function copyReelsScript() {
+  if (!reelsResult) return;
+  copyToClipboard(reelsResult, "📋 대본을 복사했어요. 캡컷·프리미어 메모나 대본란에 붙여넣으세요.");
+}
+
+/* 무료 챗봇(Gemini·ChatGPT·Claude)에 붙여넣어 쓸 프롬프트 통째로 복사 */
+function copyReelsPrompt() {
+  const topic = ($("#reels-topic").value || "").trim();
+  if (!reelsMedia.length && !topic) {
+    toast("먼저 사진·영상을 올리거나 영상 설명을 적어주세요.");
+    $("#reels-topic").focus();
+    return;
+  }
+  const hasMedia = reelsMedia.length > 0;
+  const mediaNote = hasMedia
+    ? "\n\n※ 아래 소스 목록에 해당하는 사진·영상을 이 채팅에 함께 첨부하면 더 정확한 대본이 나와요."
+    : "";
+  const full = REELS_SYSTEM + "\n\n----- 아래는 내 요청 -----\n\n" + buildReelsPrompt() + mediaNote;
+  copyToClipboard(full, "📋 프롬프트를 복사했어요! Gemini·ChatGPT·Claude 새 대화에 붙여넣으세요" + (hasMedia ? " (사진·영상도 함께 첨부!)." : "."));
+}
+
+function fillReelsExample() {
+  const t = $("#reels-topic");
+  if (t.value.trim() && !confirm("지금 적은 내용을 예시로 바꿀까요?")) return;
+  t.value = "좁은 주방 수납 꿀템 소개 영상. 3천 원짜리 걸이 하나로 조리도구가 깔끔하게 정리되고 공간이 두 배로 넓어진 걸 보여주고 싶어요. Before(지저분)→After(깔끔) 비교가 핵심이고, 마지막엔 '프로필 링크에서 구매' 유도로 마무리.";
+  t.focus();
+  toast("✨ 예시를 넣었어요. 내 상황에 맞게 고쳐 쓰면 돼요.");
+}
+
+function clearReelsMedia() {
+  if (!reelsMedia.length) return;
+  if (!confirm("올린 사진·영상을 모두 뺄까요?")) return;
+  reelsMedia.forEach(m => { try { URL.revokeObjectURL(m.url); } catch {} });
+  reelsMedia = [];
+  renderReelsMedia();
+}
+
+function setupReelsChips() {
+  ["#reels-platform", "#reels-length", "#reels-tone", "#reels-narration"].forEach(sel => {
+    $$(sel + " .chip").forEach(chip => {
+      chip.addEventListener("click", (e) => {
+        e.preventDefault();
+        $$(sel + " .chip").forEach(c => c.classList.remove("selected"));
+        chip.classList.add("selected");
+      });
+    });
+  });
+}
+
+function renderReels() {
+  if (reelsInited) { renderReelsMedia(); return; }
+  reelsInited = true;
+  setupReelsChips();
+
+  // 처음 3단계 안내 (닫으면 다시 안 보임)
+  if (!store.get("reelsHowtoDismissed", false)) {
+    $("#reels-howto").classList.remove("hidden");
+  }
+  $("#reels-howto-close").addEventListener("click", () => {
+    $("#reels-howto").classList.add("hidden");
+    store.set("reelsHowtoDismissed", true);
+  });
+
+  const drop = $("#reels-drop");
+  const input = $("#reels-file-input");
+  drop.addEventListener("click", () => input.click());
+  input.addEventListener("change", (e) => {
+    if (e.target.files.length) addReelsFiles(e.target.files);
+    e.target.value = "";
+  });
+  ["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("dragover"); }));
+  ["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("dragover"); }));
+  drop.addEventListener("drop", (e) => {
+    if (e.dataTransfer && e.dataTransfer.files.length) addReelsFiles(e.dataTransfer.files);
+  });
+
+  // 썸네일 카드 액션 + 전체 비우기 (이벤트 위임)
+  $("#reels-media").addEventListener("click", (e) => {
+    if (e.target.closest("#reels-clear")) { clearReelsMedia(); return; }
+    const btn = e.target.closest(".reels-thumb-btn");
+    if (!btn) return;
+    const id = btn.closest(".reels-thumb").dataset.id;
+    const act = btn.dataset.act;
+    if (act === "del") removeReelsMedia(id);
+    else if (act === "up") moveReelsMedia(id, -1);
+    else if (act === "down") moveReelsMedia(id, 1);
+  });
+
+  $("#reels-example").addEventListener("click", fillReelsExample);
+  $("#reels-prompt").addEventListener("click", copyReelsPrompt);
+  $("#reels-gen").addEventListener("click", generateReelsScript);
+  $("#reels-regen").addEventListener("click", generateReelsScript);
+  $("#reels-copy").addEventListener("click", copyReelsScript);
+  $("#reels-txt").addEventListener("click", () => {
+    if (!reelsResult) return;
+    downloadTextFile("릴스대본.txt", reelsResult);
+    toast("📥 대본을 .txt 파일로 저장했어요.");
+  });
+  $("#reels-srt").addEventListener("click", () => {
+    if (!reelsResult) return;
+    const srt = reelsToSrt(reelsResult);
+    if (!srt) { toast("자막 타임라인을 못 찾았어요. '다시' 버튼으로 한 번 더 생성해보세요."); return; }
+    downloadTextFile("자막.srt", srt, "application/x-subrip");
+    toast("💬 자막(.srt)을 저장했어요! 캡컷은 '자막 → 자막 가져오기', 프리미어는 '캡션 가져오기'로 넣으세요.");
+  });
+
+  // 지난번에 만든 대본 복원 (사진·영상은 용량상 저장하지 않아요)
+  const last = store.get("reelsLast", "");
+  if (last) {
+    reelsResult = last;
+    $("#reels-result").innerHTML = renderMarkdown(last);
+    $("#reels-result-card").classList.remove("hidden");
+    $("#reels-gen-note").textContent = "↑ 지난번에 만든 대본이에요. 새로 만들면 바뀝니다.";
+  }
+
+  renderReelsMedia();
 }
 
 /* ---------- 시작 ---------- */
