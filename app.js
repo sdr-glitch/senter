@@ -773,15 +773,57 @@ let activity = store.get("activity", []);
 let meetings = store.get("meetings", []);
 
 const OFFICE_AGENTS = [
+  { id: "boss", emoji: "👑", name: "사장님" },
   { id: "pm", emoji: "🧑‍💼", name: "매니저" },
   ...STAFF.map(s => ({ id: s.id, emoji: s.emoji, name: s.name }))
 ];
 
-const DESKS = {
-  pm: [47, 12], planner: [11, 22], copywriter: [11, 50], reels: [11, 78],
-  analyst: [85, 22], review: [85, 50], brand: [85, 78], digest: [47, 86]
+/* 캐릭터 외형 (셔츠·머리 색) */
+const AGENT_LOOK = {
+  boss: { shirt: "#3d3d4d", hair: "#2a2118", crown: true },
+  pm: { shirt: "#5b6ee1", hair: "#3b2d23" },
+  planner: { shirt: "#e67e22", hair: "#4a3625" },
+  copywriter: { shirt: "#e75480", hair: "#241d18" },
+  reels: { shirt: "#8e44ad", hair: "#3b2d23" },
+  analyst: { shirt: "#16a085", hair: "#553a24" },
+  review: { shirt: "#c0392b", hair: "#2a2118" },
+  brand: { shirt: "#2980b9", hair: "#4a3625" },
+  digest: { shirt: "#7f8c8d", hair: "#241d18" }
 };
-const SEATS = [[47, 30], [59, 35], [64, 49], [59, 63], [47, 68], [35, 63], [30, 49], [35, 35]];
+
+/* 사무실 구조 (좌표는 % 단위) */
+const ROOMS = [
+  { id: "ceo", name: "대표실", x: 1.5, y: 2, w: 26, h: 34 },
+  { id: "meet", name: "회의실", x: 55, y: 2, w: 43.5, h: 44 },
+  { id: "work", name: "사무공간", x: 1.5, y: 40, w: 50, h: 58 },
+  { id: "pantry", name: "탕비실", x: 55, y: 50, w: 20.5, h: 48 },
+  { id: "lounge", name: "휴게공간", x: 78, y: 50, w: 20.5, h: 48 }
+];
+
+/* 책상(가구) 위치와 직원이 일할 때 서는 자리 */
+const DESK_POS = {
+  boss: [12, 15],
+  pm: [9, 52], planner: [22, 52], copywriter: [35, 52], reels: [47, 52],
+  analyst: [9, 79], review: [22, 79], brand: [35, 79], digest: [47, 79]
+};
+const WORK_POS = {};
+Object.keys(DESK_POS).forEach(id => {
+  const [x, y] = DESK_POS[id];
+  WORK_POS[id] = [x, y + 10];
+});
+WORK_POS.boss = [12, 26];
+
+/* 회의실 테이블 좌석 (OFFICE_AGENTS 순서대로) */
+const SEATS = [
+  [64, 16], [76.5, 11], [87, 14], [92, 25], [87, 36],
+  [76.5, 41], [67, 37], [61, 28], [70, 12]
+];
+
+/* 휴식 공간 자리 */
+const LOUNGE_SPOTS = [[84, 70], [92, 70], [88, 86], [83, 91]];
+const PANTRY_SPOTS = [[61, 72], [70, 72], [65, 87], [70, 91]];
+const BREAK_BUBBLES = ["☕ 커피 한 잔...", "잠깐 쉬는 중이에요", "🍪 간식 타임!", "금방 복귀합니다!"];
+const HALL_SPOTS = [[35, 22], [42, 30], [30, 30], [48, 20]];
 
 const officeState = { built: false, meeting: false, agents: {} };
 
@@ -795,35 +837,92 @@ function staffEmoji(id) {
 }
 
 /* ----- 사무실 렌더링 & 애니메이션 ----- */
+function addFurniture(office, cls, x, y, html = "") {
+  const el = document.createElement("div");
+  el.className = cls;
+  el.style.left = x + "%";
+  el.style.top = y + "%";
+  if (html) el.innerHTML = html;
+  office.appendChild(el);
+  return el;
+}
+
 function buildOffice() {
   if (officeState.built) return;
   const office = $("#office");
   office.innerHTML = "";
 
-  const table = document.createElement("div");
-  table.className = "o-table";
-  table.innerHTML = `<span>회의 테이블</span>`;
-  office.appendChild(table);
+  // 방
+  ROOMS.forEach(r => {
+    const room = document.createElement("div");
+    room.className = "room room-" + r.id;
+    room.style.left = r.x + "%";
+    room.style.top = r.y + "%";
+    room.style.width = r.w + "%";
+    room.style.height = r.h + "%";
+    room.innerHTML = `<span class="room-label">${r.name}</span>`;
+    office.appendChild(room);
+  });
 
+  // 가구 — 대표실
+  addFurniture(office, "f-desk f-bigdesk", DESK_POS.boss[0], DESK_POS.boss[1]);
+  addFurniture(office, "f-prop", 23, 8, "📚");
+  addFurniture(office, "f-prop", 4, 30, "🪴");
+
+  // 가구 — 회의실
+  addFurniture(office, "f-table", 76.5, 24, "<span>회의 테이블</span>");
+  SEATS.forEach(([x, y]) => addFurniture(office, "f-chair", x, y));
+  addFurniture(office, "f-prop", 93, 7, "📊");
+  addFurniture(office, "f-prop", 58, 7, "🪴");
+
+  // 가구 — 사무공간 책상 (직원용)
   OFFICE_AGENTS.forEach(a => {
-    const [dx, dy] = DESKS[a.id];
-    const desk = document.createElement("div");
-    desk.className = "o-desk";
-    desk.style.left = dx + "%";
-    desk.style.top = dy + "%";
-    desk.textContent = a.name;
-    office.appendChild(desk);
+    if (a.id === "boss") return;
+    addFurniture(office, "f-desk", DESK_POS[a.id][0], DESK_POS[a.id][1]);
+  });
+  addFurniture(office, "f-prop", 4, 44, "🖨️");
+  addFurniture(office, "f-prop", 48, 94, "🌿");
 
+  // 가구 — 탕비실
+  addFurniture(office, "f-counter", 65, 58, "☕🫖🍪");
+  addFurniture(office, "f-prop", 58, 93, "🧃");
+
+  // 가구 — 휴게공간
+  addFurniture(office, "f-sofa", 88, 61);
+  addFurniture(office, "f-rug", 88, 80);
+  addFurniture(office, "f-prop", 95, 55, "🪴");
+
+  // 복도 소품
+  addFurniture(office, "f-prop", 52.5, 20, "🌿");
+
+  // 캐릭터
+  OFFICE_AGENTS.forEach(a => {
+    const look = AGENT_LOOK[a.id];
+    const [wx, wy] = WORK_POS[a.id];
     const el = document.createElement("div");
     el.className = "agent";
-    el.style.left = dx + "%";
-    el.style.top = (dy - 8) + "%";
+    el.style.left = wx + "%";
+    el.style.top = wy + "%";
+    const tagName = a.id === "boss" ? `👑 ${(settings && settings.name) || "사장"}님` : a.name;
     el.innerHTML = `
       <div class="bubble hidden"></div>
-      <div class="agent-emoji">${a.emoji}</div>
-      <div class="agent-tag"><span class="agent-dot"></span>${a.name}</div>`;
+      <div class="char-flip">
+        <div class="char" style="--shirt:${look.shirt};--hair:${look.hair}">
+          ${look.crown ? '<div class="char-crown">👑</div>' : ""}
+          <div class="char-head"></div>
+          <div class="char-body"></div>
+          <div class="char-legs"><span></span><span></span></div>
+        </div>
+      </div>
+      <div class="agent-tag"><span class="agent-dot"></span>${tagName}</div>`;
     office.appendChild(el);
-    officeState.agents[a.id] = { el, bubble: el.querySelector(".bubble"), dot: el.querySelector(".agent-dot"), x: dx, y: dy - 8, bubbleTimer: null };
+    officeState.agents[a.id] = {
+      el,
+      bubble: el.querySelector(".bubble"),
+      dot: el.querySelector(".agent-dot"),
+      flip: el.querySelector(".char-flip"),
+      x: wx, y: wy, bubbleTimer: null, walkTimer: null
+    };
   });
 
   officeState.built = true;
@@ -837,6 +936,13 @@ function buildOffice() {
 function moveAgent(id, x, y) {
   const a = officeState.agents[id];
   if (!a) return;
+  const dist = Math.hypot(x - a.x, y - a.y);
+  if (dist > 2) {
+    a.el.classList.add("walking");
+    a.flip.style.transform = x < a.x ? "scaleX(-1)" : "";
+    clearTimeout(a.walkTimer);
+    a.walkTimer = setTimeout(() => a.el.classList.remove("walking"), 1900);
+  }
   a.x = x; a.y = y;
   a.el.style.left = x + "%";
   a.el.style.top = y + "%";
@@ -859,6 +965,7 @@ function updateOfficeStatuses() {
   OFFICE_AGENTS.forEach(a => {
     const st = officeState.agents[a.id];
     if (!st) return;
+    if (a.id === "boss") { st.dot.className = "agent-dot dot-idle"; return; }
     if (a.id === "pm") {
       const open = tasks.filter(t => t.status !== "done").length;
       st.dot.className = "agent-dot " + (open ? "dot-work" : "dot-idle");
@@ -870,18 +977,43 @@ function updateOfficeStatuses() {
   });
 }
 
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
 function wanderTick() {
   if (officeState.meeting) return;
   OFFICE_AGENTS.forEach(a => {
-    const [dx, dy] = DESKS[a.id];
+    const [wx, wy] = WORK_POS[a.id];
+
+    // 사장님: 대표실 상주, 가끔 사무실 순찰
+    if (a.id === "boss") {
+      if (Math.random() < 0.2) {
+        moveAgent("boss", ...pick(HALL_SPOTS));
+        if (Math.random() < 0.5) speak("boss", pick(["다들 화이팅! 🔥", "우리 팀 최고!", "순찰 중입니다 😎"]));
+      } else {
+        moveAgent("boss", wx + (Math.random() * 4 - 2), wy + (Math.random() * 3 - 1.5));
+      }
+      return;
+    }
+
     const active = a.id !== "pm" && agentActiveTask(a.id);
     if (active) {
-      moveAgent(a.id, dx + (Math.random() * 3 - 1.5), dy - 8 + (Math.random() * 2 - 1));
+      // 작업 중: 자기 책상 앞에서 근무
+      moveAgent(a.id, wx + (Math.random() * 3 - 1.5), wy + (Math.random() * 2 - 1));
       if (Math.random() < 0.22) speak(a.id, `「${active.title.slice(0, 16)}${active.title.length > 16 ? "…" : ""}」 작업 중 🔨`);
-    } else if (Math.random() < 0.35) {
-      moveAgent(a.id, 18 + Math.random() * 60, 22 + Math.random() * 55);
     } else {
-      moveAgent(a.id, dx + (Math.random() * 4 - 2), dy - 8 + (Math.random() * 3 - 1.5));
+      // 한가함: 탕비실·휴게실 다녀오거나 책상 근처 서성이기
+      const r = Math.random();
+      if (r < 0.18) {
+        moveAgent(a.id, ...pick(PANTRY_SPOTS));
+        if (Math.random() < 0.4) speak(a.id, pick(BREAK_BUBBLES));
+      } else if (r < 0.36) {
+        moveAgent(a.id, ...pick(LOUNGE_SPOTS));
+        if (Math.random() < 0.4) speak(a.id, pick(BREAK_BUBBLES));
+      } else if (r < 0.5) {
+        moveAgent(a.id, ...pick(HALL_SPOTS));
+      } else {
+        moveAgent(a.id, wx + (Math.random() * 4 - 2), wy + (Math.random() * 3 - 1.5));
+      }
     }
   });
 }
@@ -940,7 +1072,7 @@ async function holdScrum() {
   await say("pm", `스크럼 시작할게요! 📣 현재 열린 업무 ${open}건, 검토 대기 ${review}건입니다. 돌아가면서 공유해주세요.`);
 
   for (const a of OFFICE_AGENTS) {
-    if (a.id === "pm") continue;
+    if (a.id === "pm" || a.id === "boss") continue;
     for (const line of agentReportLines(a.id)) {
       await say(a.id, line);
     }
@@ -959,10 +1091,7 @@ async function holdScrum() {
 
   officeState.meeting = false;
   btn.disabled = false; btn.textContent = "📣 스크럼 미팅 소집";
-  OFFICE_AGENTS.forEach(a => {
-    const [dx, dy] = DESKS[a.id];
-    moveAgent(a.id, dx, dy - 8);
-  });
+  OFFICE_AGENTS.forEach(a => moveAgent(a.id, ...WORK_POS[a.id]));
 }
 
 /* ----- 활동 로그 ----- */

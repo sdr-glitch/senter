@@ -269,36 +269,106 @@ body {
 /* ===== 사무실 ===== */
 .office-clock { font-size: .78rem; color: var(--text-soft); font-weight: 400; margin-left: 6px; }
 .office {
-  position: relative; height: 420px; border-radius: 12px; overflow: hidden;
+  position: relative; height: 540px; border-radius: 12px; overflow: hidden;
   background:
-    repeating-linear-gradient(0deg, transparent 0 38px, rgba(0,0,0,.025) 38px 39px),
-    repeating-linear-gradient(90deg, transparent 0 38px, rgba(0,0,0,.025) 38px 39px),
-    linear-gradient(160deg, #efe9dd, #e7e0d1);
+    repeating-linear-gradient(90deg, transparent 0 30px, rgba(0,0,0,.02) 30px 31px),
+    linear-gradient(160deg, #d9cdb2, #cfc2a4);
   border: 1px solid var(--line);
 }
-.o-table {
-  position: absolute; left: 47%; top: 49%; transform: translate(-50%, -50%);
-  width: 190px; height: 110px; border-radius: 50%;
+
+/* --- 방 --- */
+.room { position: absolute; border-radius: 10px; box-shadow: inset 0 0 0 3px rgba(110,86,55,.4), 0 2px 6px rgba(0,0,0,.06); }
+.room-label {
+  position: absolute; top: 4px; left: 6px; z-index: 2;
+  font-size: .6rem; font-weight: 800; color: #fff;
+  background: #8b6f4e; padding: 1px 8px; border-radius: 6px;
+}
+.room-ceo { background: repeating-linear-gradient(90deg, #e9d9b8 0 26px, #e2d1ac 26px 52px); }
+.room-meet { background: linear-gradient(150deg, #e2e9dd, #d8e1d2); }
+.room-work { background: repeating-linear-gradient(0deg, #e8e3d4 0 26px, #e2dccb 26px 52px); }
+.room-pantry { background: linear-gradient(150deg, #e6e2ec, #dcd7e4); }
+.room-lounge { background: linear-gradient(150deg, #f1e2d5, #e9d6c5); }
+
+/* --- 가구 --- */
+.f-desk {
+  position: absolute; transform: translate(-50%, -50%); z-index: 1;
+  width: 58px; height: 30px; border-radius: 6px;
+  background: linear-gradient(150deg, #c9a06c, #b78d58);
+  border: 2px solid #a07f52; box-shadow: 0 3px 6px rgba(0,0,0,.14);
+}
+.f-desk::after {
+  content: ""; position: absolute; top: -9px; left: 50%; transform: translateX(-50%);
+  width: 20px; height: 13px; background: #2f3542; border-radius: 3px;
+  border-bottom: 3px solid #57606f;
+}
+.f-bigdesk { width: 86px; height: 34px; }
+.f-table {
+  position: absolute; left: 76.5%; top: 24%; transform: translate(-50%, -50%); z-index: 1;
+  width: 175px; height: 92px; border-radius: 50%;
   background: linear-gradient(150deg, #c9a97d, #b28e5f);
   border: 4px solid #a07f52; box-shadow: 0 6px 14px rgba(0,0,0,.12);
   display: flex; align-items: center; justify-content: center;
 }
-.o-table span { font-size: .68rem; color: rgba(60,40,15,.55); font-weight: 700; }
-.o-desk {
+.f-table span { font-size: .64rem; color: rgba(60,40,15,.55); font-weight: 700; }
+.f-chair {
   position: absolute; transform: translate(-50%, -50%);
-  width: 68px; height: 38px; border-radius: 8px;
-  background: linear-gradient(150deg, #dcd3c0, #cfc4ac);
-  border: 2px solid #bcae90; box-shadow: 0 3px 8px rgba(0,0,0,.08);
-  display: flex; align-items: flex-end; justify-content: center;
-  font-size: .58rem; color: rgba(60,40,15,.5); font-weight: 700; padding-bottom: 2px;
+  width: 13px; height: 13px; border-radius: 50%;
+  background: #8d6e63; border: 2px solid #6d4c41;
 }
+.f-sofa {
+  position: absolute; transform: translate(-50%, -50%); z-index: 1;
+  width: 88px; height: 30px; border-radius: 10px;
+  background: #7e57c2; border-top: 9px solid #5e35b1;
+  box-shadow: 0 3px 7px rgba(0,0,0,.15);
+}
+.f-sofa::before, .f-sofa::after {
+  content: ""; position: absolute; top: -9px; width: 10px; height: 34px;
+  background: #5e35b1; border-radius: 6px;
+}
+.f-sofa::before { left: -6px; }
+.f-sofa::after { right: -6px; }
+.f-rug {
+  position: absolute; transform: translate(-50%, -50%);
+  width: 74px; height: 42px; border-radius: 50%;
+  background: rgba(255,255,255,.4); border: 2px dashed rgba(255,255,255,.7);
+}
+.f-counter {
+  position: absolute; transform: translate(-50%, -50%); z-index: 1;
+  width: 76px; height: 26px; border-radius: 5px;
+  background: linear-gradient(150deg, #a8b8c2, #8fa3af);
+  border: 2px solid #7d919d; box-shadow: 0 3px 6px rgba(0,0,0,.12);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; letter-spacing: 2px;
+}
+.f-prop { position: absolute; transform: translate(-50%, -50%); font-size: 17px; z-index: 1; filter: drop-shadow(0 2px 2px rgba(0,0,0,.15)); }
+
+/* --- 캐릭터 --- */
 .agent {
   position: absolute; transform: translate(-50%, -50%);
   display: flex; flex-direction: column; align-items: center;
   transition: left 1.9s cubic-bezier(.45,.05,.35,1), top 1.9s cubic-bezier(.45,.05,.35,1);
   z-index: 5;
 }
-.agent-emoji { font-size: 1.7rem; filter: drop-shadow(0 2px 3px rgba(0,0,0,.18)); }
+.char-flip { transition: transform .25s; }
+.char { position: relative; display: flex; flex-direction: column; align-items: center; }
+.char-crown { position: absolute; top: -11px; left: 50%; transform: translateX(-50%); font-size: 10px; z-index: 3; }
+.char-head { width: 15px; height: 15px; background: #f3cfa4; border-radius: 50%; position: relative; z-index: 2; box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+.char-head::before {
+  content: ""; position: absolute; top: -1px; left: -1px; right: -1px; height: 8px;
+  border-radius: 8px 8px 3px 3px; background: var(--hair);
+}
+.char-body {
+  width: 19px; height: 14px; background: var(--shirt);
+  border-radius: 6px 6px 3px 3px; margin-top: -2px; z-index: 1;
+  box-shadow: inset -3px 0 0 rgba(0,0,0,.12);
+}
+.char-legs { display: flex; gap: 5px; }
+.char-legs span { width: 4px; height: 7px; background: #39404d; border-radius: 0 0 2px 2px; }
+.agent.walking .char { animation: bob .35s infinite; }
+.agent.walking .char-legs span:nth-child(1) { animation: step .35s infinite; }
+.agent.walking .char-legs span:nth-child(2) { animation: step .35s infinite .175s; }
+@keyframes step { 50% { transform: translateY(-4px); } }
+@keyframes bob { 50% { transform: translateY(-1.5px); } }
 .agent-tag {
   display: flex; align-items: center; gap: 4px;
   font-size: .6rem; font-weight: 700; color: var(--text);
@@ -359,8 +429,13 @@ body {
 .activity-time { color: var(--text-soft); font-size: .72rem; margin-right: 6px; }
 
 @media (max-width: 720px) {
-  .office { height: 340px; }
-  .o-table { width: 140px; height: 84px; }
+  .office { height: 430px; }
+  .f-table { width: 120px; height: 66px; }
+  .f-desk { width: 44px; height: 24px; }
+  .f-bigdesk { width: 62px; }
+  .f-sofa { width: 64px; }
+  .f-counter { width: 56px; }
+  .agent-tag { font-size: .52rem; }
   .kanban { grid-template-columns: 1fr 1fr; }
 }
 
