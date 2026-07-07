@@ -34,7 +34,9 @@ Playwright(playwright-core + `/opt/pw-browsers/chromium`)로 headless 스모크 
 
 ## 핵심 데이터 흐름
 
-지시 입력 → `createTask()`(키워드 라우팅, @이름 지명) → 3단계 파이프라인(초안 draft → 교차검증 verify → 최종검토 final) → 검토 대기 review → 승인 done. 직원 채용은 `customStaff` + `rebuildStaff()`가 책상·좌석·라우팅 전부 자동 재생성. 사무실 연출(말풍선·회의)은 항상 **실제 데이터 기반** — 지어낸 대사 금지.
+지시 입력 → `createTask()`(키워드 라우팅, @이름 지명) → `dispatchWork()` = API 키 있으면 `autoWork()`(AI 파이프라인), 없으면 `templateWork()`(오프라인 초안 엔진) → 3단계(초안 draft → 교차검증 verify → 최종검토 final) → 검토 대기 review → 승인 done. 직원 채용은 `customStaff` + `rebuildStaff()`가 책상·좌석·라우팅 전부 자동 재생성. 사무실 연출(말풍선·회의)은 항상 **실제 데이터 기반** — 지어낸 대사 금지.
+
+**자율 근무(오토파일럿)**: `autoPilotTick()`(60초 주기, `settings.autoPilot` 기본 ON)이 ① 새 자료 → 자동 스터디 회의(silent, 탭 안 뺏음) ② 열린 업무 <2 & 검토 <4일 때 INITIATIVES 풀에서 다음 업무 자동 착수 ③ 3일 내 일정 준비 태스크 ④ 3일마다 자동 보고서. 상태는 `senter:autoState`. `templateDraft()`가 AI 없이 닉네임/릴스 대본/캡션 등 실제 초안을 생성하며 자료실 발췌(`docSnippets`)를 인용.
 
 ## 남은 할 일
 

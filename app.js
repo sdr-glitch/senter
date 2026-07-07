@@ -22,6 +22,7 @@ const store = {
 };
 
 let settings = store.get("settings", null);
+if (settings && settings.autoPilot === undefined) settings.autoPilot = true; // 기존 사용자 마이그레이션
 let docs = store.get("docs", []);
 let chats = store.get("chats", {});
 let roadmapDone = store.get("roadmapDone", {});
@@ -893,7 +894,8 @@ function finishOnboarding() {
     goal: $("#ob-goal").value.trim() || "체험단 협찬 받기",
     level: ($("#ob-level .chip.selected") || {}).dataset?.value || "완전 초보",
     apiKey: "",
-    model: "claude-sonnet-5"
+    model: "claude-sonnet-5",
+    autoPilot: true
   };
   store.set("settings", settings);
   $("#onboarding").classList.add("hidden");
@@ -1348,6 +1350,8 @@ function ensureOfficeTimers() {
   officeTimersStarted = true;
   setInterval(wanderTick, 4200);
   setInterval(chatterTick, 42000);
+  setInterval(autoPilotTick, 60000);
+  setTimeout(autoPilotTick, 7000); // 앱 켜고 7초 뒤 첫 자율 점검
   setInterval(() => {
     const el = $("#office-clock");
     if (el) el.textContent = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
@@ -1693,7 +1697,7 @@ function openStaffModal(id) {
     renderBoard(); updateOfficeStatuses();
     modal.classList.add("hidden");
     toast(`🎯 ${st.name}에게 배정 완료!`);
-    if ((settings.apiKey || "").trim() && t.status === "doing") autoWork(t);
+    dispatchWork(t);
   });
   $("#sm-assign-input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) $("#sm-assign-go").click(); });
   const fireBtn = $("#sm-fire");
@@ -1806,9 +1810,9 @@ function reportMarkdown(d) {
   return L.join("\n");
 }
 
-async function generateReport() {
+async function generateReport(quiet = false) {
   const btn = $("#report-btn");
-  btn.disabled = true; btn.textContent = "작성 중...";
+  if (btn) { btn.disabled = true; btn.textContent = "작성 중..."; }
   speak("pm", "보고서 작성 들어갑니다 📑", 2500);
   const data = buildReportData();
   let content = reportMarkdown(data);
@@ -1827,17 +1831,21 @@ async function generateReport() {
   renderLibrary();
   logActivity(`📑 운영 보고서 작성 완료 → 자료실 저장`);
   postChat("pm", `${data.today} 운영 보고서 작성 완료! 자료실에 저장했습니다 📑`);
-  btn.disabled = false; btn.textContent = "📑 보고서 생성";
-  toast("📑 보고서 완성! 자료실에 저장됐어요. 지금 바로 보여드릴게요.");
-  openDocModal(doc);
+  if (btn) { btn.disabled = false; btn.textContent = "📑 보고서 생성"; }
+  if (quiet) {
+    toast("📑 매니저가 운영 보고서를 작성해 자료실에 넣어뒀어요.", 4500);
+  } else {
+    toast("📑 보고서 완성! 자료실에 저장됐어요. 지금 바로 보여드릴게요.");
+    openDocModal(doc);
+  }
 }
 
 /* ----- 자료 스터디 회의 (자료실 문서를 직원들이 회의로 소화) ----- */
-async function studyMeeting(docId) {
+async function studyMeeting(docId, opts = {}) {
   const doc = docs.find(d => d.id === docId);
   if (!doc) return;
-  if (officeState.meeting || chatterBusy) { toast("지금 다른 회의가 진행 중이에요. 잠시 후 다시 시도해주세요."); return; }
-  switchTab("office");
+  if (officeState.meeting || chatterBusy) { if (!opts.silent) toast("지금 다른 회의가 진행 중이에요. 잠시 후 다시 시도해주세요."); return; }
+  if (!opts.silent) switchTab("office"); // 자율 모드에서는 사용자가 보던 탭을 방해하지 않음
   officeState.meeting = true;
   $("#scrum-btn").disabled = true;
   $("#brief-btn").disabled = true;
@@ -1965,7 +1973,7 @@ async function handleDirective() {
       renderBoard(); updateOfficeStatuses();
       toast(`🎯 ${target.name}에게 직접 배정!`);
       btn.disabled = false;
-      if ((settings.apiKey || "").trim() && t.status === "doing") autoWork(t);
+      dispatchWork(t);
       return;
     }
     text = mention[2].trim(); // 못 찾으면 일반 배정으로
@@ -1995,11 +2003,7 @@ async function handleDirective() {
   updateOfficeStatuses();
   toast(`🎯 업무 ${created.length}건 배정 완료!`);
   btn.disabled = false;
-
-  // API 키가 있으면 직원이 자동으로 작업 수행
-  if ((settings.apiKey || "").trim()) {
-    for (const t of created) if (t.status === "doing") autoWork(t);
-  }
+  for (const t of created) dispatchWork(t);
 }
 
 /* ----- 3단계 품질 검증 파이프라인 -----
@@ -2240,6 +2244,292 @@ async function autoWork(task) {
   }
 }
 
+/* ==================================================
+   오프라인 초안 엔진 — AI 없이도 직원이 진짜 초안을 만들어 보고
+   ================================================== */
+function topicWord() {
+  return ((settings && settings.topic) || "리빙").split(/[\s(·,]/)[0] || "리빙";
+}
+
+/* 자료실에서 참고할 문장 발췌 (직원들이 모든 자료를 활용) */
+function docSnippets(n = 3) {
+  const enabled = docs.filter(d => d.enabled);
+  const out = [];
+  for (const d of enabled) {
+    const sentences = d.content.replace(/\s+/g, " ").split(/(?<=[.!?다요])\s/)
+      .map(s => s.trim()).filter(s => s.length > 15 && s.length < 90);
+    for (const s of sentences.slice(0, 2)) {
+      out.push({ doc: d.title, text: s });
+      if (out.length >= n) return out;
+    }
+  }
+  return out;
+}
+
+function snippetSection() {
+  const snips = docSnippets(3);
+  if (!snips.length) return "";
+  return `\n\n## 📚 학습 자료에서 참고한 내용\n` + snips.map(s => `> "${s.text}" — 『${s.doc}』`).join("\n");
+}
+
+function templateDraft(task) {
+  const t = topicWord();
+  const goal = (settings && settings.goal) || "체험단 협찬";
+  const title = task.title;
+  const head = (label) => `# ${label}\n(직원 회의로 작성한 초안 — AI를 연결하면 더 정교해져요)\n`;
+
+  if (/컨셉|닉네임|소개|프로필/.test(title)) {
+    const suffixes = ["로그", "노트", "다이어리", "클럽", "살롱", "기록", "하우스", "연구소", "상점", "온"];
+    const names = suffixes.map(s => `${t}${s}`);
+    return head("계정 컨셉 · 닉네임 · 소개글 초안") + `
+## 컨셉 한 문장 (3안)
+1. "${t}을(를) 처음 시작하는 사람의 눈높이 기록" — 같은 초보가 공감하기 좋아요
+2. "매일 하나씩, 작은 ${t} 꿀팁" — 꾸준함이 무기인 컨셉
+3. "비포/애프터로 보여주는 ${t} 변화" — 저장을 부르는 컨셉
+
+## 닉네임 후보 10 (검색형 5 + 개성형 5)
+${names.slice(0, 5).map((n, i) => `${i + 1}. ${n} — "${t}" 검색에 걸리기 좋음`).join("\n")}
+6. 오늘의${t} — 데일리 느낌
+7. ${t}하는집 — 친근한 공간 느낌
+8. 소소한${t} — 부담 없는 톤
+9. ${t}일기 — 기록 컨셉과 일치
+10. 우리집${t} — 생활 밀착형
+
+## 소개글 3버전 (누구인지 / 뭘 올리는지 / 팔로우 이유)
+[담백] ${t} 초보의 진짜 기록 | 매주 3번, 실패담까지 올려요 | 같이 성장해요 🌱
+[정보형] 바로 따라하는 ${t} 꿀팁 | 저장하고 두고두고 보세요 | ${goal} 문의 DM
+[감성] 조금씩 나아지는 우리집 | ${t}이 취미가 되는 순간들 | 편하게 구경오세요 ☕` + snippetSection();
+  }
+
+  if (/릴스|대본|영상|쇼츠/.test(title)) {
+    return head("릴스 대본 3종 초안 (상황별)") + `
+## ① 비포/애프터형 — "정리 전후"
+| 초 | 화면 | 자막 |
+|---|---|---|
+| 0-3 | 어질러진 공간 클로즈업 | "이게 3분 뒤에..." |
+| 3-10 | 정리 과정 3컷 빠르게 | 포인트마다 짧은 팁 |
+| 10-15 | 완성 공간 천천히 | "저장해두고 따라해보세요" |
+촬영팁: 폰을 같은 위치에 고정하고 전/후만 바꿔 찍기. 한 컷 버전도 가능.
+
+## ② 꿀팁 나열형 — "${t} 꿀템/꿀팁 3가지"
+| 초 | 화면 | 자막 |
+|---|---|---|
+| 0-3 | 결과부터 보여주기 | "이거 모르면 손해" |
+| 3-12 | 팁 1→2→3 (각 3초) | 번호 + 한 줄 설명 |
+| 12-15 | 전체 모습 | "더 많은 팁은 팔로우" |
+
+## ③ 루틴형 — "아침 10분 ${t} 루틴"
+| 초 | 화면 | 자막 |
+|---|---|---|
+| 0-3 | 타이머 켜는 손 | "딱 10분이면 됩니다" |
+| 3-12 | 루틴 단계별 3컷 | 단계 이름 자막 |
+| 12-15 | 끝난 공간 + 커피 | "내일 아침도 함께해요" |
+
+공통: 첫 3초 안에 결과나 궁금증을 보여줄 것. 음악은 잔잔한 어쿠스틱 추천.` + snippetSection();
+  }
+
+  if (/캡션|해시태그|문구|카피/.test(title)) {
+    return head("캡션 5종 + 해시태그 세트 초안") + `
+## 캡션 (상황별 5종 — 복사해서 사진 설명만 바꿔 쓰세요)
+[감성] 오늘도 조금씩, 우리집이 좋아지는 중 🌿 (마지막 사진이 제일 뿌듯해요)
+[정보형] 이 방법 하나로 ○○이 해결됐어요. 순서는 사진 순서대로! 저장해두세요 📌
+[공감형] 저만 ○○ 이런 거 아니죠...? 댓글로 여러분 방법도 알려주세요 🙋
+[저장유도] 나중에 꼭 필요한 ${t} 체크리스트. 지금 저장 안 하면 못 찾아요!
+[소통형] 둘 중에 뭐가 나아요? 1번 vs 2번 — 댓글로 투표해주세요 👇
+
+## 해시태그 세트 (대형+중형+소형 조합 — 복사용)
+#${t} #${t}스타그램 #집스타그램 #인테리어 #살림 #살림꿀팁 #자취꿀템 #정리정돈 #홈스타일링 #${t}기록
+왜 섞나요? 대형(노출 기회) + 중형(체류) + 소형(상위 노출 가능성)을 함께 가져가기 위해서예요.` + snippetSection();
+  }
+
+  if (/체험단|지원|협찬/.test(title)) {
+    return head("체험단 지원 문구 초안") + `
+## 기본형 (플랫폼 지원서란에 붙여넣기)
+안녕하세요! ${t} 일상을 기록하는 계정을 운영하고 있습니다.
+제품을 실제 생활 공간에서 사용하는 모습을 비포/애프터 중심으로 보여드리며,
+과장 없이 장단점을 솔직하게 담습니다. 가이드라인 기한을 철저히 지키고,
+사진은 밝은 자연광에서 통일된 톤으로 촬영합니다. 정성스러운 리뷰 약속드립니다!
+
+## 강조 포인트 (계정 상황에 맞게 1~2개 추가)
+- "저장수가 높은 실용 콘텐츠 위주라 광고 효과가 오래 갑니다"
+- "댓글 소통을 꾸준히 해서 팔로워 신뢰도가 높습니다"
+- "인스타그램+블로그 동시 업로드 가능합니다"
+
+## 지원 전 체크
+□ 프로필 첫 화면 9개가 주제 통일되어 있는지 □ 협찬 문의 연락처가 프로필에 있는지 □ #광고 표기 준비` + snippetSection();
+  }
+
+  if (/아이디어|주제|기획|게시물|콘텐츠/.test(title)) {
+    const snips = docSnippets(2);
+    return head("콘텐츠 아이디어 초안 (10개)") + `
+| # | 아이디어 | 형식 | 노리는 것 |
+|---|---|---|---|
+| 1 | ${t} 비포/애프터 | 릴스 | 도달 |
+| 2 | 천원샵 ${t} 꿀템 5개 | 카드뉴스 | 저장 |
+| 3 | 내가 실패한 ${t} 3가지 | 사진+글 | 공감·댓글 |
+| 4 | 아침 10분 루틴 | 릴스 | 팔로우 |
+| 5 | 서랍 정리 한 컷 과정 | 릴스(한컷) | 도달 |
+| 6 | 계절 바뀔 때 체크리스트 | 카드뉴스 | 저장 |
+| 7 | 우리집 최애 코너 소개 | 사진 | 소통 |
+| 8 | 사기 전 vs 사고 난 후 | 릴스 | 공감 |
+| 9 | 팔로워 질문 받아서 답하기 | 스토리→피드 | 소통 |
+| 10 | 한 달 변화 모아보기 | 릴스 | 팔로우 |
+${snips.length ? `\n## 자료 기반 아이디어 (+2)\n` + snips.map((s, i) => `${i + 11}. 『${s.doc}』에서: "${s.text.slice(0, 40)}..." → 이 내용을 실천해보는 콘텐츠`).join("\n") : ""}
+발행 순서 추천: 2 → 1 → 4 (저장형으로 시작해 신뢰 쌓고, 도달형으로 확장)`;
+  }
+
+  if (/준비|체크리스트/.test(title)) {
+    return head("준비 체크리스트 초안") + `
+□ 목적 한 줄로 정리 (무엇을 얻는 일정인지)
+□ 필요한 준비물/자료 목록 만들기
+□ 전날: 소재·장비(폰 충전, 조명) 점검
+□ 당일: 사진/영상 소스 최소 10컷 확보 (나중에 콘텐츠로 재활용)
+□ 끝난 뒤: 배운 점 3줄 메모 → 자료실에 기록` + snippetSection();
+  }
+
+  return head(title) + `
+## 목적
+${title} — ${goal}에 다가가기 위한 작업
+
+## 초안 개요
+1. 현재 상태 정리
+2. 핵심 실행 3가지 (30분 안에 가능한 크기로)
+3. 완료 기준: 결과물을 계정/기록에 반영했는가
+
+## 다음 단계 제안
+- 이 초안을 검토·승인하면 관련 후속 업무를 이어서 진행하겠습니다.` + snippetSection();
+}
+
+/* 오프라인 자율 작업: 초안 → 검증 연출 → 보고 (AI 없이 작동) */
+async function templateWork(task) {
+  if (task.autoWorking) return;
+  task.autoWorking = true;
+  task.stage = "draft";
+  renderBoard();
+  speak(task.assignee, "초안 작업 시작합니다! 🔨", 2500);
+  await sleep(2500 + Math.random() * 2000);
+  if (task.status !== "doing") { task.autoWorking = false; return; } // 사용자가 삭제한 경우
+
+  task.draft = templateDraft(task);
+  task.stage = "verify";
+  store.set("tasks", tasks);
+  logActivity(`${staffEmoji(task.assignee)} ${staffName(task.assignee)}: 「${task.title}」 초안 완성 → 1차 교차검증`);
+  renderBoard();
+  huddleTheater(task, "필수 요소와 구성 순서를 점검했습니다");
+  await sleep(3500);
+  if (task.status !== "doing") { task.autoWorking = false; return; }
+
+  task.critique = "구성·필수 요소·말투 점검 완료 (내부 회의). AI 연결 시 내용 자체의 교차검증이 더 깊어져요.";
+  task.stage = "final";
+  renderBoard();
+  speak("pm", "3차 최종 검토 들어갑니다 🧐", 2500);
+  await sleep(3000);
+  if (task.status !== "doing") { task.autoWorking = false; return; }
+
+  task.result = task.draft;
+  task.status = "review";
+  task.stage = "";
+  task.autoWorking = false;
+  store.set("tasks", tasks);
+  logActivity(`🧑‍💼 매니저: 「${task.title}」 3차 검토 통과 → 사장님 보고`);
+  postChat("pm", `「${task.title}」 검토 완료! 사장님께 보고 올립니다 📋`);
+  speak("pm", "검토 통과! 보고 올립니다 📋");
+  renderBoard();
+  updateOfficeStatuses();
+  promoteQueue(task.assignee);
+}
+
+/* 작업 배분: AI 키가 있으면 AI 파이프라인, 없으면 오프라인 초안 엔진 */
+function dispatchWork(task) {
+  if (!task || task.status !== "doing") return;
+  if ((settings.apiKey || "").trim()) autoWork(task);
+  else templateWork(task);
+}
+
+/* ==================================================
+   자율 근무 엔진 (오토파일럿) — 지시 없이도 다음 일을 찾아서 함
+   ================================================== */
+const INITIATIVES = [
+  { key: "brand", title: "계정 컨셉 한 문장 + 닉네임 후보 10개 + 소개글 3버전 초안", assignee: "brand", when: () => true },
+  { key: "ideas9", title: "첫 9개 게시물 주제 리스트 초안", assignee: "planner", when: () => true },
+  { key: "reels3", title: "릴스 대본 3가지 상황(비포애프터·꿀팁·루틴) 초안", assignee: "reels", when: () => true },
+  { key: "caption", title: "바로 쓰는 캡션 5종 + 해시태그 세트 초안", assignee: "copywriter", when: () => true },
+  { key: "review", title: "체험단 지원용 계정 소개 문구 초안", assignee: "review", when: () => true },
+  { key: "docIdeas", title: "학습 자료를 반영한 콘텐츠 아이디어 10개", assignee: "planner", when: () => docs.some(d => d.enabled) }
+];
+
+function getAutoState() {
+  return store.get("autoState", { done: {}, studied: {}, preparedEvents: {}, lastReportAt: 0, lastRunAt: 0 });
+}
+
+async function autoPilotTick(force = false) {
+  if (!settings || !settings.autoPilot) return;
+  if (officeState.meeting) return; // 회의 중에만 대기 (수다 연출은 방해 안 됨)
+  const auto = getAutoState();
+  if (!force && Date.now() - auto.lastRunAt < 45000) return;
+  auto.lastRunAt = Date.now();
+  store.set("autoState", auto);
+
+  // 1) 새 자료가 있으면 스터디 회의부터 (자료를 팀 지식으로)
+  const fresh = docs.find(d => !auto.studied[d.id] && !d.title.startsWith("📑"));
+  if (fresh) {
+    if (chatterBusy) return; // 연출 겹침 방지 — 다음 틱에 재시도
+    auto.studied[fresh.id] = true;
+    store.set("autoState", auto);
+    postChat("pm", `새 자료 『${fresh.title}』 발견! 스터디 회의를 소집합니다 📖`);
+    await studyMeeting(fresh.id, { silent: true });
+    return;
+  }
+
+  // 2) 일이 쌓여있으면 새 일 벌이지 않기 (사장님 검토 대기 중이면 특히)
+  const openCount = tasks.filter(t => t.status === "todo" || t.status === "doing").length;
+  const reviewCount = tasks.filter(t => t.status === "review").length;
+  if (openCount >= 2 || reviewCount >= 4) return;
+
+  // 3) 다가오는 일정(3일 내) 준비
+  const soon = new Date(); soon.setDate(soon.getDate() + 3);
+  const ev = events.find(e => e.date >= todayStr() && e.date <= todayStr(soon) && !auto.preparedEvents[e.id]);
+  if (ev) {
+    auto.preparedEvents[ev.id] = true;
+    store.set("autoState", auto);
+    postChat("pm", `일정 「${ev.title}」(${ev.date})이 다가와서 준비 작업을 잡았습니다 🗓️`);
+    const t = createTask(`「${ev.title}」 준비 체크리스트`, "planner");
+    renderBoard(); updateOfficeStatuses();
+    dispatchWork(t);
+    return;
+  }
+
+  // 4) 다음 우선 업무를 스스로 선정
+  const next = INITIATIVES.find(it =>
+    !auto.done[it.key] && it.when() && !tasks.some(t => t.title === it.title));
+  if (next) {
+    auto.done[next.key] = true;
+    store.set("autoState", auto);
+    postChat("pm", `기획 회의 결과, 다음 작업을 진행합니다: 「${next.title}」 → ${staffName(next.assignee)} 담당`);
+    speak("pm", "다음 작업, 제가 알아서 배정했습니다! 🤖", 3000);
+    const t = createTask(next.title, next.assignee);
+    logActivity(`🤖 자율 근무: 「${next.title}」 자동 착수`);
+    renderBoard(); updateOfficeStatuses();
+    dispatchWork(t);
+    return;
+  }
+
+  // 5) 3일마다 운영 보고서 자동 작성
+  if (Date.now() - (auto.lastReportAt || 0) > 3 * 86400000) {
+    auto.lastReportAt = Date.now();
+    store.set("autoState", auto);
+    generateReport(true);
+  }
+}
+
+function renderAutopilotBtn() {
+  const btn = $("#autopilot-btn");
+  if (!btn) return;
+  const on = !!(settings && settings.autoPilot);
+  btn.textContent = on ? "🤖 자율 근무 ON" : "💤 자율 근무 OFF";
+  btn.classList.toggle("autopilot-off", !on);
+}
+
 /* ----- 업무 보드 (칸반) ----- */
 const BOARD_COLS = [
   ["todo", "⏳ 대기"], ["doing", "🔨 진행 중"], ["review", "👀 검토 대기"], ["done", "✅ 완료"]
@@ -2255,7 +2545,7 @@ function promoteQueue(assignee) {
     speak(assignee, "다음 업무 바로 시작합니다! 💪");
     renderBoard();
     updateOfficeStatuses();
-    if ((settings.apiKey || "").trim()) autoWork(next);
+    dispatchWork(next);
   }
 }
 
@@ -2298,7 +2588,7 @@ function renderBoard() {
           store.set("tasks", tasks);
           logActivity(`${staffEmoji(t.assignee)} ${staffName(t.assignee)}: 「${t.title}」 작업 시작`);
           renderBoard(); updateOfficeStatuses();
-          if ((settings.apiKey || "").trim()) autoWork(t);
+          dispatchWork(t);
         });
       }
 
@@ -2373,7 +2663,7 @@ function renderBoard() {
           postChat(t.assignee, "피드백 확인! 보완해서 다시 올릴게요 💪");
           speak(t.assignee, "피드백 확인! 보완해서 다시 올릴게요 💪");
           renderBoard(); updateOfficeStatuses();
-          if ((settings.apiKey || "").trim()) autoWork(t);
+          dispatchWork(t);
         });
       }
 
@@ -2493,6 +2783,7 @@ function renderOffice() {
   renderBoard();
   renderActivity();
   renderTeamChat();
+  renderAutopilotBtn();
   fitOffice();
 }
 
@@ -2610,11 +2901,19 @@ async function sendChat(presetText) {
     store.set("chats", chats);
   } catch (e) {
     liveEl.remove();
-    box.appendChild(makeMsgEl("assistant", "", "error")).textContent = "⚠️ " + friendlyApiError(e);
-    history.pop(); // 실패한 질문은 히스토리에서 제거하지 않고 남길 수도 있지만, 재전송 편의를 위해 입력창에 복원
-    $("#chat-input").value = text;
+    // 오프라인 대체 답변: 자료실 발췌 + 우회 방법 안내
+    const snips = docSnippets(2);
+    const fallback = [
+      "지금은 AI에 연결할 수 없어서 정식 답변이 어려워요. 대신 도움이 될 만한 것들을 정리했어요:",
+      snips.length ? "\n**📚 자료실에서 관련 내용 발췌**\n" + snips.map(s => `> "${s.text}" — 『${s.doc}』`).join("\n") : "",
+      "\n**지금 할 수 있는 방법**",
+      "- 🧑‍💼 AI 직원 탭에서 지시서를 복사해 무료 챗봇(Gemini 등)에 붙여넣기 (항상 작동)",
+      "- 설정 탭에서 [무료 AI 연결 테스트] 눌러 재연결 시도",
+      "- 인터넷 연결 확인 후 다시 질문"
+    ].filter(Boolean).join("\n");
+    history.push({ role: "assistant", content: fallback });
     store.set("chats", chats);
-    if (e.message === "NO_KEY") openKeyGuide();
+    renderChat();
   } finally {
     sending = false;
     $("#chat-send").disabled = false;
@@ -3295,7 +3594,16 @@ function bindEvents() {
   // 사무실
   $("#scrum-btn").addEventListener("click", () => holdScrum(false));
   $("#brief-btn").addEventListener("click", () => holdScrum(true));
-  $("#report-btn").addEventListener("click", generateReport);
+  $("#report-btn").addEventListener("click", () => generateReport(false));
+  $("#autopilot-btn").addEventListener("click", () => {
+    settings.autoPilot = !settings.autoPilot;
+    store.set("settings", settings);
+    renderAutopilotBtn();
+    toast(settings.autoPilot
+      ? "🤖 자율 근무 켜짐! 직원들이 알아서 다음 일을 찾아 초안을 올릴 거예요."
+      : "💤 자율 근무 꺼짐. 이제 직접 지시한 일만 합니다.");
+    if (settings.autoPilot) autoPilotTick(true);
+  });
 
   // 무료 AI 연결 테스트
   $("#free-ai-test").addEventListener("click", async () => {
@@ -4207,4 +4515,4 @@ function init() {
 init();
 
 // 자동 테스트용 훅 (앱 동작에는 영향 없음)
-window.__senter = { chatterTick, holdScrum, rebuildStaff, taskBrief, verifyBrief, focusComplete, recordUsage, renderTokenBar, estTokens, ensureUsage };
+window.__senter = { chatterTick, holdScrum, rebuildStaff, taskBrief, verifyBrief, focusComplete, recordUsage, renderTokenBar, estTokens, ensureUsage, autoPilotTick, templateDraft };
