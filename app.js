@@ -2258,31 +2258,83 @@ function saveDocModal() {
 function addDocByPaste() { openDocModal(null); }
 function editDoc(d) { openDocModal(d); }
 
-function addDocsByFiles(files) {
-  let added = 0;
-  const tasks = Array.from(files).map(file => new Promise(resolve => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const content = String(reader.result || "").trim();
-      if (content) {
-        docs.push({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), title: file.name.replace(/\.(txt|md|markdown)$/i, ""), content, enabled: true });
-        added++;
-      }
-      resolve();
+/* PDF 텍스트 추출 (pdf.js — vendor에 내장, 첫 사용 시에만 로드) */
+let pdfjsLoading = null;
+function loadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (pdfjsLoading) return pdfjsLoading;
+  pdfjsLoading = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "vendor/pdf.min.js";
+    s.onload = () => {
+      try {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
+        resolve(window.pdfjsLib);
+      } catch (e) { reject(e); }
     };
-    reader.onerror = () => resolve();
-    reader.readAsText(file);
-  }));
-  Promise.all(tasks).then(() => {
-    if (added) {
-      store.set("docs", docs);
-      toast(`📚 자료 ${added}개가 추가됐어요!`);
-      renderLibrary();
-      renderChat();
-    } else {
-      toast("⚠️ 읽을 수 있는 텍스트 파일이 없었어요. (.txt / .md 파일만 지원)");
-    }
+    s.onerror = () => reject(new Error("PDF 라이브러리를 불러오지 못했어요"));
+    document.head.appendChild(s);
   });
+  return pdfjsLoading;
+}
+
+const PDF_MAX_PAGES = 150;
+const PDF_MAX_CHARS = 300000;
+
+async function extractPdfText(file) {
+  const pdfjs = await loadPdfJs();
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjs.getDocument({ data: buf }).promise;
+  const maxPages = Math.min(pdf.numPages, PDF_MAX_PAGES);
+  const out = [];
+  for (let i = 1; i <= maxPages; i++) {
+    const page = await pdf.getPage(i);
+    const tc = await page.getTextContent();
+    out.push(tc.items.map(it => it.str).join(" "));
+    if (out.join("").length > PDF_MAX_CHARS) break;
+  }
+  let text = out.join("\n\n").replace(/[ \t]{2,}/g, " ").trim().slice(0, PDF_MAX_CHARS);
+  if (pdf.numPages > maxPages) text += `\n\n(참고: 전체 ${pdf.numPages}쪽 중 앞 ${maxPages}쪽만 추출됨)`;
+  return text;
+}
+
+async function addDocsByFiles(files) {
+  let added = 0;
+  const failed = [];
+  toast("📄 파일을 읽는 중이에요...", 60000);
+
+  for (const file of Array.from(files)) {
+    try {
+      let content;
+      if (/\.pdf$/i.test(file.name)) {
+        content = await extractPdfText(file);
+        if (!content.trim()) {
+          failed.push(`${file.name} — 글자를 찾지 못했어요 (사진으로 스캔된 PDF일 수 있어요)`);
+          continue;
+        }
+      } else {
+        content = String(await file.text()).trim();
+        if (!content) { failed.push(`${file.name} — 내용이 비어있어요`); continue; }
+      }
+      docs.push({
+        id: Date.now() + "-" + Math.random().toString(36).slice(2, 6),
+        title: file.name.replace(/\.(txt|md|markdown|pdf)$/i, ""),
+        content, enabled: true
+      });
+      added++;
+    } catch (e) {
+      failed.push(`${file.name} — ${e.message || "읽기 실패"}`);
+    }
+  }
+
+  if (added) {
+    store.set("docs", docs);
+    renderLibrary();
+    renderChat();
+  }
+  if (added && !failed.length) toast(`📚 자료 ${added}개가 추가됐어요!`);
+  else if (added && failed.length) toast(`📚 ${added}개 추가, ⚠️ 실패: ${failed[0]}`, 6000);
+  else toast(`⚠️ 파일을 읽지 못했어요. ${failed[0] || "(.txt / .md / .pdf 지원)"}`, 6000);
 }
 
 /* ---------- 설정 탭 ---------- */
