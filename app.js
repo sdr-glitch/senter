@@ -129,6 +129,78 @@ function staffContext() {
 - 수준: ${s.level || "완전 초보"} — 마케팅 용어는 쓰되 반드시 쉬운 말로 한 줄 풀이를 붙일 것`;
 }
 
+/* ==================================================
+   직원 스킬 시스템 — 오픈소스 PM 방법론 이식
+   출처: github.com/phuryn/pm-skills (MIT), github.com/garrytan/gstack (MIT)
+   ================================================== */
+const SKILLS = {
+  positioning: {
+    name: "포지셔닝 설계", src: "pm-skills",
+    method: `[스킬: 포지셔닝 설계 — 3단계]
+① 경쟁 환경: 비슷한 계정/브랜드 5곳의 포지셔닝 각도·타깃·차별점·미충족 니즈 파악
+② 차별화 브레인스토밍: 경쟁과 겹치지 않는 포지셔닝 5안 생성
+③ 선언문 작성: 각 안마다 "유일하게 [카테고리]에서 [타깃]이 [이득]을 얻게 하는 ○○" 한 문장 + 전략 근거 + 보조 메시지. 미충족 시장 공백을 노릴 것.`
+  },
+  personas: {
+    name: "타깃 페르소나", src: "pm-skills",
+    method: `[스킬: 타깃 페르소나 — 5단계·5필드]
+단계: 자료 수집→패턴 인식→동기 기준 그룹화→프로필 통합→데이터 교차검증.
+각 페르소나 필드: ①인구통계+이름 ②핵심 목표(JTBD: 무엇을 해내려 하는가) ③통증점 3개 ④기대 이득 3개 ⑤예상 밖 인사이트. 페르소나 3인은 서로 겹치지 않게, 근거 없는 가정 금지.`
+  },
+  competitor: {
+    name: "경쟁 분석", src: "pm-skills",
+    method: `[스킬: 경쟁 분석 — 4단계]
+①시장 정의 ②경쟁 5곳 식별 ③정보 수집(포지셔닝·콘텐츠·수익모델) ④차별화 도출.
+분석 체크: 강점/약점/비즈니스모델/위협도. 핵심 산출물: "경쟁이 해결 못 하는 고객 니즈" 식별 → 포지셔닝 추천.`
+  },
+  marketingIdeas: {
+    name: "마케팅 아이디어", src: "pm-skills",
+    method: `[스킬: 마케팅 아이디어 — 4요소 프레임]
+아이디어 5안, 각각: ①채널 ②핵심 메시지 ③효과 근거(왜 타깃이 반응하는가) ④비용 효율(적은 자원으로 임팩트). 창의성과 비용 효율의 균형이 기준.`
+  },
+  northStar: {
+    name: "북극성 지표", src: "pm-skills",
+    method: `[스킬: 북극성 지표 — 3단계]
+①게임 분류: Attention(체류)/Transaction(거래)/Productivity(효율) — SNS 계정은 Attention 게임
+②북극성 1개 선정 (7기준: 전원 이해·고객가치·지속습관·비전정렬·정량측정·직접영향·선행지표) — 팔로워 수보다 "주간 저장수" 같은 가치 지표 우선
+③인풋 지표 3~5개: 단기 개선 가능 + 북극성에 직결.`
+  },
+  gstackFlow: {
+    name: "에이전트 워크플로", src: "gstack",
+    method: `[스킬: 에이전트 워크플로 — Plan→Build→Review→QA→Ship→Retro]
+각 단계 산출물이 다음 단계의 입력. Review는 역할별 관점(전략가/실무/품질)으로 나눠 볼 것.
+QA 게이트: 지시 충족? 바로 사용 가능? 빠진 필수 요소? Ship 후에는 Retro(회고): 잘된 것/안 된 것/다음에 바꿀 것 3가지.`
+  }
+};
+
+const STAFF_SKILLS = {
+  pm: ["gstackFlow", "northStar"],
+  planner: ["marketingIdeas", "northStar"],
+  copywriter: ["positioning", "marketingIdeas"],
+  reels: ["marketingIdeas"],
+  analyst: ["competitor", "personas"],
+  review: ["personas"],
+  brand: ["positioning", "personas"],
+  emoti: ["competitor", "positioning"],
+  digest: ["gstackFlow"]
+};
+
+function skillNames(id) {
+  return (STAFF_SKILLS[id] || []).map(k => SKILLS[k].name);
+}
+
+function skillBlock(id) {
+  const keys = STAFF_SKILLS[id] || [];
+  if (!keys.length) return "";
+  return `\n\n[보유 스킬 — 검증된 PM 방법론 (오픈소스 pm-skills·gstack에서 이식). 업무에 반드시 적용할 것]\n` +
+    keys.map(k => SKILLS[k].method).join("\n\n");
+}
+
+/* 직원 최종 프롬프트 = 기본 지시서 + 스킬 */
+function staffPrompt(st) {
+  return st.prompt() + skillBlock(st.id);
+}
+
 function staffEnding() {
   const name = (settings && settings.name) || "사장님";
   return `[시작 인사]
@@ -1177,7 +1249,8 @@ function renderStaff() {
 
     const head = document.createElement("div");
     head.className = "staff-head";
-    head.innerHTML = `<span class="staff-emoji">${st.emoji}</span><div><div class="staff-name">${escapeHtml(st.name)}${st.custom ? ' <span class="staff-badge">직접 채용</span>' : ""}</div><div class="staff-role">${escapeHtml(st.role)}</div></div>`;
+    const sk = skillNames(st.id);
+    head.innerHTML = `<span class="staff-emoji">${st.emoji}</span><div><div class="staff-name">${escapeHtml(st.name)}${st.custom ? ' <span class="staff-badge">직접 채용</span>' : ""}</div><div class="staff-role">${escapeHtml(st.role)}</div>${sk.length ? `<div class="staff-skillbadges">🎓 ${sk.join(" · ")}</div>` : ""}</div>`;
     if (st.custom) {
       const fire = document.createElement("button");
       fire.className = "btn-small btn-task-del staff-fire";
@@ -1197,14 +1270,14 @@ function renderStaff() {
     summary.textContent = "업무 지시서 미리보기";
     details.appendChild(summary);
     details.appendChild(pre);
-    details.addEventListener("toggle", () => { if (details.open) pre.textContent = st.prompt(); });
+    details.addEventListener("toggle", () => { if (details.open) pre.textContent = staffPrompt(st); });
 
     const btn = document.createElement("button");
     btn.className = "btn-primary";
     btn.textContent = "📋 업무 지시서 복사";
     btn.addEventListener("click", async () => {
       try {
-        await copyText(st.prompt());
+        await copyText(staffPrompt(st));
         btn.textContent = "✅ 복사 완료!";
         setTimeout(() => { btn.textContent = "📋 업무 지시서 복사"; }, 2000);
         toast(`${st.emoji} ${st.name} 지시서 복사됨! 무료 AI 챗봇의 새 대화에 붙여넣으세요.`);
@@ -1734,7 +1807,8 @@ function openStaffModal(id) {
     return;
   }
 
-  head.innerHTML = `<span class="sm-emoji">${st.emoji}</span><div><div class="sm-name">${escapeHtml(st.name)}</div><div class="sm-role">${escapeHtml(st.role)} · 완료 ${doneCount}건</div></div>`;
+  const smSkills = skillNames(id);
+  head.innerHTML = `<span class="sm-emoji">${st.emoji}</span><div><div class="sm-name">${escapeHtml(st.name)}</div><div class="sm-role">${escapeHtml(st.role)} · 완료 ${doneCount}건</div>${smSkills.length ? `<div class="staff-skillbadges">🎓 ${smSkills.join(" · ")}</div>` : ""}</div>`;
 
   let html = "";
   const sections = [["doing", "🔨 진행 중"], ["review", "👀 검토 대기"], ["todo", "⏳ 대기"], ["done", "✅ 최근 완료"]];
@@ -2164,7 +2238,7 @@ function staffKnowledge(limit = 6000) {
 function taskBrief(task) {
   const st = STAFF.find(s => s.id === task.assignee);
   if (!st) return `업무: ${task.title}\n위 업무의 결과물(초안)을 만들어줘.`;
-  return `${st.prompt()}${staffKnowledge()}
+  return `${staffPrompt(st)}${staffKnowledge()}
 
 ──────────────
 [오늘의 업무 지시]
@@ -2176,6 +2250,7 @@ ${task.title}${task.note ? `\n(보완 요청: ${task.note})` : ""}
 function verifyBrief(task) {
   const [r1, r2] = reviewersFor(task.assignee);
   return `너는 SNS 마케팅 팀의 검증 패널이다. ${r1.name}(${r1.role})와 ${r2.name}(${r2.role}) 두 전문가의 관점을 모두 갖고 있다.
+${skillBlock(r1.id)}${skillBlock(r2.id)}
 
 ${staffContext()}${staffKnowledge(3000)}
 
@@ -2294,7 +2369,7 @@ async function autoWork(task) {
   task.autoWorking = true;
   const st = STAFF.find(s => s.id === task.assignee);
   if (!st) { task.autoWorking = false; return; }
-  const cleanPrompt = (s) => s.prompt().replace(/\[시작 인사\][\s\S]*$/, "");
+  const cleanPrompt = (s) => staffPrompt(s).replace(/\[시작 인사\][\s\S]*?(?=\[보유 스킬|$)/, "");
   const fail = (e, where) => {
     task.autoWorking = false;
     renderBoard();
@@ -2510,11 +2585,110 @@ OGQ·라인은 소액이 길게, 카카오는 승인만 되면 규모가 큼. �
 **사장님 결정 요청: 공략 순서(①→②→③→④) 승인 또는 순서 변경 지시**` + snippetSection();
 }
 
+/* ── 스킬 기반 초안: 페르소나 (pm-skills user-personas 5필드) ── */
+function personasDraft(head, t, goal) {
+  return head(`타깃 페르소나 3인 — ${t} 계정`) + `
+(user-personas 스킬 적용: 5필드 체계 · 서로 겹치지 않는 3인)
+
+## 페르소나 ① "시작하는 지은" (26~32세 · 1인 가구)
+- 핵심 목표(JTBD): 좁은 집을 내 취향의 공간으로 만들고 싶다
+- 통증점: ⓐ뭘 사야 할지 모름 ⓑ실패 구매 경험 ⓒ시간 부족
+- 기대 이득: 바로 따라하는 가이드 / 가성비 검증 / 5분 안에 읽히는 정보
+- 인사이트: 구매 전 저장해두고 몰아서 봄 → **저장 유도형 콘텐츠**에 반응
+
+## 페르소나 ② "살림 고수 미영" (35~45세 · 가족)
+- 핵심 목표: 반복 살림 시간을 줄이고 싶다
+- 통증점: ⓐ루틴 무너짐 ⓑ가족이 안 도와줌 ⓒ광고성 정보 불신
+- 기대 이득: 실사용 후기 / 시간 절약 팁 / 진정성
+- 인사이트: 댓글로 자기 노하우 공유를 즐김 → **질문형 캡션**에 반응
+
+## 페르소나 ③ "구경하는 하나" (20대 초중반)
+- 핵심 목표: 미래의 내 집을 상상하며 영감 수집
+- 통증점: ⓐ지금은 실행 불가 ⓑ현실과 괴리 ⓒ긴 글 피로
+- 기대 이득: 무드 있는 비주얼 / 짧은 릴스 / 대리만족
+- 인사이트: 팔로우는 안 해도 공유는 함 → **릴스 도달**의 핵심층
+
+## 적용 제안
+주력 타깃은 ①, 콘텐츠 60%를 ①의 통증점 해결에. ${goal}에는 ②의 신뢰가 중요.
+**사장님 결정 요청: 주력 페르소나 선택 (①/②/③)**` + snippetSection();
+}
+
+/* ── 스킬 기반 초안: 포지셔닝 (pm-skills positioning-ideas 선언문 템플릿) ── */
+function positioningDraft(head, t, goal) {
+  return head(`포지셔닝 선언문 — ${t} 계정`) + `
+(positioning 스킬 적용: 경쟁 공백 → 차별화 5안 → 선언문)
+
+## 경쟁 공백 (벤치마킹 보고서 기준)
+완성된 결과만 보여주는 계정은 많고, **과정과 실패를 보여주는 계정은 적음**.
+
+## 포지셔닝 선언문 3안
+| 안 | 선언문 | 근거 |
+|---|---|---|
+| A | 유일하게 ${t}에서 **초보의 시행착오까지** 보여주는 계정 | 공감·신뢰 → 체험단 전환에 유리 |
+| B | 유일하게 **하루 10분 실천**만 다루는 ${t} 계정 | 진입장벽 최소화 → 저장·재방문 |
+| C | 유일하게 **비포/애프터 숫자**(시간·비용)를 기록하는 ${t} 계정 | 정보성 → 협찬 신뢰도 |
+
+## 보조 메시지 (선택안에 맞춰 프로필·캡션에 반복 사용)
+A안: "완벽하지 않아도 시작" / B안: "오늘 10분이면 돼요" / C안: "숫자로 증명하는 변화"
+
+**사장님 결정 요청: A/B/C 선택 → 선택안으로 프로필·핵심 해시태그 개편안을 이어서 올립니다**` + snippetSection();
+}
+
+/* ── 스킬 기반 초안: 북극성 지표 (pm-skills north-star-metric) ── */
+function northStarDraft(head, t, goal) {
+  return head(`북극성 지표 설계 — ${t} 계정`) + `
+(north-star 스킬 적용: 게임 분류 → 7기준 검증 → 인풋 지표)
+
+## ① 게임 분류: Attention 게임 (체류·습관이 가치)
+
+## ② 북극성 지표 제안: **주간 저장수**
+검증(7기준): 전원 이해 ✓ / 고객가치(유용함의 증거) ✓ / 지속습관 ✓ / ${goal} 방향 일치 ✓ / 인사이트 탭에서 측정 ✓ / 콘텐츠로 직접 영향 ✓ / 팔로워·협찬의 선행지표 ✓
+(팔로워 수는 결과 지표라 북극성으로 부적합 — 허수 가능)
+
+## ③ 인풋 지표 (매주 기록 권장)
+1. 주간 발행 수 (목표 3)
+2. 저장 유도형 콘텐츠 비율 (목표 50%)
+3. 게시물당 평균 저장수
+4. 프로필 방문 → 팔로우 전환율
+
+## 운영 루틴
+매주 일요일: 인사이트에서 위 4개 기록 → 🎨 스튜디오 본부에 팔로워 기록 → 다음 주 콘텐츠에서 저장수 상위 형식 늘리기` + snippetSection();
+}
+
+/* ── 스킬 기반 초안: 회고 (gstack retro) ── */
+function retroDraft(head) {
+  const done = tasks.filter(x => x.status === "done").slice(0, 10);
+  const reworked = tasks.filter(x => x.note && x.note.length);
+  return head("스프린트 회고 (gstack Retro)") + `
+## 이번 구간 완료 (${done.length}건)
+${done.map(x => `- ✅ ${x.title} (${staffName(x.assignee)})`).join("\n") || "- (완료 업무 없음)"}
+
+## 잘된 것 (Keep)
+- 승인까지 완주한 업무 ${done.length}건 — 파이프라인이 돌고 있음
+${docs.length ? `- 자료 ${docs.length}개가 업무에 반영되는 중` : ""}
+
+## 아쉬운 것 (Problem)
+${reworked.length ? `- 보완 요청 ${reworked.length}건: "${(reworked[0].note || "").slice(0, 30)}..." — 초안 단계에서 요구사항 확인 강화 필요` : "- 보완 요청 없음 — 다만 검토가 형식적이지 않았는지 점검"}
+- 승인 대기 시간이 길어지면 흐름이 끊김
+
+## 다음에 바꿀 것 (Try) — 3가지
+1. 검토 대기 알림이 4건 이상 쌓이기 전에 하루 1회 승인 시간 확보
+2. 보완 사유를 자료실에 기록해 같은 실수 반복 방지
+3. 다음 구간 북극성 지표(주간 저장수) 기록 시작
+
+**사장님 결정 요청: Try 3가지 승인 또는 수정**`;
+}
+
 function templateDraft(task) {
   const t = topicWord();
   const goal = (settings && settings.goal) || "체험단 협찬";
   const title = task.title;
   const head = (label) => `# ${label}\n(직원 회의로 작성한 초안 — AI를 연결하면 더 정교해져요)\n`;
+
+  if (/페르소나|타깃 정의/.test(title)) return personasDraft(head, t, goal);
+  if (/포지셔닝|차별화 선언/.test(title)) return positioningDraft(head, t, goal);
+  if (/북극성|지표 설계/.test(title)) return northStarDraft(head, t, goal);
+  if (/회고/.test(title)) return retroDraft(head);
 
   if (/이모티콘|스티커/.test(title)) {
     return /라인|OGQ|밴드|플랫폼/.test(title) ? emoticonMultiDraft(head) : emoticonKakaoDraft(head, t);
@@ -2703,7 +2877,10 @@ const INITIATIVES = [
   { key: "docIdeas", title: "학습 자료를 반영한 콘텐츠 아이디어 10개", assignee: "planner", when: () => docs.some(d => d.enabled) },
   { key: "bench", title: "벤치마킹 보고서 — 인기 계정 분석과 내 계정 적용 전략", assignee: "analyst", when: () => true },
   { key: "emoKakao", title: "카카오톡 이모티콘 시장 분석 + 우리 캐릭터 기획안", assignee: "emoti", when: () => true },
-  { key: "emoMulti", title: "라인·OGQ·밴드 플랫폼별 이모티콘 기획안", assignee: "emoti", when: () => !!getAutoState().done.emoKakao }
+  { key: "emoMulti", title: "라인·OGQ·밴드 플랫폼별 이모티콘 기획안", assignee: "emoti", when: () => !!getAutoState().done.emoKakao },
+  { key: "personas", title: "타깃 페르소나 3인 정의 (user-personas 스킬)", assignee: "analyst", when: () => !!getAutoState().done.bench },
+  { key: "positioning", title: "계정 포지셔닝 선언문 (positioning 스킬)", assignee: "brand", when: () => !!getAutoState().done.personas },
+  { key: "northstar", title: "북극성 지표 설계 (north-star 스킬)", assignee: "planner", when: () => !!getAutoState().done.positioning }
 ];
 
 function getAutoState() {
@@ -2763,7 +2940,19 @@ async function autoPilotTick(force = false) {
     return;
   }
 
-  // 5) 7일마다 벤치마킹 리서치 갱신 (첫 보고서 이후)
+  // 5) gstack Retro: 완료 8건 쌓일 때마다 스프린트 회고
+  const doneCount = tasks.filter(t => t.status === "done").length;
+  if (doneCount >= (auto.lastRetroAt || 0) + 8) {
+    auto.lastRetroAt = doneCount;
+    store.set("autoState", auto);
+    postChat("pm", "완료 업무가 쌓여서 스프린트 회고를 진행합니다 (gstack Retro) 🔄");
+    const rt = createTask(`스프린트 회고 — 완료 ${doneCount}건 시점 (retro 스킬)`, "planner");
+    renderBoard(); updateOfficeStatuses();
+    dispatchWork(rt);
+    return;
+  }
+
+  // 6) 7일마다 벤치마킹 리서치 갱신 (첫 보고서 이후)
   if (auto.done.bench && Date.now() - (auto.lastBenchAt || 0) > 7 * 86400000) {
     auto.lastBenchAt = Date.now();
     store.set("autoState", auto);

@@ -901,3 +901,6 @@ body {
 @media (max-width: 720px) {
   .agent { padding: 10px; margin: -10px; } /* 터치 히트 영역 확장 (시각 변화 없음) */
 }
+
+/* ===== 직원 스킬 배지 ===== */
+.staff-skillbadges { font-size: .72rem; color: var(--accent-strong); margin-top: 3px; font-weight: 600; }
