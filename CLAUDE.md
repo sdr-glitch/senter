@@ -19,7 +19,8 @@
 | `index.html` | 전체 마크업 (탭 10개: 사무실·AI직원·멘토챗·홈·생산성·릴스·트렌드·스튜디오·자료실·설정) |
 | `app.js` | 전체 로직 (~5200줄, 섹션 주석으로 구분) |
 | `style.css` | 디자인 (오트밀/세이지 팔레트, `:root` 변수) |
-| `studio.html` | 크리에이터 스튜디오 (독립 앱, iframe으로 내장, 자체 localStorage 키) |
+| `studio.html` | 크리에이터 스튜디오 (독립 앱, iframe으로 내장, 자체 localStorage 키). 로드 시 `senter:studioInbox`를 소비해 승인된 이모티콘 기획을 프로젝트로 자동 등록 |
+| `sw.js` | 서비스 워커 (오프라인 캐시, https에서만 등록 — file://은 자동 스킵) |
 | `vendor/` | pdf.min.js + worker, jszip.min.js |
 | `claude-desk/` | 별도 로컬 Node 도구 (웹 배포와 무관, 건드리지 말 것) |
 | `trend-viewer/` | 별도 로컬 트렌드 관제판 (Python 3 stdlib, 포트 8779, 웹 배포와 무관) |

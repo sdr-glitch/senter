@@ -2474,6 +2474,18 @@ function topicWord() {
   return ((settings && settings.topic) || "리빙").split(/[\s(·,]/)[0] || "리빙";
 }
 
+/* 해시태그 세트 — 내 주제에서 파생 (리빙 고정 → 어떤 주제든 일반화) */
+function hashtagSet() {
+  const t = topicWord();
+  const base = [`#${t}`, `#${t}스타그램`, `#${t}꿀팁`, `#${t}기록`];
+  // 부분 매칭 금지: '맛집'·'집밥'·'홈트' 같은 무관한 주제에 리빙 태그가 붙지 않게 정확히 일치할 때만
+  const LIVING = ["리빙", "인테리어", "살림", "집", "홈", "집꾸미기", "홈스타일링", "홈데코", "정리", "수납"];
+  const extra = LIVING.includes(t)
+    ? ["#집스타그램", "#인테리어", "#살림꿀팁", "#정리정돈", "#홈스타일링", "#자취꿀템"]
+    : [`#${t}일상`, `#${t}추천`, `#${t}루틴`, "#일상기록", "#꿀팁공유", "#소통"];
+  return [...new Set(base.concat(extra))].join(" "); // 주제어가 겹쳐도 중복 태그 없이
+}
+
 /* 자료실에서 참고할 문장 발췌 (직원들이 모든 자료를 활용) */
 function docSnippets(n = 3) {
   const enabled = docs.filter(d => d.enabled);
@@ -2779,7 +2791,7 @@ ${names.slice(0, 5).map((n, i) => `${i + 1}. ${n} — "${t}" 검색에 걸리기
 [소통형] 둘 중에 뭐가 나아요? 1번 vs 2번 — 댓글로 투표해주세요 👇
 
 ## 해시태그 세트 (대형+중형+소형 조합 — 복사용)
-#${t} #${t}스타그램 #집스타그램 #인테리어 #살림 #살림꿀팁 #자취꿀템 #정리정돈 #홈스타일링 #${t}기록
+${hashtagSet()}
 왜 섞나요? 대형(노출 기회) + 중형(체류) + 소형(상위 노출 가능성)을 함께 가져가기 위해서예요.` + snippetSection();
   }
 
@@ -3027,6 +3039,14 @@ let boardQuery = "";
 function renderBoard() {
   const kanban = $("#kanban");
   if (!kanban) return;
+  // 열려있는 카드 폼(보완요청·초안 제출)의 입력 상태 보존 — 파이프라인이 수시로 재렌더해도 타이핑이 날아가지 않게
+  const openForms = {};
+  kanban.querySelectorAll(".task-card").forEach(c => {
+    const form = c.querySelector(".task-form:not(.hidden)");
+    if (!form || !c.dataset.id) return;
+    const ta = form.querySelector("textarea");
+    openForms[c.dataset.id] = { value: ta ? ta.value : "", focused: ta === document.activeElement };
+  });
   kanban.innerHTML = "";
   const q = boardQuery.trim().toLowerCase();
 
@@ -3041,6 +3061,7 @@ function renderBoard() {
     items.forEach(t => {
       const card = document.createElement("div");
       card.className = "task-card";
+      card.dataset.id = t.id;
 
       const head = document.createElement("div");
       head.className = "task-assignee";
@@ -3130,6 +3151,7 @@ function renderBoard() {
           speak(t.assignee, "승인 감사합니다! 🎉");
           renderBoard(); updateOfficeStatuses();
           promoteQueue(t.assignee);
+          handoffToStudio(t);
         });
         addBtn("↩ 보완 요청", "btn-small", () => {
           const form = card.querySelector(".task-form");
@@ -3150,6 +3172,7 @@ function renderBoard() {
 
       addBtn("🗑", "btn-small btn-task-del", () => {
         if (!confirm(`「${t.title}」 업무를 삭제할까요?`)) return;
+        t.status = "deleted"; // 진행 중이던 자동 파이프라인이 다음 단계에서 스스로 멈추게 (가드: status !== "doing")
         tasks = tasks.filter(x => x.id !== t.id);
         store.set("tasks", tasks);
         renderBoard(); updateOfficeStatuses();
@@ -3247,6 +3270,20 @@ function renderBoard() {
         });
         form.append(ta, save);
         card.appendChild(form);
+      }
+
+      // 재렌더 전 열려있던 폼 복원 (입력 텍스트·포커스 유지)
+      const saved = openForms[t.id];
+      if (saved) {
+        const form = card.querySelector(".task-form");
+        const ta = form && form.querySelector("textarea");
+        if (form && ta) {
+          form.classList.remove("hidden");
+          ta.value = saved.value;
+          if (saved.focused) {
+            requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); });
+          }
+        }
       }
 
       col.appendChild(card);
@@ -4061,12 +4098,92 @@ function renderTrendChips() {
     chip.title = "삭제";
     chip.addEventListener("click", () => {
       trendKeywords = getTrendKeywords().filter(k => k !== kw);
+      delete trendCache.news[kw]; // 캐시도 함께 제거 (브리핑에 유령 뉴스가 남지 않게)
       store.set("trendKeywords", trendKeywords);
       renderTrendChips();
       loadTrendNews();
     });
     wrap.appendChild(chip);
   });
+}
+
+/* ----- 🇰🇷 한글 브리핑: 영어 헤드라인·검색어를 쉬운 한국어 + 콘텐츠 아이디어로 ----- */
+function trendBriefData() {
+  const hot = (trendCache.hot?.items || []).map(i => i.title + (i.traffic ? ` (${i.traffic})` : ""));
+  const news = [];
+  const active = new Set(getTrendKeywords()); // 삭제된 키워드의 캐시는 브리핑에서 제외
+  Object.entries(trendCache.news).forEach(([kw, c]) => {
+    if (active.has(kw)) (c?.items || []).forEach(i => news.push(`[${kw}] ${i.title}`));
+  });
+  return { hot, news };
+}
+
+function trendBriefTemplate(hot, news) {
+  const t = topicWord();
+  return `🇰🇷 오늘의 트렌드 브리핑 — 기본판 (AI 연결 시 항목별 해설이 더 깊어져요)
+
+## 지금 뜨는 검색어
+${hot.slice(0, 6).map((h, i) => `${i + 1}. ${h}`).join("\n") || "- 아직 못 불러왔어요 (↻ 새로고침)"}
+
+## 이렇게 써먹는 공식 (초보용)
+- 내 주제(${t})와 닿는 검색어가 있으면: "검색어 × ${t}" 콘텐츠를 오늘 안에 올려요. 예: "○○ 열풍, ${t}에서는 이렇게"
+- 안 닿아도 버리지 마세요: 제목 후킹에 말투·밈만 빌려요
+- 영어 헤드라인은 번역기(파파고)에 붙여넣으면 10초 — 제목만 이해해도 충분해요
+
+## 관심 키워드 뉴스
+${news.slice(0, 6).map(n => `- ${n}`).join("\n") || "- 위에서 키워드를 추가하면 뉴스가 모여요"}
+
+## 오늘 바로 만들 소재 TOP3 (기본 추천)
+1. 급상승 1위를 ${t} 관점으로 한 줄 언급하며 시작하는 릴스 오프닝
+2. 뜨는 키워드를 제목에 빌린 "${t} 하는 사람만 아는 ○○" 카드뉴스
+3. 뉴스 하나 골라 "이게 우리에게 무슨 의미?" 짧은 의견 스토리`;
+}
+
+async function makeTrendBrief() {
+  const btn = $("#trend-brief"), out = $("#trend-brief-out");
+  const { hot, news } = trendBriefData();
+  if (!hot.length && !news.length) { toast("먼저 트렌드를 불러온 뒤 눌러주세요 (↻ 새로고침)"); return; }
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = "🇰🇷 요약 중...";
+  out.classList.remove("hidden");
+  out.textContent = "직원들이 트렌드를 읽고 있어요...";
+  $("#trend-brief-save")?.classList.add("hidden"); // 요약이 끝나기 전엔 저장 못 하게
+  const t = topicWord();
+  try {
+    const text = await aiChat(
+      `너는 SNS 초보 운영자를 돕는 마케팅 멘토야. 전문 용어는 즉시 쉬운 말로 풀고, 친근한 한국어 존댓말로 써.`,
+      [{ role: "user", content: `지금 실시간 급상승 검색어와 뉴스 헤드라인이야 (영어가 섞여 있을 수 있어):
+
+[급상승]
+${hot.slice(0, 10).join("\n")}
+
+[관심 키워드 뉴스]
+${news.slice(0, 10).join("\n") || "(없음)"}
+
+부탁: ① 흐름을 3~5개로 묶어 각각 쉬운 한국어 한 줄 설명 + 왜 뜨는지 추정 ② 각 흐름마다 "${t}" 계정에서 써먹을 콘텐츠 아이디어 1개 ③ 마지막에 "오늘 바로 만들 소재 TOP3". 영어는 모두 번역해서 설명해줘.` }],
+      (full) => { out.textContent = full; }); // onDelta는 누적된 전체 텍스트를 받는다
+    out.textContent = (text || "").trim() || trendBriefTemplate(hot, news);
+  } catch (e) {
+    out.textContent = trendBriefTemplate(hot, news);
+    // 무료 AI 미연결(NO_AI)은 기본판이 정상 경로지만, 내 API 키 오류(401 등)는 알려줘야 고칠 수 있음
+    if (e && e.message !== "NO_AI") toast("⚠️ AI 요약 실패 — 기본판으로 보여드려요. " + friendlyApiError(e), 6000);
+  }
+  btn.disabled = false;
+  btn.textContent = orig;
+  $("#trend-brief-save")?.classList.remove("hidden");
+}
+
+function saveTrendBrief() {
+  const text = ($("#trend-brief-out")?.textContent || "").trim();
+  if (!text || text.includes("읽고 있어요")) { toast("먼저 브리핑을 만들어주세요!"); return; }
+  const title = `🇰🇷 트렌드 브리핑 ${todayStr()}`;
+  const exist = docs.find(d => d.title === title);
+  if (exist) exist.content = text;
+  else docs.push({ id: Date.now() + "", title, content: text, enabled: true });
+  if (!store.set("docs", docs)) return; // 실패 시 store.set이 용량 안내 토스트를 띄움 — 성공 안내 금지
+  renderLibrary();
+  toast("📚 자료실에 저장됐어요! 직원들이 다음 기획에 반영해요.");
 }
 
 function renderTrendTab() {
@@ -4078,7 +4195,22 @@ function renderTrendTab() {
 /* ---------- 스튜디오 탭 (iframe 지연 로드) ---------- */
 function renderStudio() {
   const frame = $("#studio-frame");
-  if (frame && !frame.src) frame.src = "studio.html";
+  if (!frame) return;
+  if (!frame.src) { frame.src = "studio.html"; return; }
+  // 대기 중인 핸드오프가 있으면 탭에 들어오는 이 시점에만 재로딩해 소비
+  // (승인 즉시 재로딩하면 스튜디오에 올려둔 세션 전용 작업물 — 업로드 이미지 등 — 이 예고 없이 날아감)
+  if (store.get("studioInbox", []).length) frame.src = frame.src;
+}
+
+/* 이모티콘 기획 승인 → 스튜디오에 프로젝트 자동 생성 (탭 간 연결)
+   스튜디오가 로드될 때 senter:studioInbox를 읽어 자기 저장소 형식으로 가져간다 */
+function handoffToStudio(t) {
+  // emoti 담당 업무 전부 + 다른 직원에게 지명된 '이모티콘/캐릭터 기획' 업무만
+  if (t.assignee !== "emoti" && !(/이모티콘|캐릭터/.test(t.title) && /기획/.test(t.title))) return;
+  const inbox = store.get("studioInbox", []);
+  inbox.push({ type: "emoticon", title: t.title.slice(0, 60), at: Date.now() });
+  if (!store.set("studioInbox", inbox)) return; // 저장 실패 시 store.set이 용량 안내 토스트를 띄움
+  toast("🎨 스튜디오에 프로젝트로 보냈어요! 스튜디오 탭을 열면 ☺ 이모티콘 제출 현황·🏠 본부 아이디어 뱅크에 등록돼요.");
 }
 
 /* ---------- 설정 탭 ---------- */
@@ -4333,6 +4465,9 @@ function bindEvents() {
 
   // 트렌드 탭
   $("#trend-refresh").addEventListener("click", () => { loadTrendHot(true); loadTrendNews(true); });
+  // 캐시된 구버전 HTML과 조합돼도 앱 전체가 죽지 않도록 새 요소는 옵셔널 바인딩
+  $("#trend-brief")?.addEventListener("click", makeTrendBrief);
+  $("#trend-brief-save")?.addEventListener("click", saveTrendBrief);
   const addTrendKw = () => {
     const v = $("#trend-kw-input").value.trim();
     if (!v) return;
@@ -5212,6 +5347,10 @@ function init() {
     $("#app").classList.remove("hidden");
     renderAll();
     resumePendingFinals();
+  }
+  // 오프라인·홈화면 설치 지원 (https에서만 — file://로 열면 브라우저가 지원 안 함)
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
   }
 }
 

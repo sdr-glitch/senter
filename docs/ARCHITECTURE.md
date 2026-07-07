@@ -30,6 +30,8 @@ studio.html─ 크리에이터 스튜디오(허브/패턴/이모티콘/템플릿
 | `senter:todos` `events` `notes` `focusLog` | 생산성 | - |
 | `senter:roadmapDone` `missions` `stageOpen` `currentPersona` `personaBarExpanded` | UI 상태 | - |
 | `senter:autoState` | 자율 근무 상태 (done/studied/preparedEvents/lastReportAt) | - |
+| `senter:trendKeywords` | 트렌드 탭 관심 키워드 | - |
+| `senter:studioInbox` | 센터→스튜디오 핸드오프 큐 (스튜디오 로드 시 소비 후 삭제) | - |
 | `studio_hq_v1` `emoticon_studio_v1` `pattern_studio_v1` `studio_shell_last` | 스튜디오(iframe) 자체 키 | - |
 
 백업: 설정 탭 내보내기/불러오기 (senter:* 전체, API 키 제외. 스튜디오 키는 스튜디오 자체 내보내기 사용).
@@ -53,6 +55,9 @@ studio.html─ 크리에이터 스튜디오(허브/패턴/이모티콘/템플릿
 | `window.prompt()` 제거 | 한 줄 입력창에 전자책 붙여넣기 불가능(실사용 차단 버그). 전용 모달로 교체 |
 | 회의는 순차 say() + 중복 소집 가드 | 회의 중 다른 회의 소집 시 조용한 무시 → 토스트 안내 + 버튼 비활성화로 개선 |
 | 파이프라인 새로고침 복구 | `templateWork`는 draft가 있으면 검증 단계부터 이어감 + `resumePendingFinals()`가 로드 시 끊긴 doing 업무를 재개. **교훈 2가지: ① `autoWorking` 플래그가 localStorage에 같이 저장되므로 로드 시 반드시 초기화(안 하면 재개 필터에 걸려 영영 멈춤) ② 보완 요청 시 draft/result를 비워야 함(안 비우면 이어가기 로직이 옛 초안을 그대로 재제출)** |
+| renderBoard 폼 상태 보존 | 인라인 폼(보완요청·초안 제출)은 카드 DOM에 상태가 있는데 파이프라인이 3~4초마다 renderBoard()로 보드를 통째 재생성 → **타이핑 중 텍스트가 날아가는 회귀 발생(8관점 리뷰에서 발견)**. renderBoard 시작 시 열린 폼의 값·포커스를 task id로 스냅샷하고 재생성 후 복원 |
+| 스튜디오 핸드오프는 지연 소비 | 승인 즉시 iframe을 재로딩하면 스튜디오의 세션 전용 작업물(업로드 이미지)이 예고 없이 파괴됨 → 승인 시엔 인박스에 쓰기만 하고, 스튜디오 탭 진입 시(renderStudio) 인박스가 남아 있을 때만 재로딩. 인박스 소비는 저장 성공 후에만 removeItem (실패 시 다음 방문에 재시도) |
+| SW는 핵심 파일 network-first | 파일별 stale-while-revalidate는 '구 HTML + 신 JS' 캐시 조합(흰 화면)을 만들 수 있음 → HTML/JS/CSS는 network-first(오프라인만 캐시 폴백), vendor·아이콘만 cache-first. 새 DOM 요소 바인딩은 `?.addEventListener`로 방어. 배포 시 sw.js의 CACHE 버전을 올리면 전체 세트가 원자적으로 교체됨 |
 
 ## 5. 엣지 케이스 방어 현황 (프리런치 점검 완료)
 
@@ -76,7 +81,7 @@ node --check app.js                    # 문법
 
 1. **클라우드 동기화** — localStorage 한계(기기 간 이동은 백업 파일). 무료로는 어려워 보류 중
 2. **스크럼 회의 AI 대사** — 현재 회의는 데이터 기반 템플릿. AI 연결 시 자유 대화형 회의 검토
-3. **스튜디오 자산 ↔ 업무 연결** — 이모티콘 기획 승인 시 스튜디오에 프로젝트 자동 생성
+3. **스토어 출시 준비** — PWA(매니페스트+서비스 워커)까지 완료. 네이티브 앱스토어 출시 시 TWA(안드로이드)/캡슐화(iOS) 검토
 
 ### 로컬 도구 (웹 배포와 별개, Node 필요)
 - `trend-viewer/` — 급상승·유튜브·쇼츠·릴스·X·스레드·틱톡·AI뉴스 로컬 트렌드 관제판 (Python 3 stdlib only, 포트 8779).
@@ -86,6 +91,10 @@ node --check app.js                    # 문법
 - `claude-desk/` — 팀용 Claude Code 웹 데스크 (기존)
 
 ### 완료됨 (기록)
+- ~~스튜디오 자산 ↔ 업무 연결~~ → 이모티콘 기획 승인 시 `senter:studioInbox` → 스튜디오 로드 시 소비(프로젝트명·제출 현황·본부 아이디어 뱅크 자동 등록, 제목 기준 중복 방지). iframe 재로딩은 `frame.src = frame.src` (contentWindow.reload는 file://에서 크로스오리진 차단)
+- ~~트렌드 한글 브리핑~~ → [🇰🇷 한글 브리핑] 버튼: AI가 급상승·뉴스를 쉬운 한국어 + 주제별 콘텐츠 아이디어로 요약, AI 불가 시 기본판 템플릿 폴백(철칙 5), 자료실 저장 버튼
+- ~~해시태그 리빙 고정~~ → `hashtagSet()`: 주제 파생 태그 + (리빙 계열일 때만) 리빙 전용 태그
+- ~~오프라인/설치형 수준~~ → `sw.js` 서비스 워커 (stale-while-revalidate, https에서만 등록)
 - ~~회의록 열람 UI~~ → 사무실 탭 [📜 회의록] 보관함 (최근 10개, 펼쳐보기)
 - ~~스튜디오 ↔ 센터 데이터 연결~~ → `readStudioSns()` → 보고서 "SNS 채널 현황" 표 + 스크럼 채널 멘트
 - ~~업무 보드 필터/검색~~ → 보드 상단 검색(제목·담당명), 완료 업무 40개 자동 정리(trimDoneTasks)

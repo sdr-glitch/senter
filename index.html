@@ -336,10 +336,15 @@
     <section class="card">
       <div class="card-head">
         <h3>🔥 실시간 급상승 (구글 트렌드 · 한국)</h3>
-        <button class="btn-small" id="trend-refresh">↻ 새로고침</button>
+        <div>
+          <button class="btn-small" id="trend-brief">🇰🇷 한글 브리핑</button>
+          <button class="btn-small" id="trend-refresh">↻ 새로고침</button>
+        </div>
       </div>
-      <p class="card-desc">지금 사람들이 검색하는 것. 항목의 ➕를 누르면 자료실로 보내져서 직원들이 스터디 회의로 소화해요.</p>
+      <p class="card-desc">지금 사람들이 검색하는 것. 영어나 낯선 검색어는 <b>🇰🇷 한글 브리핑</b>을 누르면 쉬운 말 설명과 내 계정용 콘텐츠 아이디어로 바꿔줘요. 항목의 ➕를 누르면 자료실로 보내져서 직원들이 스터디 회의로 소화해요.</p>
       <div id="trend-hot" class="trend-list"></div>
+      <div id="trend-brief-out" class="trend-brief hidden"></div>
+      <button class="btn-small hidden" id="trend-brief-save">📚 브리핑 자료실로 보내기</button>
     </section>
 
     <section class="card">

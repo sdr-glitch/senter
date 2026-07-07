@@ -1011,6 +1011,50 @@ window.showApp = showApp;
 let __last = "hub";
 try{ __last = localStorage.getItem(SHELL_KEY) || "hub"; }catch(e){}
 showApp(["hub","pattern","emo","template"].includes(__last) ? __last : "hub");
+
+/* ---------- 센터 → 스튜디오 인박스 ----------
+   센터에서 이모티콘 기획 업무를 승인하면 senter:studioInbox에 쌓이고,
+   스튜디오가 열릴 때 여기서 소비: 이모티콘 스튜디오 프로젝트/제출 현황 + 본부 아이디어 뱅크에 등록.
+   (각 앱의 load()가 실행되기 전에 localStorage를 직접 갱신해야 반영됨) */
+(function(){
+  try{
+    var raw = localStorage.getItem("senter:studioInbox");
+    if(!raw) return;
+    var inbox = JSON.parse(raw);
+    if(!Array.isArray(inbox)) inbox = [];
+    var picked = inbox.filter(function(x){ return x && x.type === "emoticon" && x.title; });
+    if(!picked.length){ localStorage.removeItem("senter:studioInbox"); return; }
+    var uid = function(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,6); };
+    var readJson = function(k, fb){ try{ var r = localStorage.getItem(k); return r ? JSON.parse(r) : fb; }catch(e){ return fb; } };
+    var emo = readJson("emoticon_studio_v1", {});
+    var hub = readJson("studio_hq_v1", {});
+    if(!Array.isArray(emo.submissions)) emo.submissions = [];
+    if(!Array.isArray(hub.ideas)) hub.ideas = [];
+    var today = new Date().toISOString().slice(0,10);
+    picked.forEach(function(item){
+      var name = String(item.title).slice(0, 60);
+      if(!emo.project || emo.project === "새 이모티콘 프로젝트") emo.project = name;
+      if(!emo.submissions.some(function(s){ return s && s.name === name; }))
+        emo.submissions.unshift({ id: uid(), name: name, platform: "kakao", typeLabel: "", status: "작업중", date: today });
+      var ideaText = "[센터 승인] " + name + " — 기획안 전문은 센터의 업무 보드(완료)에서 복사";
+      if(!hub.ideas.some(function(i){ return i && i.text === ideaText; }))
+        hub.ideas.unshift({ id: uid(), createdAt: Date.now(), text: ideaText, tag: "이모티콘", done: false });
+    });
+    // 저장이 전부 성공했을 때만 인박스를 지운다 — 용량 초과 시 다음 방문에 재시도
+    var ok = true;
+    try{ localStorage.setItem("emoticon_studio_v1", JSON.stringify(emo)); }catch(e){ ok = false; }
+    try{ localStorage.setItem("studio_hq_v1", JSON.stringify(hub)); }catch(e){ ok = false; }
+    if(ok) localStorage.removeItem("senter:studioInbox");
+    // 도착/실패 알림 (앱별 토스트가 뜨기 전 시점이라 간이 배너 사용)
+    var note = document.createElement("div");
+    note.textContent = ok
+      ? "🎨 센터에서 승인된 이모티콘 기획 " + picked.length + "건이 프로젝트로 등록됐어요!"
+      : "⚠️ 저장 공간이 부족해서 프로젝트 등록을 못 했어요 — 각 도구의 [내보내기]로 백업 후 안 쓰는 자산을 지우면 다음에 자동으로 다시 등록돼요.";
+    note.style.cssText = "position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:" + (ok ? "#3F5A45" : "#8a4b2a") + ";color:#fff;padding:10px 18px;border-radius:12px;font-size:13px;z-index:9999;box-shadow:0 6px 18px rgba(0,0,0,.18);max-width:90vw";
+    document.body.appendChild(note);
+    setTimeout(function(){ note.remove(); }, ok ? 5000 : 9000);
+  }catch(e){}
+})();
 </script>
 <script>
 (function(){
