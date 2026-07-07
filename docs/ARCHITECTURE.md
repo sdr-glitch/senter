@@ -77,10 +77,10 @@ node --check app.js                    # 문법
 3. **스튜디오 자산 ↔ 업무 연결** — 이모티콘 기획 승인 시 스튜디오에 프로젝트 자동 생성
 
 ### 로컬 도구 (웹 배포와 별개, Node 필요)
-- `trend-viewer/` — 관심 키워드 뉴스(구글 뉴스 RSS) + 실시간 급상승(구글 트렌드 RSS) 대시보드.
-  무의존성 Node, 더블클릭 실행(시작하기.command/bat), HTTPS_PROXY 자동 인식(CONNECT+Basic 인증),
-  엔드포인트 env 오버라이드(TV_NEWS_BASE/TV_TRENDING_URL — 테스트·구글 주소 변경 대비).
-  **주의: 샌드박스에선 구글 호스트가 정책 차단이라 모의 RSS로 전 구간 E2E 검증함. 일반 PC에선 표준 경로.**
+- `trend-viewer/` — 급상승·유튜브·쇼츠·릴스·X·스레드·틱톡·AI뉴스 로컬 트렌드 관제판 (Python 3 stdlib only, 포트 8779).
+  sdr-glitch/trend-viewer 포크에서 병합 (원 저장소가 개발 본거지 — devlog/_upstream은 그쪽에만).
+  단위테스트 91개 내장(`python3 -m unittest discover -s src -p 'test_*.py'`), 더블클릭 런처는 병합 시 추가.
+  ※ 초기 Node 간이 버전은 이 병합으로 대체·삭제됨 (git 히스토리 5dac53f에 보존)
 - `claude-desk/` — 팀용 Claude Code 웹 데스크 (기존)
 
 ### 완료됨 (기록)

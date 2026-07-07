@@ -84,4 +84,4 @@ console.anthropic.com의 Billing에서 잔액을 확인하고 충전해 주세�
 - 모든 데이터는 `localStorage`에 저장 (접두사 `senter:`)
 - 파일 구성: `index.html`(구조) · `style.css`(디자인) · `app.js`(로직) · `studio.html`(크리에이터 스튜디오, iframe 내장) · `vendor/`(pdf.js·JSZip)
 - `claude-desk/`: 팀용 Claude Code 웹 데스크 (별도 로컬 실행용 — Node.js 필요, 웹 배포와 무관)
-- `trend-viewer/`: 📈 트렌드 뷰어 — 키워드 뉴스·실시간 급상승 검색어 로컬 대시보드 (Node.js만 있으면 더블클릭 실행, 폴더 안 README 참고)
+- `trend-viewer/`: 📈 트렌드 뷰어 — 급상승·유튜브·쇼츠·릴스·X·스레드·틱톡·AI뉴스를 한 화면에 보는 로컬 트렌드 관제판 (Python 3 표준 라이브러리만 사용, `시작하기.command/bat` 더블클릭 → localhost:8779. 원 저장소: sdr-glitch/trend-viewer)

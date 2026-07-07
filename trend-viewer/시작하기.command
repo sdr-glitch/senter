@@ -1,9 +1,9 @@
 #!/bin/bash
 cd "$(dirname "$0")"
 echo "📈 트렌드 뷰어를 시작합니다..."
-if ! command -v node >/dev/null 2>&1; then
-  echo "⚠️ Node.js가 설치되어 있지 않아요. https://nodejs.org 에서 LTS 버전을 설치한 뒤 다시 실행해주세요."
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "⚠️ Python 3가 필요해요. 맥은 기본 내장이지만 없다면 https://python.org 에서 설치해주세요."
   read -p "엔터를 누르면 닫힙니다..."
   exit 1
 fi
-node server.js
+python3 src/main.py
