@@ -95,6 +95,7 @@
     <button class="tab" data-tab="chat">💬 멘토 채팅</button>
     <button class="tab" data-tab="home">🏠 홈</button>
     <button class="tab" data-tab="tools">✅ 생산성</button>
+    <button class="tab" data-tab="reels">🎬 릴스/숏츠</button>
     <button class="tab" data-tab="studio">🎨 스튜디오</button>
     <button class="tab" data-tab="library">📚 자료실</button>
     <button class="tab" data-tab="settings">⚙️ 설정</button>
@@ -165,6 +166,91 @@
         <div id="note-list" class="note-list"></div>
       </section>
     </div>
+  </main>
+
+  <!-- ===== 릴스/숏츠 대본 탭 ===== -->
+  <main id="tab-reels" class="tab-panel hidden">
+    <section class="card">
+      <div class="card-head">
+        <h3>🎬 릴스·숏츠 대본 만들기</h3>
+        <span class="reels-free-badge">🆓 완전 무료</span>
+      </div>
+      <p class="card-desc">사진·영상을 올리면 <b>캡컷·프리미어 프로에서 바로 따라 만들 수 있는 편집 대본</b>을 만들어드려요. 컷 편집표·자막·나레이션·BGM·내보내기 설정까지 한 번에. <b>파일은 인터넷으로 올라가지 않고 내 브라우저 안에서만 처리</b>돼서 용량 제한도, 요금도 없어요. (AI는 무료 모드로 작동 — 첫 사용 시 무료 계정 로그인 1회)</p>
+
+      <div id="reels-drop" class="reels-drop">
+        <div class="reels-drop-icon">📎</div>
+        <div class="reels-drop-title">여기에 사진·영상을 끌어다 놓거나 눌러서 선택하세요</div>
+        <div class="reels-drop-sub">jpg · png · mp4 · mov 등 · 여러 개 한꺼번에 · 용량 제한 없음</div>
+        <input type="file" id="reels-file-input" accept="image/*,video/*" multiple hidden>
+      </div>
+
+      <div id="reels-media" class="reels-media"></div>
+    </section>
+
+    <section class="card">
+      <h3>🎯 어떤 영상으로 만들까요?</h3>
+      <label class="field">
+        <span>주제 · 설명 (무슨 내용인지, 강조할 점) — 자세할수록 대본이 좋아져요</span>
+        <textarea id="reels-topic" rows="3" placeholder="예: 좁은 주방 수납 꿀템 소개. 3천 원짜리 걸이로 공간이 두 배로 넓어진 걸 보여주고 싶어요. 마지막에 '프로필 링크에서 구매' 유도."></textarea>
+      </label>
+
+      <div class="reels-opt">
+        <div class="reels-opt-label">📱 만들 형식</div>
+        <div class="chip-row" id="reels-platform">
+          <button class="chip selected" data-value="릴스+쇼츠 공용">릴스+쇼츠 공용</button>
+          <button class="chip" data-value="인스타그램 릴스">인스타 릴스</button>
+          <button class="chip" data-value="유튜브 쇼츠">유튜브 쇼츠</button>
+          <button class="chip" data-value="틱톡">틱톡</button>
+        </div>
+      </div>
+
+      <div class="reels-opt">
+        <div class="reels-opt-label">⏱️ 목표 길이</div>
+        <div class="chip-row" id="reels-length">
+          <button class="chip" data-value="15초">15초</button>
+          <button class="chip selected" data-value="30초">30초</button>
+          <button class="chip" data-value="45초">45초</button>
+          <button class="chip" data-value="60초">60초</button>
+          <button class="chip" data-value="자동 (올린 영상 길이에 맞춰)">자동</button>
+        </div>
+      </div>
+
+      <div class="reels-opt">
+        <div class="reels-opt-label">🎨 톤·분위기</div>
+        <div class="chip-row" id="reels-tone">
+          <button class="chip selected" data-value="감성적이고 잔잔한">감성 브이로그</button>
+          <button class="chip" data-value="빠르고 정보 위주의">정보·꿀팁</button>
+          <button class="chip" data-value="유쾌하고 재미있는">유머·재미</button>
+          <button class="chip" data-value="신뢰감 있는 제품 리뷰">제품 리뷰</button>
+          <button class="chip" data-value="따라 하기 쉬운 튜토리얼">튜토리얼</button>
+        </div>
+      </div>
+
+      <div class="reels-opt">
+        <div class="reels-opt-label">🎙️ 나레이션(음성)</div>
+        <div class="chip-row" id="reels-narration">
+          <button class="chip selected" data-value="자막 위주 + 짧은 나레이션">자막 위주</button>
+          <button class="chip" data-value="처음부터 끝까지 나레이션(더빙/TTS)">풀 나레이션</button>
+          <button class="chip" data-value="나레이션 없이 자막과 음악만">자막·음악만</button>
+        </div>
+      </div>
+
+      <button class="btn-primary reels-gen-btn" id="reels-gen">🎬 대본 만들기</button>
+      <p class="reels-gen-note" id="reels-gen-note"></p>
+    </section>
+
+    <section class="card reels-result-card hidden" id="reels-result-card">
+      <div class="card-head">
+        <h3>📄 완성된 대본</h3>
+        <div class="reels-result-actions">
+          <button class="btn-small" id="reels-copy">📋 대본 복사</button>
+          <button class="btn-small" id="reels-srt">💬 자막 저장(.srt)</button>
+          <button class="btn-small" id="reels-txt">📥 대본 저장(.txt)</button>
+          <button class="btn-small" id="reels-regen">🔄 다시</button>
+        </div>
+      </div>
+      <div id="reels-result" class="reels-result markdown-body"></div>
+    </section>
   </main>
 
   <!-- ===== 스튜디오 탭 (크리에이터 스튜디오 내장) ===== -->
