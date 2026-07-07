@@ -882,3 +882,22 @@ body {
 .minute-entry summary::-webkit-details-marker { display: none; }
 .minute-when { font-size: .74rem; color: var(--text-soft); flex-shrink: 0; }
 .minute-body { padding: 4px 13px 12px; display: flex; flex-direction: column; gap: 6px; border-top: 1px dashed var(--line); }
+
+/* ===== 보드 검색 ===== */
+.board-tools { margin-bottom: 10px; }
+.board-tools input {
+  width: 100%; padding: 10px 13px; border: 1px solid var(--line); border-radius: 10px;
+  font-family: inherit; font-size: .9rem; background: var(--surface);
+}
+
+/* ===== 모바일 사무실: 팬(좌우 스크롤) 모드 ===== */
+.office.scrollable { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
+.office-floor.pan {
+  position: relative; left: 0; top: 0;
+  transform: none;
+  width: 880px; height: 620px;
+  margin: 6px;
+}
+@media (max-width: 720px) {
+  .agent { padding: 10px; margin: -10px; } /* 터치 히트 영역 확장 (시각 변화 없음) */
+}

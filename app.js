@@ -84,7 +84,7 @@ const PERSONAS = [
     name: "카피라이터",
     role: "글쓰기 담당 팀원",
     desc: "캡션·제목·해시태그·프로필 문구를 대신 써주는 팀원",
-    suggestions: ["프로필 소개글 써줘", "이 사진에 캡션 5개 뽑아줘: 아늑한 침실 무드등", "리빙 계정 해시태그 세트 만들어줘"],
+    get suggestions() { return ["프로필 소개글 써줘", "이 사진에 캡션 5개 뽑아줘: 오늘 찍은 사진", `${topicWord()} 계정 해시태그 세트 만들어줘`]; },
     system: `당신은 SNS 카피라이팅 전문 팀원입니다. 사용자가 소재나 상황을 주면 바로 쓸 수 있는 문구를 만들어줍니다.
 
 원칙:
@@ -100,7 +100,7 @@ const PERSONAS = [
     name: "기획자",
     role: "전략·기획 담당 팀원",
     desc: "콘텐츠 캘린더, 벤치마킹, 수익화 전략을 짜주는 팀원",
-    suggestions: ["이번 주 콘텐츠 캘린더 짜줘", "체험단 받으려면 뭐가 필요해?", "리빙 계정 벤치마킹 포인트 알려줘"],
+    get suggestions() { return ["이번 주 콘텐츠 캘린더 짜줘", "체험단 받으려면 뭐가 필요해?", `${topicWord()} 계정 벤치마킹 포인트 알려줘`]; },
     system: `당신은 마케팅 대행사의 전략 기획자 역할을 하는 AI 팀원입니다. 사용자의 계정을 하나의 브랜드로 보고 체계적으로 기획합니다.
 
 원칙:
@@ -159,7 +159,7 @@ ${staffEnding()}`
   },
   {
     id: "copywriter", emoji: "✍️", name: "카피라이터", role: "캡션·해시태그·문구 담당 직원",
-    tasks: ["이 사진 캡션 5개 뽑아줘: (사진 설명)", "리빙 계정용 해시태그 세트 만들어줘", "프로필 소개글 3버전 써줘"],
+    get tasks() { return ["이 사진 캡션 5개 뽑아줘: (사진 설명)", `${topicWord()} 계정용 해시태그 세트 만들어줘`, "프로필 소개글 3버전 써줘"]; },
     prompt: () => `지금부터 너는 나의 'SNS 카피라이터' 직원이야. 한국 인스타·블로그 감성의 자연스러운 문장을 쓰는 전문가고, 번역투는 절대 쓰지 않아.
 
 ${staffContext()}
@@ -172,7 +172,7 @@ ${staffContext()}
 1. 항상 여러 버전을 라벨 붙여 제시: [감성] [정보형] [유머] [저장유도] 등
 2. 캡션 구조: 첫 줄은 스크롤을 멈추게 하는 후킹 → 본문 → 마지막에 댓글/저장을 부르는 한마디
 3. 해시태그는 대형(게시물 수십만 개)+중형+소형(니치)을 섞은 세트로 주고, 왜 섞는지 한 줄 설명
-4. 이모지는 과하지 않게, 실제 한국 리빙 계정 톤으로
+4. 이모지는 과하지 않게, 실제 한국 SNS 계정 톤으로
 5. 내가 좋다고 한 버전의 말투를 기억해서 점점 내 계정만의 목소리를 만들 것
 
 ${staffEnding()}`
@@ -417,25 +417,31 @@ function getLook(id) {
   return (c && c.look) || LOOK_PALETTE[0];
 }
 
-/* ---------- 성장 로드맵 (리빙 계정 · 체험단/수익화 기준) ---------- */
-const ROADMAP = [
+/* ---------- 성장 로드맵 (주제 맞춤 · 체험단/수익화 기준) ---------- */
+let ROADMAP = [];
+function buildRoadmap() {
+  const t = ((settings && settings.topic) || "리빙").split(/[\s(·,]/)[0] || "리빙";
+  return roadmapTemplate(t);
+}
+function roadmapTemplate(t) {
+  return [
   {
     id: "s1", title: "1단계 · 계정 기초 세팅",
     tip: "프로필은 가게의 간판이에요. 사람들이 3초 안에 '이 계정 뭐 하는 곳인지' 알 수 있어야 팔로우합니다.",
     steps: [
-      "계정 컨셉 한 문장으로 정하기 (예: 원룸 자취생의 현실 살림 꿀팁)",
-      "검색되기 쉬운 닉네임 정하기 (주제 키워드 포함, 예: ○○리빙, ○○의집)",
+      `계정 컨셉 한 문장으로 정하기 (예: 초보의 진짜 ${t} 기록)`,
+      `검색되기 쉬운 닉네임 정하기 (주제 키워드 포함, 예: ○○${t})`,
       "프로필 사진 정하기 (밝고 통일감 있는 이미지 1장)",
       "프로필 소개글 3줄 작성 (누구인지 · 무엇을 올리는지 · 팔로우하면 뭐가 좋은지)",
       "프로페셔널(크리에이터) 계정으로 전환하기 — 인사이트(통계) 보려면 필수",
-      "벤치마킹할 리빙 계정 5개 찾아서 팔로우하기"
+      `벤치마킹할 ${t} 계정 5개 찾아서 팔로우하기`
     ]
   },
   {
     id: "s2", title: "2단계 · 콘텐츠 기반 다지기",
     tip: "체험단 담당자는 계정에 들어와서 '피드 첫 화면'을 봅니다. 첫 9개 게시물이 포트폴리오예요.",
     steps: [
-      "내가 꾸준히 만들 수 있는 콘텐츠 유형 2가지 정하기 (예: 살림 꿀팁 릴스 + 공간 사진)",
+      `내가 꾸준히 만들 수 있는 콘텐츠 유형 2가지 정하기 (예: ${t} 꿀팁 릴스 + 사진)`,
       "첫 9개 게시물 주제 리스트 만들기 (기획자 멘토에게 도움받기)",
       "사진/영상 찍는 기본 규칙 정하기 (밝은 낮에, 같은 보정 필터, 세로 방향)",
       "첫 게시물 3개 올리기 — 완벽하지 않아도 올리는 게 먼저!",
@@ -461,7 +467,7 @@ const ROADMAP = [
     steps: [
       "체험단 플랫폼 가입하기 (레뷰, 리뷰노트, 미블, 디너의여왕, 스토리앤미디어 중 2~3곳)",
       "내 계정 소개 문구(지원용) 만들어두기 — 주제·팔로워·평균 반응 정리",
-      "리빙/생활용품 카테고리 체험단 5개 지원하기 (떨어져도 계속!)",
+      `${t} 관련 카테고리 체험단 5개 지원하기 (떨어져도 계속!)`,
       "첫 체험단 선정되면: 가이드라인 꼼꼼히 지켜서 정성 리뷰 올리기",
       "체험 리뷰도 내 콘텐츠 스타일로 — 광고 티 나는 계정은 성장이 멈춰요",
       "협찬 문의 받을 이메일 만들어서 프로필에 추가하기"
@@ -478,7 +484,9 @@ const ROADMAP = [
       "월 수익 목표 세우고 매달 결산하기"
     ]
   }
-];
+  ];
+}
+ROADMAP = buildRoadmap();
 
 /* ---------- 유틸 ---------- */
 const $ = (sel) => document.querySelector(sel);
@@ -714,7 +722,14 @@ async function aiChat(system, messages, onDelta = () => {}) {
   const puter = await loadPuter().catch(() => { const err = new Error("NO_AI"); throw err; });
   const msgs = [{ role: "system", content: system }, ...messages.map(m => ({ role: m.role, content: m.content }))];
   try {
-    const resp = await puter.ai.chat(msgs);
+    const wanted = (settings && settings.freeModel || "").trim();
+    let resp;
+    if (wanted) {
+      try { resp = await puter.ai.chat(msgs, { model: wanted }); }
+      catch { resp = await puter.ai.chat(msgs); } // 모델명이 안 맞으면 기본 모델로 재시도
+    } else {
+      resp = await puter.ai.chat(msgs);
+    }
     const text = extractPuterText(resp).trim();
     if (!text) throw new Error("빈 응답");
     onDelta(text);
@@ -922,6 +937,7 @@ function finishOnboarding() {
     autoPilot: true
   };
   store.set("settings", settings);
+  ROADMAP = buildRoadmap(); // 온보딩에서 정한 주제 반영
   $("#onboarding").classList.add("hidden");
   $("#app").classList.remove("hidden");
   renderAll();
@@ -1257,8 +1273,22 @@ function fitOffice() {
   const office = $("#office");
   const floor = $("#office-floor");
   if (!office || !floor) return;
-  const zoom = Math.min(office.clientWidth / 920, 1);
-  floor.style.setProperty("--zoom", zoom.toFixed(3));
+  const w = office.clientWidth;
+  if (window.innerWidth <= 720) {
+    // 모바일: 최소 배율 보장(터치 크기 확보) + 좌우 팬. CSS zoom은 레이아웃까지 줄여 스크롤 폭이 정확함
+    const zoom = Math.max(0.62, Math.min(w / 920, 1));
+    floor.classList.add("pan");
+    floor.style.zoom = zoom;
+    office.style.height = Math.round(620 * zoom + 12) + "px";
+    office.classList.add("scrollable");
+  } else {
+    floor.classList.remove("pan");
+    floor.style.zoom = "";
+    office.style.height = "";
+    office.classList.remove("scrollable");
+    const zoom = Math.min(w / 920, 1);
+    floor.style.setProperty("--zoom", zoom.toFixed(3));
+  }
 }
 
 function buildOffice() {
@@ -2020,6 +2050,15 @@ function routeDirective(text) {
   return "planner";
 }
 
+/* 저장 공간 보호: 완료 업무는 최근 40개만 보관 */
+function trimDoneTasks() {
+  const done = tasks.filter(t => t.status === "done");
+  if (done.length <= 40) return;
+  const cut = done.sort((a, b) => (a.doneAt || 0) - (b.doneAt || 0)).slice(0, done.length - 40);
+  const ids = new Set(cut.map(t => t.id));
+  tasks = tasks.filter(t => !ids.has(t.id));
+}
+
 function createTask(title, assignee) {
   const hasActive = !!agentActiveTask(assignee);
   const task = {
@@ -2030,6 +2069,7 @@ function createTask(title, assignee) {
     createdAt: Date.now(), result: "", draft: "", note: ""
   };
   tasks.unshift(task);
+  trimDoneTasks();
   store.set("tasks", tasks);
   logActivity(`🧑‍💼 매니저 → ${staffName(assignee)}: 「${title}」 배정${hasActive ? " (대기열)" : ""}`);
   postChat("pm", `@${staffName(assignee)} 「${title}」 부탁해요!`);
@@ -2769,15 +2809,19 @@ function promoteQueue(assignee) {
   }
 }
 
+let boardQuery = "";
 function renderBoard() {
   const kanban = $("#kanban");
   if (!kanban) return;
   kanban.innerHTML = "";
+  const q = boardQuery.trim().toLowerCase();
 
   BOARD_COLS.forEach(([status, label]) => {
     const col = document.createElement("div");
     col.className = "kanban-col";
-    const items = tasks.filter(t => t.status === status);
+    let items = tasks.filter(t => t.status === status);
+    if (q) items = items.filter(t =>
+      t.title.toLowerCase().includes(q) || staffName(t.assignee).toLowerCase().includes(q));
     col.innerHTML = `<div class="kanban-col-head">${label} <span>${items.length}</span></div>`;
 
     items.forEach(t => {
@@ -2978,7 +3022,7 @@ function renderBoard() {
     if (!items.length) {
       const empty = document.createElement("div");
       empty.className = "kanban-empty";
-      empty.textContent = "비어있음";
+      empty.textContent = q ? "검색 결과 없음" : "비어있음";
       col.appendChild(empty);
     }
     kanban.appendChild(col);
@@ -3649,6 +3693,7 @@ function renderSettings() {
   $("#set-key").value = s.apiKey || "";
   $("#set-model").value = s.model || "claude-sonnet-5";
   $("#set-workmode").value = s.workMode || "thorough";
+  $("#set-freemodel").value = s.freeModel || "";
   $("#set-name").value = s.name || "";
   $("#set-topic").value = s.topic || "";
   $("#set-platforms").value = (s.platforms || []).join(", ");
@@ -3660,12 +3705,14 @@ function saveSettings() {
   settings.apiKey = $("#set-key").value.trim();
   settings.model = $("#set-model").value;
   settings.workMode = $("#set-workmode").value;
+  settings.freeModel = $("#set-freemodel").value.trim();
   settings.name = $("#set-name").value.trim() || "크리에이터";
   settings.topic = $("#set-topic").value.trim() || "리빙";
   settings.platforms = $("#set-platforms").value.split(",").map(x => x.trim()).filter(Boolean);
   settings.goal = $("#set-goal").value.trim();
   settings.level = $("#set-level").value.trim();
   store.set("settings", settings);
+  ROADMAP = buildRoadmap(); // 주제 변경 반영
   renderKeyStatus();
   renderHome();
   renderBoard();
@@ -3815,6 +3862,7 @@ function bindEvents() {
   $("#scrum-btn").addEventListener("click", () => holdScrum(false));
   $("#brief-btn").addEventListener("click", () => holdScrum(true));
   $("#report-btn").addEventListener("click", () => generateReport(false));
+  $("#board-search").addEventListener("input", e => { boardQuery = e.target.value; renderBoard(); });
   $("#minutes-btn").addEventListener("click", () => { renderMinutesList(); $("#minutes-modal").classList.remove("hidden"); });
   $("#minutes-close").addEventListener("click", () => $("#minutes-modal").classList.add("hidden"));
   $("#minutes-modal").addEventListener("click", e => { if (e.target === $("#minutes-modal")) $("#minutes-modal").classList.add("hidden"); });

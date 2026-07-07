@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>센터 — 나의 AI 마케팅 멘토</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌱</text></svg>">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2e7d5b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="센터">
+<link rel="apple-touch-icon" href="icon-180.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -378,6 +384,9 @@
         <span id="board-stats" class="progress-label"></span>
       </div>
       <p class="card-desc">모든 업무는 <b>3단계 품질 검증</b>을 거쳐 보고됩니다: ① 담당자 초안 → ② 전문가 2명의 <b>1차 교차검증</b> 후 수정·재검토 → ③ 매니저 <b>3차 최종 검토</b> → 보고. 카드의 <b>[🤖 자동 실행]</b>을 누르면 무료 AI가 전 과정을 알아서 해요 (API 키 연결 시엔 지시만 해도 자동). 수동으로 하고 싶으면 [지시서 복사] → 무료 챗봇 붙여넣기도 언제나 가능해요.</p>
+      <div class="board-tools">
+        <input type="search" id="board-search" placeholder="🔍 업무 검색 (제목·담당 직원 이름)">
+      </div>
       <div id="kanban" class="kanban"></div>
     </section>
 
@@ -517,6 +526,10 @@
           <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 — 가장 저렴하고 빠름</option>
           <option value="claude-opus-4-8">Claude Opus 4.8 — 가장 똑똑함 (비용 높음)</option>
         </select>
+      </label>
+      <label class="field">
+        <span>무료 AI 모델 지정 (고급 — 비워두면 자동)</span>
+        <input type="text" id="set-freemodel" placeholder="예: claude-sonnet-4 (모르면 비워두세요)">
       </label>
       <label class="field">
         <span>업무 처리 방식</span>

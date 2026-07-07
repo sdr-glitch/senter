@@ -1,0 +1,14 @@
+{
+  "name": "센터 — 나의 AI 마케팅 멘토",
+  "short_name": "센터",
+  "description": "AI 직원들이 알아서 일하는 나만의 마케팅 사무실",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#f7f6f3",
+  "theme_color": "#2e7d5b",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
