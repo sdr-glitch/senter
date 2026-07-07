@@ -553,7 +553,7 @@ function buildSystemPrompt(persona) {
 /* ---------- Claude API 호출 (스트리밍) ---------- */
 async function callClaude(personaId, messages, onDelta) {
   const persona = PERSONAS.find(p => p.id === personaId);
-  return callClaudeSystem(buildSystemPrompt(persona), messages, onDelta);
+  return aiChat(buildSystemPrompt(persona), messages, onDelta);
 }
 
 async function callClaudeSystem(system, messages, onDelta) {
@@ -616,7 +616,64 @@ async function callClaudeSystem(system, messages, onDelta) {
   return full;
 }
 
+/* ---------- 무료 AI (Puter.js) — API 키 없이도 AI 기능 사용 ---------- */
+let puterLoading = null;
+let freeAiBroken = false;
+
+function loadPuter() {
+  if (window.puter && window.puter.ai) return Promise.resolve(window.puter);
+  if (puterLoading) return puterLoading;
+  puterLoading = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://js.puter.com/v2/";
+    const timer = setTimeout(() => { reject(new Error("무료 AI 연결 시간 초과")); }, 15000);
+    s.onload = () => {
+      clearTimeout(timer);
+      if (window.puter && window.puter.ai) resolve(window.puter);
+      else reject(new Error("무료 AI를 초기화하지 못했어요"));
+    };
+    s.onerror = () => { clearTimeout(timer); reject(new Error("무료 AI 스크립트를 불러오지 못했어요 (인터넷 확인)")); };
+    document.head.appendChild(s);
+  }).catch(e => { puterLoading = null; freeAiBroken = true; throw e; });
+  return puterLoading;
+}
+
+function extractPuterText(resp) {
+  if (typeof resp === "string") return resp;
+  if (!resp) return "";
+  const c = resp.message && resp.message.content;
+  if (typeof c === "string") return c;
+  if (Array.isArray(c)) return c.map(x => x.text || "").join("");
+  return resp.text || String(resp);
+}
+
+/* AI 호출 통합 경로: ① 내 API 키(Anthropic) → ② 무료 AI(Puter) */
+async function aiChat(system, messages, onDelta = () => {}) {
+  if ((settings && settings.apiKey || "").trim()) {
+    return callClaudeSystem(system, messages, onDelta);
+  }
+  if (freeAiBroken) {
+    const err = new Error("NO_AI");
+    throw err;
+  }
+  const puter = await loadPuter().catch(() => { const err = new Error("NO_AI"); throw err; });
+  const msgs = [{ role: "system", content: system }, ...messages.map(m => ({ role: m.role, content: m.content }))];
+  try {
+    const resp = await puter.ai.chat(msgs);
+    const text = extractPuterText(resp).trim();
+    if (!text) throw new Error("빈 응답");
+    onDelta(text);
+    return text;
+  } catch (e) {
+    const msg = String(e && (e.message || e.error && e.error.message) || e);
+    const err = new Error(/auth|login|sign/i.test(msg) ? "FREE_AI_AUTH" : "무료 AI 응답 실패: " + msg.slice(0, 80));
+    throw err;
+  }
+}
+
 function friendlyApiError(e) {
+  if (e.message === "NO_AI") return "지금은 무료 AI에 연결할 수 없어요. 인터넷을 확인하고 다시 시도하거나, 설정에서 내 API 키를 연결해주세요. (지시서 복사 → 무료 챗봇 붙여넣기는 항상 작동해요)";
+  if (e.message === "FREE_AI_AUTH") return "무료 AI를 쓰려면 뜨는 창에서 Puter 무료 계정으로 로그인 해주세요 (한 번만 하면 돼요). 창이 안 떴다면 팝업 차단을 확인해주세요.";
   if (e.message === "NO_KEY") return "API 키가 아직 없어요. 설정 탭에서 키를 등록해주세요. (발급 방법 안내 버튼이 있어요)";
   if (e.status === 401) return "API 키가 올바르지 않아요. 설정 탭에서 키를 다시 확인해주세요.";
   if (e.status === 400 && /credit/i.test(e.message)) return "Anthropic 계정의 충전 금액(크레딧)이 부족해요. console.anthropic.com의 Billing에서 충전해주세요.";
@@ -698,6 +755,25 @@ function renderMissions() {
     div.append(cb, label);
     list.appendChild(div);
   });
+
+  // 탭 상호작용: 미션을 생산성 탭의 할 일로 보내기
+  const send = document.createElement("button");
+  send.className = "btn-small";
+  send.textContent = "➕ 할 일 목록에도 추가";
+  send.style.alignSelf = "flex-start";
+  send.addEventListener("click", () => {
+    let added = 0;
+    missions.items.forEach(m => {
+      if (!todos.some(t => t.text === m.text)) {
+        todos.unshift({ id: Date.now() + "-" + added, text: m.text, due: new Date().toISOString().slice(0, 10), done: m.done });
+        added++;
+      }
+    });
+    store.set("todos", todos);
+    renderTodos();
+    toast(added ? `✅ 할 일에 ${added}개 추가! (생산성 탭)` : "이미 모두 할 일에 있어요.");
+  });
+  list.appendChild(send);
 }
 
 async function generateMissions() {
@@ -726,17 +802,37 @@ async function generateMissions() {
       .filter(l => l.length > 4)
       .slice(0, 3)
       .map(t => ({ text: t, done: false }));
-    if (!items.length) throw new Error("미션을 만들지 못했어요. 다시 시도해주세요.");
+    if (!items.length) throw new Error("EMPTY");
     missions = { date: today, items };
     store.set("missions", missions);
     renderMissions();
     toast("🎯 오늘의 미션이 도착했어요!");
   } catch (e) {
-    toast("⚠️ " + friendlyApiError(e), 5000);
-    if (e.message === "NO_KEY") openKeyGuide();
+    // AI가 안 되면 로드맵에서 직접 미션 생성 (오프라인 대체)
+    const items = templateMissions();
+    missions = { date: today, items };
+    store.set("missions", missions);
+    renderMissions();
+    toast("🎯 오늘의 미션 도착! (로드맵 기준 — AI 연결 시 더 맞춤형이 돼요)", 4500);
   } finally {
     btn.disabled = false; btn.textContent = "미션 받기";
   }
+}
+
+/* AI 없이도 미션 생성: 로드맵의 다음 미완료 항목 + 검토 대기 업무에서 */
+function templateMissions() {
+  const items = [];
+  const review = tasks.filter(t => t.status === "review").length;
+  if (review) items.push({ text: `사무실에서 검토 대기 중인 결과물 ${review}건 승인하기`, done: false });
+  for (const stage of ROADMAP) {
+    for (let i = 0; i < stage.steps.length; i++) {
+      if (items.length >= 3) break;
+      if (!roadmapDone[stage.id + ":" + i]) items.push({ text: stage.steps[i], done: false });
+    }
+    if (items.length >= 3) break;
+  }
+  while (items.length < 3) items.push({ text: "벤치마킹 계정 1개 살펴보고 메모 남기기", done: false });
+  return items.slice(0, 3);
 }
 
 function renderRoadmap() {
@@ -802,7 +898,18 @@ function renderRoadmap() {
           $("#chat-input").value = `로드맵의 "${step}" 이거 어떻게 하는지 처음부터 알려줘.`;
           $("#chat-input").focus();
         });
-        row.append(cb, text, ask);
+        const toTodo = document.createElement("button");
+        toTodo.className = "step-ask";
+        toTodo.title = "할 일 목록에 추가";
+        toTodo.textContent = "➕";
+        toTodo.addEventListener("click", () => {
+          if (todos.some(t => t.text === step)) { toast("이미 할 일에 있어요!"); return; }
+          todos.unshift({ id: Date.now() + "", text: step, due: "", done: false });
+          store.set("todos", todos);
+          renderTodos();
+          toast("✅ 할 일에 추가됐어요! (생산성 탭)");
+        });
+        row.append(cb, text, ask, toTodo);
         body.appendChild(row);
       });
       el.appendChild(body);
@@ -1167,7 +1274,7 @@ function agentReportLines(id) {
 }
 
 async function holdScrum(quick = false) {
-  if (officeState.meeting) return;
+  if (officeState.meeting) { toast("이미 회의가 진행 중이에요! 끝나면 다시 소집해주세요."); return; }
   officeState.meeting = true;
   const btn = $("#scrum-btn");
   const briefBtn = $("#brief-btn");
@@ -1200,6 +1307,13 @@ async function holdScrum(quick = false) {
   const review = tasks.filter(t => t.status === "review").length;
   const boss = (settings && settings.name) || "사장님";
 
+  // 탭 상호작용: 캘린더 일정·마감 할 일을 회의에서 공유
+  const todayEvents = events.filter(e => e.date === todayStr()).sort((a, b) => (a.time || "99") < (b.time || "99") ? -1 : 1);
+  const dueTodos = todos.filter(t => !t.done && t.due && t.due <= todayStr());
+  const briefingExtras = [];
+  if (todayEvents.length) briefingExtras.push(`오늘 일정 ${todayEvents.length}건 — ${todayEvents.slice(0, 2).map(e => `${e.time ? e.time + " " : ""}${e.title}`).join(", ")}${todayEvents.length > 2 ? " 외" : ""} 🗓️`);
+  if (dueTodos.length) briefingExtras.push(`마감 임박 할 일 ${dueTodos.length}건 — "${dueTodos[0].text}"${dueTodos.length > 1 ? " 외" : ""} 서두르세요!`);
+
   // 발표자: 빠른 브리핑은 업무 있는 직원만
   const speakers = OFFICE_AGENTS.filter(a => {
     if (a.id === "pm" || a.id === "boss") return false;
@@ -1213,6 +1327,7 @@ async function holdScrum(quick = false) {
     speakers.forEach((a, i) => moveAgent(a.id, 33 + (i % 4) * 5, 31 + Math.floor(i / 4) * 7));
     await sleep(2100);
     await say("pm", `⚡ 빠른 브리핑! 진행 중인 것만 한 줄씩 공유해주세요.`);
+    for (const ex of briefingExtras) await say("pm", ex);
     if (!speakers.length) {
       await say("pm", "지금은 진행 중인 업무가 없네요. 지시 기다리는 중입니다!");
     } else {
@@ -1226,6 +1341,7 @@ async function holdScrum(quick = false) {
     OFFICE_AGENTS.forEach((a, i) => moveAgent(a.id, SEATS[i % SEATS.length][0], SEATS[i % SEATS.length][1]));
     await sleep(2100);
     await say("pm", `스크럼 시작할게요! 📣 현재 열린 업무 ${open}건, 검토 대기 ${review}건입니다. 돌아가면서 공유해주세요.`);
+    for (const ex of briefingExtras) await say("pm", ex);
     for (const a of speakers) {
       for (const line of agentReportLines(a.id)) {
         await say(a.id, line);
@@ -1450,6 +1566,150 @@ function fireStaff(id) {
   logActivity(`👋 ${c.name} 퇴사 — 남은 업무는 콘텐츠 기획자에게 인계`);
   postChat("pm", `${c.name}님이 퇴사했습니다. 남은 업무는 콘텐츠 기획자가 이어받아요.`);
   toast(`👋 ${c.name} 해고 완료`);
+}
+
+/* ----- 보고서 생성 (앱 전체 데이터를 모아 작성 → 자료실 저장) ----- */
+function buildReportData() {
+  const today = todayStr();
+  const week = new Date(); week.setDate(week.getDate() + 7);
+  const weekStr = todayStr(week);
+  const done = tasks.filter(t => t.status === "done");
+  const open = tasks.filter(t => t.status === "doing" || t.status === "todo");
+  const review = tasks.filter(t => t.status === "review");
+  let totalSteps = 0, doneSteps = 0;
+  ROADMAP.forEach(s => s.steps.forEach((_, i) => { totalSteps++; if (roadmapDone[s.id + ":" + i]) doneSteps++; }));
+  const openTodos = todos.filter(t => !t.done);
+  const upcoming = events.filter(e => e.date >= today && e.date <= weekStr).sort((a, b) => a.date < b.date ? -1 : 1);
+  const focus = focusLog[today] || { count: 0, minutes: 0 };
+  const nextSteps = [];
+  for (const st of ROADMAP) for (let i = 0; i < st.steps.length; i++) {
+    if (nextSteps.length < 3 && !roadmapDone[st.id + ":" + i]) nextSteps.push(st.steps[i]);
+  }
+  return { today, done, open, review, pct: totalSteps ? Math.round(doneSteps / totalSteps * 100) : 0, openTodos, upcoming, focus, nextSteps };
+}
+
+function reportMarkdown(d) {
+  const L = [];
+  L.push(`# 📑 ${(settings && settings.topic) || "내"} 계정 운영 보고서 (${d.today})`);
+  L.push("");
+  L.push(`## 업무 현황`);
+  L.push(`- 완료 ${d.done.length}건 · 진행/대기 ${d.open.length}건 · 검토 대기 ${d.review.length}건`);
+  if (d.done.length) L.push(...d.done.slice(0, 8).map(t => `  - ✅ ${t.title} (${staffName(t.assignee)})`));
+  if (d.open.length) L.push(...d.open.slice(0, 8).map(t => `  - 🔨 ${t.title} (${staffName(t.assignee)})`));
+  L.push("");
+  L.push(`## 성장 로드맵`);
+  L.push(`- 전체 진행률 **${d.pct}%**`);
+  if (d.nextSteps.length) { L.push(`- 다음 할 단계:`); L.push(...d.nextSteps.map(s => `  - ${s}`)); }
+  L.push("");
+  if (d.openTodos.length) {
+    L.push(`## 할 일 (${d.openTodos.length}건 미완료)`);
+    L.push(...d.openTodos.slice(0, 8).map(t => `- ${t.text}${t.due ? ` (마감 ${t.due})` : ""}`));
+    L.push("");
+  }
+  if (d.upcoming.length) {
+    L.push(`## 다가오는 일정 (7일)`);
+    L.push(...d.upcoming.map(e => `- ${e.date} ${e.time || ""} ${e.title}`));
+    L.push("");
+  }
+  L.push(`## 오늘의 집중`);
+  L.push(`- 집중 ${d.focus.count}회 · ${d.focus.minutes}분`);
+  L.push("");
+  L.push(`## 보유 자료`);
+  L.push(`- 자료실 ${docs.length}개 (활성 ${docs.filter(x => x.enabled).length}개)`);
+  return L.join("\n");
+}
+
+async function generateReport() {
+  const btn = $("#report-btn");
+  btn.disabled = true; btn.textContent = "작성 중...";
+  speak("pm", "보고서 작성 들어갑니다 📑", 2500);
+  const data = buildReportData();
+  let content = reportMarkdown(data);
+
+  // AI가 가능하면 총평·다음 주 전략을 덧붙임 (실패해도 기본 보고서는 완성)
+  try {
+    const comment = await aiChat(
+      `너는 SNS 마케팅 팀의 매니저(PM)다. 아래 운영 보고서를 읽고 "매니저 총평" 섹션을 작성하라: 잘 되고 있는 점 2가지, 위험 신호 1가지, 다음 주 전략 제안 3가지. 한국어, 간결한 마크다운.\n\n${staffContext()}`,
+      [{ role: "user", content }], () => {});
+    content += `\n\n## 🧑‍💼 매니저 총평\n${comment}`;
+  } catch { content += `\n\n## 🧑‍💼 매니저 총평\n(AI 연결 시 매니저의 분석 총평이 여기에 추가돼요)`; }
+
+  const doc = { id: Date.now() + "", title: `📑 운영 보고서 ${data.today}`, content, enabled: false };
+  docs.push(doc);
+  store.set("docs", docs);
+  renderLibrary();
+  logActivity(`📑 운영 보고서 작성 완료 → 자료실 저장`);
+  postChat("pm", `${data.today} 운영 보고서 작성 완료! 자료실에 저장했습니다 📑`);
+  btn.disabled = false; btn.textContent = "📑 보고서 생성";
+  toast("📑 보고서 완성! 자료실에 저장됐어요. 지금 바로 보여드릴게요.");
+  openDocModal(doc);
+}
+
+/* ----- 자료 스터디 회의 (자료실 문서를 직원들이 회의로 소화) ----- */
+async function studyMeeting(docId) {
+  const doc = docs.find(d => d.id === docId);
+  if (!doc) return;
+  if (officeState.meeting || chatterBusy) { toast("지금 다른 회의가 진행 중이에요. 잠시 후 다시 시도해주세요."); return; }
+  switchTab("office");
+  officeState.meeting = true;
+  $("#scrum-btn").disabled = true;
+  $("#brief-btn").disabled = true;
+
+  const logWrap = $("#meeting-log-wrap");
+  const log = $("#meeting-log");
+  logWrap.classList.remove("hidden");
+  log.innerHTML = "";
+  $("#meeting-log-date").textContent = `📖 자료 스터디 · ${new Date().toLocaleString("ko-KR", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
+
+  const minutes = [];
+  const record = (id, text) => {
+    minutes.push({ speaker: staffName(id), text });
+    const line = document.createElement("div");
+    line.className = "meeting-line";
+    line.innerHTML = `<b>${staffEmoji(id)} ${staffName(id)}</b> ${escapeHtml(text)}`;
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
+    postChat(id, text);
+  };
+  const say = async (id, text, ms = 2600) => { speak(id, text, ms); record(id, text); await sleep(ms + 300); };
+
+  // 참석자: 매니저 + 강의 소화 코치 + 기획자 + 카피라이터
+  const attendees = ["pm", "digest", "planner", "copywriter"].filter(id => officeState.agents[id]);
+  attendees.forEach((id, i) => moveAgent(id, ...SEATS[i % SEATS.length]));
+  await sleep(2100);
+
+  await say("pm", `『${doc.title}』 자료 스터디 회의 시작합니다 📖 소화 코치님, 핵심 브리핑 부탁해요.`);
+
+  // 핵심 요약: AI 가능하면 진짜 요약, 아니면 자료 발췌
+  let summary = "";
+  try {
+    summary = await aiChat(
+      `너는 강의 자료를 소화시키는 코치다. 아래 자료의 핵심을 3줄로 요약하고, 이 팀(SNS 계정 운영)이 바로 실행할 액션 3가지를 제안하라. 형식: "핵심: ..." 3줄, "실행: ..." 3줄. 한국어 간결하게.\n\n${staffContext()}`,
+      [{ role: "user", content: doc.content.slice(0, 20000) }], () => {});
+  } catch {
+    const firstBits = doc.content.replace(/\s+/g, " ").slice(0, 150);
+    summary = `핵심 발췌: "${firstBits}..." — 전체 내용은 자료실에서 확인할 수 있어요. (AI 연결 시 진짜 요약과 실행 계획이 나와요)`;
+  }
+  for (const line of summary.split("\n").map(s => s.trim()).filter(Boolean).slice(0, 6)) {
+    await say("digest", line, 2400);
+  }
+
+  await say("planner", "좋네요! 이번 주 콘텐츠 기획에 바로 반영하겠습니다 ✍️");
+  await say("copywriter", "저도 캡션 쓸 때 이 자료 톤을 참고할게요!");
+  await say("pm", `정리 감사합니다. 이 자료는 앞으로 업무에 자동으로 반영됩니다. 회의 끝! 📖`);
+
+  meetings.unshift({ date: Date.now(), minutes, study: doc.title });
+  meetings = meetings.slice(0, 10);
+  store.set("meetings", meetings);
+  logActivity(`📖 『${doc.title}』 스터디 회의 완료 — 회의록 저장`);
+
+  // 스터디한 자료는 자동으로 활성화 → 직원들이 업무에 활용
+  if (!doc.enabled) { doc.enabled = true; store.set("docs", docs); renderLibrary(); }
+
+  officeState.meeting = false;
+  $("#scrum-btn").disabled = false;
+  $("#brief-btn").disabled = false;
+  OFFICE_AGENTS.forEach(a => moveAgent(a.id, ...WORK_POS[a.id]));
 }
 
 /* ----- 활동 로그 ----- */
@@ -1730,7 +1990,7 @@ async function autoWork(task) {
     if (isQuickMode()) {
       task.stage = "draft"; renderBoard();
       speak(task.assignee, "작업 시작합니다... 🔨", 2500);
-      task.result = await callClaudeSystem(cleanPrompt(st) + staffKnowledge(),
+      task.result = await aiChat(cleanPrompt(st) + staffKnowledge(),
         [{ role: "user", content: `인사나 질문 없이, 이 업무의 결과물을 바로 쓸 수 있는 완성된 형태로 만들어줘:\n${task.title}${task.note ? `\n(보완 요청: ${task.note})` : ""}` }], () => {});
       task.status = "review";
       task.stage = "";
@@ -1743,11 +2003,13 @@ async function autoWork(task) {
       return;
     }
 
-    // ① 초안
-    task.stage = "draft"; renderBoard();
-    speak(task.assignee, "초안 작업 시작합니다... 🔨", 2500);
-    task.draft = await callClaudeSystem(cleanPrompt(st) + staffKnowledge(),
-      [{ role: "user", content: `인사나 질문 없이, 이 업무의 결과물 초안을 바로 쓸 수 있는 완성된 형태로 만들어줘:\n${task.title}${task.note ? `\n(보완 요청: ${task.note})` : ""}` }], () => {});
+    // ① 초안 (이미 초안이 있으면 이 단계는 건너뜀)
+    if (!task.draft || task.stage === "draft") {
+      task.stage = "draft"; renderBoard();
+      speak(task.assignee, "초안 작업 시작합니다... 🔨", 2500);
+      task.draft = await aiChat(cleanPrompt(st) + staffKnowledge(),
+        [{ role: "user", content: `인사나 질문 없이, 이 업무의 결과물 초안을 바로 쓸 수 있는 완성된 형태로 만들어줘:\n${task.title}${task.note ? `\n(보완 요청: ${task.note})` : ""}` }], () => {});
+    }
     task.stage = "verify";
     store.set("tasks", tasks);
     logActivity(`${staffEmoji(task.assignee)} ${staffName(task.assignee)}: 「${task.title}」 초안 완성 → 1차 교차검증`);
@@ -1755,14 +2017,14 @@ async function autoWork(task) {
 
     // ② 1차 교차검증
     const [r1, r2] = reviewersFor(task.assignee);
-    const critique = await callClaudeSystem(
+    const critique = await aiChat(
       `너는 ${r1.name}(${r1.role})와 ${r2.name}(${r2.role}) 두 전문가로 구성된 검증 패널이다. 결과물의 오류, 빠진 것, 보완점을 찾아라. 최대 5개, 각 한 줄, 심각한 문제 우선. 문제가 없으면 "이상 없음"이라고만 답하라.\n\n${staffContext()}`,
       [{ role: "user", content: `업무: ${task.title}\n\n━━━ 초안 ━━━\n${task.draft}` }], () => {});
     task.critique = critique;
     huddleTheater(task, critique.split("\n")[0]); // 연출은 기다리지 않음
 
     // 수정 + 재검토
-    const revised = await callClaudeSystem(cleanPrompt(st),
+    const revised = await aiChat(cleanPrompt(st),
       [{ role: "user", content: `아래 초안에 대한 검증 의견이 도착했어. 의견을 모두 반영해 수정하고, 스스로 재검토까지 마친 최종본만 출력해줘 (설명 없이 결과물만).\n\n[검증 의견]\n${critique}\n\n━━━ 초안 ━━━\n${task.draft}` }], () => {});
     task.stage = "final";
     store.set("tasks", tasks);
@@ -1773,7 +2035,7 @@ async function autoWork(task) {
     // ③ 매니저 3차 최종 검토
     speak("pm", "3차 최종 검토 들어갑니다 🧐", 2500);
     postChat("pm", `「${task.title}」 3차 최종 검토 중입니다 🧐`);
-    const final = await callClaudeSystem(
+    const final = await aiChat(
       `너는 SNS 마케팅 팀의 매니저(PM)다. 아래 결과물을 3차 최종 점검하라: 지시 사항을 충족하는지, 바로 사용 가능한지 확인하고 사소한 다듬기만 해라. 첫 줄에 "✅ 3차 검토 통과 — (한 줄 총평)"을 쓰고, 그 아래에 최종 결과물 전체를 출력하라.\n\n${staffContext()}`,
       [{ role: "user", content: `업무 지시: ${task.title}\n\n━━━ 결과물 ━━━\n${revised}` }], () => {});
     task.result = final;
@@ -1859,6 +2121,15 @@ function renderBoard() {
           w.className = "task-working";
           w.textContent = `🔨 ${STAGE_LABEL[t.stage] || "작업"} 진행 중...`;
           actions.appendChild(w);
+        } else if (!(settings.apiKey || "").trim() && t.stage !== "final") {
+          // API 키가 없어도 무료 AI로 자동 실행 (클릭 시 첫 1회 Puter 로그인 팝업)
+          addBtn("🤖 자동 실행 (무료 AI)", "btn-small", () => {
+            autoWork(t);
+            renderBoard();
+          });
+        }
+        if (t.autoWorking) {
+          // 위에서 처리됨
         } else if (t.stage === "verify") {
           addBtn("🔍 검증 지시서 복사", "btn-small", async () => {
             try {
@@ -1916,6 +2187,16 @@ function renderBoard() {
           speak(t.assignee, "피드백 확인! 보완해서 다시 올릴게요 💪");
           renderBoard(); updateOfficeStatuses();
           if ((settings.apiKey || "").trim()) autoWork(t);
+        });
+      }
+
+      if (status === "done" && t.result) {
+        addBtn("📚 자료실 저장", "btn-small", () => {
+          if (docs.some(d => d.title === `[결과물] ${t.title}`)) { toast("이미 자료실에 있어요!"); return; }
+          docs.push({ id: Date.now() + "", title: `[결과물] ${t.title}`, content: t.result, enabled: false });
+          store.set("docs", docs);
+          renderLibrary();
+          toast("📚 자료실에 저장됐어요! 필요할 때 스위치를 켜면 멘토·직원이 참고해요.");
         });
       }
 
@@ -2112,11 +2393,6 @@ async function sendChat(presetText) {
   const text = (presetText || input.value).trim();
   if (!text) return;
 
-  if (!(settings.apiKey || "").trim()) {
-    openKeyGuide();
-    return;
-  }
-
   sending = true;
   $("#chat-send").disabled = true;
   input.value = "";
@@ -2195,6 +2471,10 @@ function renderLibrary() {
     meta.className = "lib-meta";
     meta.textContent = `${(d.content.length / 1000).toFixed(1)}천 자`;
 
+    const meetBtn = document.createElement("button");
+    meetBtn.textContent = "📖"; meetBtn.title = "직원들과 이 자료로 스터디 회의 열기";
+    meetBtn.addEventListener("click", () => studyMeeting(d.id));
+
     const editBtn = document.createElement("button");
     editBtn.textContent = "✏️"; editBtn.title = "수정";
     editBtn.addEventListener("click", () => editDoc(d));
@@ -2209,7 +2489,7 @@ function renderLibrary() {
       renderChat();
     });
 
-    item.append(toggle, title, meta, editBtn, delBtn);
+    item.append(toggle, title, meta, meetBtn, editBtn, delBtn);
     list.appendChild(item);
   });
 
@@ -2417,11 +2697,10 @@ function renderTodos() {
 async function todoAiPriority() {
   const open = todos.filter(t => !t.done);
   if (!open.length) { toast("아직 할 일이 없어요!"); return; }
-  if (!(settings.apiKey || "").trim()) { toast("🧠 우선순위 추천은 API 키 연결 후 사용할 수 있어요. (설정 탭)", 4500); return; }
   const btn = $("#todo-ai-btn");
   btn.disabled = true; btn.textContent = "생각 중...";
   try {
-    const result = await callClaudeSystem(
+    const result = await aiChat(
       `너는 SNS 마케팅 코치다. 사용자의 할 일 목록을 보고 어떤 순서로 하는 게 좋은지 추천하라. 형식: 추천 순서대로 번호 목록, 각 항목에 한 줄 이유. 마지막에 "오늘은 여기까지만!" 하고 현실적인 컷라인을 제안. 한국어로 간결하게.\n\n${staffContext()}`,
       [{ role: "user", content: "내 할 일 목록:\n" + open.map(t => `- ${t.text}${t.due ? ` (마감 ${t.due})` : ""}`).join("\n") }],
       () => {}
@@ -2430,7 +2709,16 @@ async function todoAiPriority() {
     box.innerHTML = renderMarkdown(result);
     box.classList.remove("hidden");
   } catch (e) {
-    toast("⚠️ " + friendlyApiError(e), 5000);
+    // AI가 안 되면 마감일 기준 정렬 추천 (오프라인 대체)
+    const sorted = [...open].sort((a, b) => (a.due || "9999") < (b.due || "9999") ? -1 : 1);
+    const lines = sorted.map((t, i) => {
+      const label = t.due ? ` — ${ddayLabel(t.due)} (${t.due})` : "";
+      return `${i + 1}. **${t.text}**${label}`;
+    });
+    lines.push("", "💡 마감일 기준 순서예요. AI를 연결하면 내 상황에 맞춘 추천을 받을 수 있어요.");
+    const box = $("#todo-ai-box");
+    box.innerHTML = renderMarkdown(lines.join("\n"));
+    box.classList.remove("hidden");
   } finally {
     btn.disabled = false; btn.textContent = "🧠 우선순위 추천";
   }
@@ -2662,11 +2950,12 @@ function saveSettings() {
 function renderKeyStatus() {
   const el = $("#key-status");
   if ((settings.apiKey || "").trim()) {
-    el.textContent = "🟢 AI 연결됨";
+    el.textContent = "🟢 AI 연결됨 (내 키)";
     el.classList.add("ok");
   } else {
-    el.textContent = "⚪ AI 미연결 — 설정에서 키 등록";
-    el.classList.remove("ok");
+    el.textContent = "🔵 무료 AI 모드";
+    el.classList.add("ok");
+    el.title = "API 키 없이 무료 AI로 작동 중이에요. 첫 사용 시 무료 계정 로그인 창이 한 번 떠요.";
   }
   el.style.cursor = "pointer";
   el.onclick = () => { switchTab("settings"); };
@@ -2791,6 +3080,28 @@ function bindEvents() {
   // 사무실
   $("#scrum-btn").addEventListener("click", () => holdScrum(false));
   $("#brief-btn").addEventListener("click", () => holdScrum(true));
+  $("#report-btn").addEventListener("click", generateReport);
+
+  // 무료 AI 연결 테스트
+  $("#free-ai-test").addEventListener("click", async () => {
+    const btn = $("#free-ai-test");
+    const out = $("#free-ai-result");
+    btn.disabled = true; btn.textContent = "연결 중...";
+    out.textContent = "";
+    const savedKey = settings.apiKey;
+    try {
+      freeAiBroken = false; // 재시도 허용
+      settings.apiKey = ""; // 무료 경로 강제 테스트
+      const r = await aiChat("한 문장으로만 답해.", [{ role: "user", content: "안녕! 연결 확인이야." }]);
+      out.textContent = "✅ 무료 AI 작동! — " + r.slice(0, 40);
+    } catch (e) {
+      out.textContent = "";
+      toast("⚠️ " + friendlyApiError(e), 6000);
+    } finally {
+      settings.apiKey = savedKey;
+      btn.disabled = false; btn.textContent = "🔵 무료 AI 연결 테스트";
+    }
+  });
   $("#directive-go").addEventListener("click", handleDirective);
   $("#directive-input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) handleDirective(); });
 

@@ -51,15 +51,16 @@
     </label>
 
     <button class="btn-primary" id="ob-done">시작하기 →</button>
-    <p class="onboard-note">💡 AI 멘토와 대화하려면 API 키가 필요해요. 시작한 뒤 안내해 드릴게요.</p>
+    <p class="onboard-note">💡 결제나 키 등록 없이 <b>무료 AI</b>로 바로 시작할 수 있어요!</p>
   </div>
 </div>
 
 <!-- ===== API 키 안내 모달 ===== -->
 <div id="key-guide" class="modal-backdrop hidden">
   <div class="modal">
-    <h2>🔑 AI 연결하기 (API 키 발급)</h2>
-    <p class="modal-desc">이 앱의 AI 멘토는 <b>Claude</b>(클로드)라는 AI를 사용해요. 사용하려면 "API 키"라는 열쇠가 필요합니다. <b>쓴 만큼만 소액 결제</b>되는 방식이에요 (가볍게 쓰면 월 몇천 원 수준).</p>
+    <h2>🔑 AI 연결하기</h2>
+    <p class="modal-desc">🔵 <b>키가 없어도 괜찮아요!</b> 이 앱은 기본적으로 <b>무료 AI</b>로 작동해요 — 아무것도 등록하지 않아도 채팅·자동 업무가 됩니다 (첫 사용 시 무료 계정 로그인 창이 한 번 떠요).</p>
+    <p class="modal-desc">더 빠르고 안정적인 <b>Claude API 키</b>를 연결하고 싶다면 아래 방법을 따라 하세요. <b>쓴 만큼만 소액 결제</b>되는 방식이에요 (가볍게 쓰면 월 몇천 원 수준).</p>
     <ol class="guide-steps">
       <li><a href="https://console.anthropic.com/" target="_blank" rel="noopener">console.anthropic.com</a> 에 접속해서 회원가입 (구글 계정으로 가능)</li>
       <li>왼쪽 메뉴 또는 설정에서 <b>Billing</b>(결제)에 들어가 카드 등록 후 <b>$5 정도 충전</b> (약 7천 원 — 몇 달은 씁니다)</li>
@@ -184,6 +185,7 @@
       <div class="card-head">
         <h3>🏢 우리 사무실 <span id="office-clock" class="office-clock"></span></h3>
         <div class="office-btns">
+          <button class="btn-small" id="report-btn">📑 보고서 생성</button>
           <button class="btn-small" id="brief-btn">⚡ 빠른 브리핑</button>
           <button class="btn-small" id="scrum-btn">📣 스크럼 미팅 소집</button>
         </div>
@@ -216,7 +218,7 @@
         <h3>📊 업무 현황판</h3>
         <span id="board-stats" class="progress-label"></span>
       </div>
-      <p class="card-desc">모든 업무는 <b>3단계 품질 검증</b>을 거쳐 보고됩니다: ① 담당자 초안 → ② 전문가 2명의 <b>1차 교차검증</b> 후 수정·재검토 → ③ 매니저 <b>3차 최종 검토</b> → 보고. API 키가 없을 땐 각 단계의 <b>[지시서 복사]</b> → 무료 AI에 붙여넣기 → 결과를 제출하면 다음 단계로 넘어가요. (API 키 연결 시 전 과정 자동)</p>
+      <p class="card-desc">모든 업무는 <b>3단계 품질 검증</b>을 거쳐 보고됩니다: ① 담당자 초안 → ② 전문가 2명의 <b>1차 교차검증</b> 후 수정·재검토 → ③ 매니저 <b>3차 최종 검토</b> → 보고. 카드의 <b>[🤖 자동 실행]</b>을 누르면 무료 AI가 전 과정을 알아서 해요 (API 키 연결 시엔 지시만 해도 자동). 수동으로 하고 싶으면 [지시서 복사] → 무료 챗봇 붙여넣기도 언제나 가능해요.</p>
       <div id="kanban" class="kanban"></div>
     </section>
 
@@ -339,8 +341,13 @@
   <main id="tab-settings" class="tab-panel hidden">
     <section class="card">
       <h3>🔑 AI 연결</h3>
+      <p class="card-desc">🔵 키가 없으면 <b>무료 AI</b>로 작동해요 (첫 사용 시 무료 계정 로그인 1회). 내 API 키를 넣으면 더 빠르고 안정적인 Claude로 업그레이드됩니다.</p>
+      <div class="modal-actions" style="justify-content:flex-start; margin-bottom:12px">
+        <button class="btn-ghost" id="free-ai-test">🔵 무료 AI 연결 테스트</button>
+        <span id="free-ai-result" class="saved-note"></span>
+      </div>
       <label class="field">
-        <span>Anthropic API 키</span>
+        <span>Anthropic API 키 (선택)</span>
         <input type="password" id="set-key" placeholder="sk-ant-...">
       </label>
       <button class="btn-ghost btn-small" id="set-key-guide">발급 방법 다시 보기</button>
