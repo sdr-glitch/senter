@@ -42,7 +42,19 @@ header.top { display: flex; justify-content: space-between; align-items: center;
 header.top a { color: var(--ink-soft); text-decoration: none; }
 header.top a:hover { color: var(--ink); }
 
-.hero { min-height: 86vh; display: flex; flex-direction: column; justify-content: center; }
+/* 배경 정물 사진 = Higgsfield 생성 이미지(원격). 못 뜨면 mist/그라데이션이 그대로 보임 — 화면 안 깨짐. */
+.hero { min-height: 86vh; display: flex; flex-direction: column; justify-content: center; position: relative; }
+.hero::before {
+  content: ""; position: absolute; z-index: -1;
+  top: 0; bottom: 0; right: -28px; left: 36%;
+  background:
+    linear-gradient(90deg, var(--paper) 2%, rgba(245,241,232,.35) 48%, rgba(245,241,232,0) 72%),
+    url("https://d8j0ntlcm91z4.cloudfront.net/user_3GCcV9PzexzwDosAEnZBkyvruyc/hf_20260708_051629_2bc8a872-92a2-43f4-a7d1-db0ee80db8df_min.webp") center/cover no-repeat;
+  opacity: .9;
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 22%, #000 82%, transparent);
+          mask-image: linear-gradient(180deg, transparent, #000 22%, #000 82%, transparent);
+}
+@media (max-width: 720px) { .hero::before { left: 0; opacity: .28; } }
 .hero .kicker { font-size: .74rem; letter-spacing: .5em; color: var(--ink-soft); text-transform: uppercase; margin-bottom: 28px; }
 .hero h1 { font-family: var(--serif); font-weight: 300; font-size: clamp(1.9rem, 5.4vw, 3.4rem); line-height: 1.55; letter-spacing: .05em; }
 .hero h1 em { font-style: italic; font-weight: 400; color: #7d6f58; }

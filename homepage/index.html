@@ -62,7 +62,19 @@ header.top a { color: var(--ink-soft); text-decoration: none; border-bottom: 1px
 header.top a:hover { color: var(--ink); border-color: var(--ink-dim); }
 
 /* ---- 히어로 (타이포 축소, 여백으로 말하기) ---- */
-.hero { min-height: 88vh; display: flex; flex-direction: column; justify-content: center; }
+/* 배경 정물 사진 = Higgsfield 생성 이미지(원격). 못 뜨면 아래 mist/그라데이션이 그대로 보임 — 화면 안 깨짐. */
+.hero { min-height: 88vh; display: flex; flex-direction: column; justify-content: center; position: relative; }
+.hero::before {
+  content: ""; position: absolute; z-index: -1;
+  top: 0; bottom: 0; right: -28px; left: 34%;
+  background:
+    linear-gradient(90deg, var(--paper) 2%, rgba(245,241,232,.35) 48%, rgba(245,241,232,0) 72%),
+    url("https://d8j0ntlcm91z4.cloudfront.net/user_3GCcV9PzexzwDosAEnZBkyvruyc/hf_20260708_051628_1ef67c73-427d-49d9-9049-01b3f69ea5ab_min.webp") center/cover no-repeat;
+  opacity: .9;
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 22%, #000 82%, transparent);
+          mask-image: linear-gradient(180deg, transparent, #000 22%, #000 82%, transparent);
+}
+@media (max-width: 720px) { .hero::before { left: 0; opacity: .3; } }
 .hero .kicker { font-size: .66rem; letter-spacing: .5em; color: var(--ink-soft); text-transform: uppercase; margin-bottom: 26px; }
 .hero h1 {
   font-family: var(--serif); font-weight: 300;
@@ -117,18 +129,22 @@ h2 {
   background: linear-gradient(105deg, transparent 46%, rgba(74,68,58,.05) 47%, transparent 53%),
               linear-gradient(105deg, transparent 66%, rgba(74,68,58,.04) 67%, transparent 73%);
 }
+/* 정물 사진(원격 Higgsfield 이미지)을 그라데이션 위에 얹음 — 사진이 안 뜨면 그라데이션이 그대로 보임 */
 .art-morning {
-  background: radial-gradient(circle at 30% 18%, rgba(255,251,238,.95), transparent 55%),
+  background: url("https://d8j0ntlcm91z4.cloudfront.net/user_3GCcV9PzexzwDosAEnZBkyvruyc/hf_20260708_051621_bcced7e4-3e03-41a1-bd39-8299b600eb21_min.webp") center/cover no-repeat,
+              radial-gradient(circle at 30% 18%, rgba(255,251,238,.95), transparent 55%),
               radial-gradient(circle at 72% 80%, rgba(228,205,184,.75), transparent 60%),
               linear-gradient(170deg, #f7f2e6, #e9dfcd);
 }
 .art-noon {
-  background: radial-gradient(circle at 55% 12%, rgba(255,253,244,1), transparent 52%),
+  background: url("https://d8j0ntlcm91z4.cloudfront.net/user_3GCcV9PzexzwDosAEnZBkyvruyc/hf_20260708_051624_9c74ec87-2df2-4a97-b686-ddb4385d93b6_min.webp") center/cover no-repeat,
+              radial-gradient(circle at 55% 12%, rgba(255,253,244,1), transparent 52%),
               radial-gradient(circle at 22% 78%, rgba(200,169,136,.42), transparent 58%),
               linear-gradient(180deg, #f6efe1, #e6d9c3);
 }
 .art-dusk {
-  background: radial-gradient(circle at 70% 24%, rgba(238,213,190,.9), transparent 56%),
+  background: url("https://d8j0ntlcm91z4.cloudfront.net/user_3GCcV9PzexzwDosAEnZBkyvruyc/hf_20260708_051626_acbeb837-ad51-416b-8f6b-c10cdf012b49_min.webp") center/cover no-repeat,
+              radial-gradient(circle at 70% 24%, rgba(238,213,190,.9), transparent 56%),
               radial-gradient(circle at 25% 85%, rgba(160,138,113,.35), transparent 62%),
               linear-gradient(195deg, #f2e9da, #ddcdb4);
 }
