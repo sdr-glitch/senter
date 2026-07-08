@@ -24,6 +24,8 @@
 | `vendor/` | pdf.min.js + worker, jszip.min.js |
 | `claude-desk/` | 별도 로컬 Node 도구 (웹 배포와 무관, 건드리지 말 것) |
 | `trend-viewer/` | 별도 로컬 트렌드 관제판 (Python 3 stdlib, 포트 8779, 웹 배포와 무관) |
+| `homepage/` | 센터 브랜드 홈페이지 (앱과 별개, 흑백 필름·몽환 무드, 단일 HTML — 그레인·비네트는 CSS/SVG 자작) |
+| `portfolio/` | 재아 개인 포트폴리오 (같은 무드, 내용은 파일 상단 `DATA` 객체만 수정) |
 | `docs/` | ARCHITECTURE.md(상세 설계), PROMPT-TEMPLATE.md(재사용 프롬프트) |
 
 ## 디자인 토큰 (테마 2종)
