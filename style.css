@@ -359,7 +359,7 @@ body {
 .office-clock { font-size: .78rem; color: var(--text-soft); font-weight: 400; margin-left: 6px; }
 .office-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .office {
-  position: relative; height: 560px; border-radius: 6px; overflow: hidden;
+  position: relative; height: 650px; border-radius: 6px; overflow: hidden;
   background:
     radial-gradient(rgba(255,255,255,.05) 1px, transparent 1px) 0 0 / 22px 22px,
     #262a3a;
@@ -369,7 +369,7 @@ body {
 /* --- 도트게임 바닥판 (평면 탑다운) --- */
 .office-floor {
   position: absolute; left: 50%; top: 50%;
-  width: 880px; height: 620px;
+  width: 880px; height: 740px;
   transform: translate(-50%, -50%) scale(var(--zoom, 1));
   background:
     repeating-linear-gradient(0deg, transparent 0 23px, rgba(0,0,0,.09) 23px 24px),
@@ -422,6 +422,10 @@ body {
 .room-dept-education {
   background: repeating-linear-gradient(0deg, #e8e2d0 0 22px, #ded7c0 22px 44px),
               repeating-linear-gradient(90deg, transparent 0 21px, rgba(150,110,40,.10) 21px 22px);
+}
+.room-dept-revenue {
+  background: repeating-linear-gradient(0deg, #e6ddc6 0 22px, #ddd3b6 22px 44px),
+              repeating-linear-gradient(90deg, transparent 0 21px, rgba(190,150,40,.12) 21px 22px);
 }
 .room-pantry {
   background: repeating-linear-gradient(0deg, #ccd3e6 0 24px, #c2cadf 24px 48px),
@@ -612,7 +616,8 @@ body {
   padding: 10px; display: flex; flex-direction: column; gap: 7px;
   box-shadow: 0 1px 3px rgba(0,0,0,.05);
 }
-.task-assignee { font-size: .7rem; color: var(--accent-strong); font-weight: 700; }
+.task-assignee { font-size: .7rem; color: var(--accent-strong); font-weight: 700; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.task-dept { font-size: .62rem; font-weight: 700; color: var(--text-soft); background: var(--surface-2); border-radius: 999px; padding: 1px 7px; }
 .task-title { font-size: .84rem; line-height: 1.45; word-break: break-word; }
 .task-actions { display: flex; flex-wrap: wrap; gap: 5px; }
 .task-actions .btn-small { font-size: .72rem; padding: 5px 9px; }
@@ -636,7 +641,7 @@ body {
 .activity-time { color: var(--text-soft); font-size: .72rem; margin-right: 6px; }
 
 @media (max-width: 720px) {
-  .office { height: 400px; }
+  .office { height: 470px; }
   .agent-tag { font-size: .52rem; }
   .kanban { grid-template-columns: 1fr 1fr; }
   .hire-grid { grid-template-columns: 1fr; }
@@ -999,7 +1004,7 @@ body {
 .office-floor.pan {
   position: relative; left: 0; top: 0;
   transform: none;
-  width: 880px; height: 620px;
+  width: 880px; height: 740px;
   margin: 6px;
 }
 @media (max-width: 720px) {

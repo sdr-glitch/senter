@@ -535,6 +535,11 @@ ${staffEnding()}`
     id: "jr-onboard", emoji: "🧑‍🏫", name: "온보딩 담당", role: "내부 교육부 팀원 — 신입 온보딩·사내 가이드",
     tasks: ["신입 직원 온보딩 체크리스트 만들어줘", "우리 팀 업무 가이드 정리해줘"],
     prompt: () => juniorPrompt("온보딩 담당", "내부 교육부", "강의 소화 코치(팀장)", "신규 직원 온보딩 체크리스트, 팀 업무 가이드·용어집 정리, 코치가 배포할 교육 문서 초안")
+  },
+  {
+    id: "jr-partner", emoji: "🤝", name: "제휴 코디네이터", role: "수익화·제휴부 팀원 — 협찬 문의·단가·제휴 관리",
+    tasks: ["협찬 제안 DM 답장 템플릿 만들어줘", "광고 단가표 초안 잡아줘"],
+    prompt: () => juniorPrompt("제휴 코디네이터", "수익화·제휴부", "체험단 매니저(팀장)", "협찬·제휴 문의 응대 템플릿, 광고 단가표·제안서 초안, 제휴 진행 상황 정리, 팀장 검토용 문서 준비")
   }
 ];
 
@@ -546,7 +551,7 @@ const LOOK_PALETTE = [
   { shirt: "#f1c40f", hair: "#2a2118" }, { shirt: "#34495e", hair: "#3b2d23" },
   { shirt: "#1abc9c", hair: "#553a24" }, { shirt: "#9b59b6", hair: "#241d18" }
 ];
-const MAX_STAFF = 18; // 부서 사무공간 책상 한계 (기본 16 + 채용 2, 채용은 콘텐츠 마케팅부 배치)
+const MAX_STAFF = 20; // 부서 사무공간 책상 한계 (기본 17 + 채용 3, 채용은 콘텐츠 제작부 배치)
 
 /* 일반 직원(팀원) 지시서 — 팀장 밑에서 실무를 맡고 팀장에게 보고하는 톤 */
 function juniorPrompt(name, dept, boss, duty) {
@@ -616,18 +621,21 @@ function seatRing(n) {
 /* ---------- 조직 구조: 대표 → 과장(pm) → 부서 팀장 → 일반 직원 ----------
    각 부서는 사무실에서 별도 사무공간(room)을 가진다. 채용 직원은 콘텐츠 마케팅부 소속. */
 const TEAMS = [
-  { id: "content", name: "콘텐츠 마케팅부", icon: "🎬", lead: "planner",
+  { id: "content", name: "콘텐츠 제작부", icon: "🎬", lead: "planner",
     members: ["planner", "copywriter", "reels", "jr-editor", "jr-shorts"],
-    room: { x: 1.5, y: 20, w: 25, h: 34 } },
-  { id: "growth", name: "성장 전략부", icon: "📈", lead: "analyst",
-    members: ["analyst", "review", "brand", "jr-research", "jr-data"],
-    room: { x: 28, y: 20, w: 25, h: 34 } },
+    room: { x: 1.5, y: 19, w: 25, h: 25 } },
+  { id: "growth", name: "성장 분석부", icon: "📈", lead: "analyst",
+    members: ["analyst", "brand", "jr-research", "jr-data"],
+    room: { x: 28, y: 19, w: 25, h: 25 } },
+  { id: "revenue", name: "수익화·제휴부", icon: "💰", lead: "review",
+    members: ["review", "jr-partner"],
+    room: { x: 1.5, y: 46, w: 25, h: 21 } },
   { id: "creative", name: "크리에이티브 스튜디오부", icon: "🎨", lead: "emoti",
     members: ["emoti", "jr-design", "jr-goods"],
-    room: { x: 1.5, y: 57, w: 25, h: 34 } },
+    room: { x: 28, y: 46, w: 25, h: 21 } },
   { id: "education", name: "내부 교육부", icon: "📚", lead: "digest",
     members: ["digest", "jr-edu", "jr-onboard"],
-    room: { x: 28, y: 57, w: 25, h: 34 } },
+    room: { x: 1.5, y: 69, w: 51.5, h: 22 } },
 ];
 function teamOf(staffId) {
   return TEAMS.find(t => t.members.includes(staffId)) || TEAMS[0]; // 채용 직원은 콘텐츠 마케팅부 소속
@@ -661,19 +669,24 @@ function rebuildStaff() {
   ];
 
   // 책상 자동 배치: 대표실 / 과장실 / 부서별 사무공간
-  DESK_POS = { boss: [11, 8], pm: [31, 8] };
-  WORK_POS = { boss: [11, 14], pm: [31, 14] };
+  DESK_POS = { boss: [10.5, 8], pm: [28.5, 8] };
+  WORK_POS = { boss: [10.5, 13], pm: [28.5, 13] };
   TEAMS.forEach(team => {
     const room = team.room;
     const memberIds = STAFF.filter(s => teamOf(s.id).id === team.id).map(s => s.id)
       .sort((a, b) => (b === team.lead ? 1 : 0) - (a === team.lead ? 1 : 0)); // 팀장 먼저
-    // 5명 이상이면 3열로 (좁은 방에서도 2줄 안에 들어오게), 아니면 2열
-    const cols = memberIds.length >= 5 ? 3 : (room.w >= 23.5 ? 2 : 1);
+    const n = memberIds.length;
+    // 3명 이하는 1줄(한 줄에 다), 4명 이상은 2줄, 넓은 방은 최대 5열
+    let cols;
+    if (room.w >= 40) cols = Math.min(n, 5);
+    else if (n <= 3) cols = n;
+    else cols = Math.ceil(n / 2);
+    if (room.w < 15) cols = 1;
     const cellW = room.w / cols;
     memberIds.forEach((id, i) => {
       const col = i % cols, row = Math.floor(i / cols);
       const dx = room.x + cellW * col + cellW / 2 - 2;
-      const dy = room.y + 9 + row * 12;
+      const dy = room.y + 8 + row * 11;
       DESK_POS[id] = [dx, dy];
       WORK_POS[id] = [dx, dy + 6.5];
     });
@@ -694,6 +707,7 @@ function rebuildStaff() {
     [/굿즈|MD 상품|스티커 상품/, "jr-goods"],
     [/온보딩|신입|사내 가이드|업무 가이드/, "jr-onboard"],
     [/요약|용어 정리|용어풀이/, "jr-edu"],
+    [/제휴|협찬 문의|단가표|광고 단가|제안서/, "jr-partner"],
     ...BASE_ROUTES
   ];
 }
@@ -718,7 +732,8 @@ function getLook(id) {
     "jr-data": { shirt: "#4a90a4", hair: "#4a3625" },
     "jr-design": { shirt: "#d98cae", hair: "#241d18" },
     "jr-goods": { shirt: "#c99a5b", hair: "#3b2d23" },
-    "jr-onboard": { shirt: "#7d9b76", hair: "#4a3625" }
+    "jr-onboard": { shirt: "#7d9b76", hair: "#4a3625" },
+    "jr-partner": { shirt: "#3f8a8a", hair: "#241d18" }
   };
   if (AGENT_LOOK_BASE[id]) return AGENT_LOOK_BASE[id];
   const c = customStaff.find(x => x.id === id);
@@ -1608,8 +1623,8 @@ tasks.forEach(t => {
 
 /* 사무실 구조 (좌표는 % 단위) */
 const ROOMS = [
-  { id: "ceo", name: "대표실", x: 1.5, y: 2, w: 20, h: 16 },
-  { id: "mgr", name: "과장실", x: 23, y: 2, w: 16, h: 16 },
+  { id: "ceo", name: "대표실", x: 1.5, y: 2, w: 18, h: 15 },
+  { id: "mgr", name: "과장실", x: 21, y: 2, w: 15, h: 15 },
   { id: "meet", name: "회의실", x: 55, y: 2, w: 43.5, h: 44 },
   ...TEAMS.map(t => ({ id: "dept-" + t.id, name: `${t.icon} ${t.name}`, x: t.room.x, y: t.room.y, w: t.room.w, h: t.room.h })),
   { id: "pantry", name: "탕비실", x: 55, y: 49, w: 21, h: 42 },
@@ -1693,7 +1708,7 @@ function buildOffice() {
   const bossDesk = addFurniture(floor, "f-desk f-bigdesk", DESK_POS.boss[0], DESK_POS.boss[1], `<span class="stand f-monitor">🖥️</span>`);
   bossDesk.classList.add("f-clickable");
   bossDesk.addEventListener("click", () => openStaffModal("boss"));
-  addFurniture(floor, "f-prop", 17, 5, `<span class="stand">📚</span>`);
+  addFurniture(floor, "f-prop", 15, 4, `<span class="stand">📚</span>`);
 
   // 가구 — 회의실
   addFurniture(floor, "f-table", 76.5, 25, "<span>회의 테이블</span>");
@@ -1710,7 +1725,7 @@ function buildOffice() {
     desk.title = a.name;
     desk.addEventListener("click", () => openStaffModal(a.id));
   });
-  addFurniture(floor, "f-prop", 54, 90, `<span class="stand">🖨️</span>`);
+  addFurniture(floor, "f-prop", 62, 87, `<span class="stand">🖨️</span>`);
 
   // 가구 — 탕비실
   addFurniture(floor, "f-counter", 65, 53, `<span class="stand">☕🫖🍪</span>`);
@@ -3577,7 +3592,9 @@ function renderBoard() {
 
       const head = document.createElement("div");
       head.className = "task-assignee";
-      head.textContent = `${staffEmoji(t.assignee)} ${staffName(t.assignee)}`;
+      const teamInfo = teamOf(t.assignee);
+      head.innerHTML = `${staffEmoji(t.assignee)} ${escapeHtml(staffName(t.assignee))}` +
+        `<span class="task-dept">${teamInfo.icon} ${escapeHtml(teamInfo.name)}</span>`;
 
       const title = document.createElement("div");
       title.className = "task-title";
