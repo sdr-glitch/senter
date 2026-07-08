@@ -399,14 +399,20 @@
     </section>
 
     <section class="card">
-      <h3>💬 팀 채팅</h3>
-      <p class="card-desc">직원들이 업무 얘기와 수다를 나누는 단체 채팅방이에요. 사무실에서 직원 둘이 만나면 여기에 대화가 올라옵니다.</p>
-      <div id="team-chat" class="team-chat"></div>
+      <div class="card-head">
+        <h3>📊 업무 현황판</h3>
+        <span id="board-stats" class="progress-label"></span>
+      </div>
+      <p class="card-desc">모든 업무는 <b>결재선 3단계</b>를 거쳐 보고됩니다: ① 팀원 초안 → ② 팀장 검토·팀 회의 → ③ 과장 전체 회의·최종 보고서 → 대표(사장님) 승인. 완료하면 <b>회의 안건 → 회의록 → 결과물 → 기획안</b>까지 담긴 문서 보고서가 올라와요. 카드의 <b>[🤖 자동 실행]</b>을 누르면 무료 AI가 전 과정을 알아서 해요 (API 키 연결 시엔 지시만 해도 자동).</p>
+      <div class="board-tools">
+        <input type="search" id="board-search" placeholder="🔍 업무 검색 (제목·담당 직원 이름)">
+      </div>
+      <div id="kanban" class="kanban"></div>
     </section>
 
     <section class="card">
       <h3>🎯 지시 내리기</h3>
-      <p class="card-desc">할 일을 한 줄로 지시하면 매니저가 담당 직원에게 배정하고 업무 카드를 만들어요. (예: "이번 주 릴스 3개 기획해줘", "체험단 지원 문구 만들어줘")</p>
+      <p class="card-desc">할 일을 한 줄로 지시하면 매니저가 담당 부서·직원에게 배정하고 업무 카드를 만들어요. (예: "이번 주 릴스 3개 기획해줘", "체험단 지원 문구 만들어줘")</p>
       <div class="idea-row">
         <input type="text" id="directive-input" placeholder="예: 주방 수납 릴스 대본 만들어줘">
         <button class="btn-primary" id="directive-go">지시 →</button>
@@ -415,15 +421,9 @@
     </section>
 
     <section class="card">
-      <div class="card-head">
-        <h3>📊 업무 현황판</h3>
-        <span id="board-stats" class="progress-label"></span>
-      </div>
-      <p class="card-desc">모든 업무는 <b>3단계 품질 검증</b>을 거쳐 보고됩니다: ① 담당자 초안 → ② 전문가 2명의 <b>1차 교차검증</b> 후 수정·재검토 → ③ 매니저 <b>3차 최종 검토</b> → 보고. 카드의 <b>[🤖 자동 실행]</b>을 누르면 무료 AI가 전 과정을 알아서 해요 (API 키 연결 시엔 지시만 해도 자동). 수동으로 하고 싶으면 [지시서 복사] → 무료 챗봇 붙여넣기도 언제나 가능해요.</p>
-      <div class="board-tools">
-        <input type="search" id="board-search" placeholder="🔍 업무 검색 (제목·담당 직원 이름)">
-      </div>
-      <div id="kanban" class="kanban"></div>
+      <h3>💬 팀 채팅</h3>
+      <p class="card-desc">직원들이 업무 얘기와 수다를 나누는 단체 채팅방이에요. 사무실에서 직원 둘이 만나면 여기에 대화가 올라옵니다.</p>
+      <div id="team-chat" class="team-chat"></div>
     </section>
 
     <section class="card">

@@ -2695,7 +2695,7 @@ async function autoWork(task) {
       `너는 SNS 마케팅 회사의 과장(매니저)이다. 팀장 검토를 거친 결과물을 전체 회의 관점에서 재검토하라: 지시 충족 여부·바로 사용 가능 여부를 확인하고 필요한 보완만 직접 반영하라. 첫 줄에 "✅ 최종 검토 통과 — (한 줄 총평)"을 쓰고, 그 아래에 사장님께 올릴 최종 보고서 전체를 출력하라.\n\n${staffContext()}`,
       [{ role: "user", content: `업무 지시: ${task.title}\n\n[팀장 검토 의견]\n${critique}\n\n━━━ 팀장 수정본 ━━━\n${revised}` }], () => {},
       tierModel("manager"));
-    task.result = final;
+    task.result = buildDeliverable(task, final);
     task.status = "review";
     task.stage = "";
     task.autoWorking = false;
@@ -3131,6 +3131,42 @@ ${title} — ${goal}에 다가가기 위한 작업
 - 이 초안을 검토·승인하면 관련 후속 업무를 이어서 진행하겠습니다.` + snippetSection();
 }
 
+/* 완료 보고서를 회의 안건 → 회의록 → 결과물 → 기획안 구조로 조립 (사장님 승인용 문서) */
+function buildDeliverable(task, body) {
+  const worker = staffName(task.assignee);
+  const teamName = teamOf(task.assignee).name;
+  const leadName = isTeamLead(task.assignee) ? "매니저(과장)" : `${teamLeadFor(task.assignee).name}(${teamName} 팀장)`;
+  const t = topicWord();
+  // 결과물 본문에서 초안 머리말(# 라벨 / 안내 괄호줄)을 걷어내 결과 섹션에 깔끔히 넣는다
+  const cleanBody = String(body || "").replace(/^#[^\n]*\n(?:\([^\n]*\)\n)?/, "").trim() || String(body || "");
+  const critique = (task.critique || "").replace(/^👔[^\n:]*:\s*/, "").split("\n")[0].trim();
+  const minutes = [
+    `${worker}: ${teamName} 소속으로 초안을 준비했습니다. ${t} 계정 톤에 맞춰 바로 쓸 수 있는 형태로 구성했어요.`,
+    `${leadName}: ${critique || "구성·필수 요소·말투를 점검하고 저장 유도 포인트를 보강했습니다."} 첫 3초 후킹을 강화하는 방향으로 수정 지시했습니다.`,
+    `${worker}: 피드백 반영해 다듬어 재보고했습니다.`,
+    `매니저(과장): 전체 회의에서 재검토 완료 — 지시 충족을 확인하고 대표님께 올릴 최종본으로 확정합니다.`
+  ];
+  return `# 📋 ${task.title} — 최종 보고서
+> ${teamName} · 담당 ${worker} · 결재선: ${leadName} → 매니저(과장) → 대표(사장님) 승인 대기 · ${todayStr()}
+
+## 1. 회의 안건
+- 「${task.title}」의 방향을 확정하고, 바로 실행 가능한 결과물과 후속 기획안을 도출한다.
+- 판단 기준: ${t} 계정의 결에 맞는가 · 저장/공감을 부르는가 · 사장님이 오늘 바로 쓸 수 있는가.
+
+## 2. 회의록 (결재선 순서)
+${minutes.map(m => `- ${m}`).join("\n")}
+
+## 3. 결과물
+${cleanBody}
+
+## 4. 결과 기반 기획안 (다음 액션)
+- 이 결과물을 이번 주 콘텐츠 캘린더에 편성하고 발행일을 지정합니다.
+- 발행 후 저장수·댓글 반응을 기록해 다음 회의의 근거 자료로 축적합니다.
+- 반응이 좋으면 같은 형식의 2탄을 제작해 시리즈로 확장합니다.
+
+**대표(사장님) 결정 요청: 승인(완료) / 보완 요청 중 선택해주세요.**`;
+}
+
 /* 오프라인 자율 작업: 초안 → 검증 연출 → 보고 (AI 없이 작동) */
 async function templateWork(task) {
   if (task.autoWorking) return;
@@ -3161,7 +3197,7 @@ async function templateWork(task) {
   await sleep(3000);
   if (task.status !== "doing") { task.autoWorking = false; return; }
 
-  task.result = task.draft;
+  task.result = buildDeliverable(task, task.draft);
   task.status = "review";
   task.stage = "";
   task.autoWorking = false;
