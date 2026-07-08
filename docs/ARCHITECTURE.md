@@ -22,7 +22,7 @@ studio.html─ 크리에이터 스튜디오(허브/패턴/이모티콘/템플릿
 | 키 | 내용 | 상한 |
 |---|---|---|
 | `senter:settings` | 프로필·apiKey·model·workMode | - |
-| `senter:docs` | 자료실 [{id,title,content,enabled}] | PDF 추출 30만 자/건 |
+| **IndexedDB** `senter-db`→kv→"docs" | 자료실 [{id,title,content,enabled}] — **localStorage 5MB 한계 우회(기가바이트급)**. 시작 시 `initDocsStore()`가 메모리 로드 + 레거시 `senter:docs` 자동 이전, 쓰기는 `saveDocs()` (IDB 실패 시 localStorage 폴백) | PDF 추출 100만 자/건 |
 | `senter:chats` | 멘토별 대화 {personaId:[...]} | 페르소나당 80개 |
 | `senter:tasks` | 업무 [{id,title,assignee,status,stage,draft,critique,result,note}] | - |
 | `senter:customStaff` | 채용 직원 [{id,name,role,duty,emoji,keywords,look}] | 총 직원 11명 (기본 8: 이모티콘 기획자 포함) |
@@ -79,9 +79,8 @@ node --check app.js                    # 문법
 
 ## 7. 남은 할 일 (다음 후보)
 
-1. **클라우드 동기화** — localStorage 한계(기기 간 이동은 백업 파일). 무료로는 어려워 보류 중
-2. **스크럼 회의 AI 대사** — 현재 회의는 데이터 기반 템플릿. AI 연결 시 자유 대화형 회의 검토
-3. **스토어 출시 준비** — PWA(매니페스트+서비스 워커)까지 완료. 네이티브 앱스토어 출시 시 TWA(안드로이드)/캡슐화(iOS) 검토
+1. **클라우드 동기화** — 기기 간 이동은 백업 파일. 무료로는 어려워 보류 중
+2. **스토어 출시 준비** — PWA(매니페스트+서비스 워커)까지 완료. 네이티브 앱스토어 출시 시 TWA(안드로이드)/캡슐화(iOS) 검토
 
 ### 로컬 도구 (웹 배포와 별개, Node 필요)
 - `trend-viewer/` — 급상승·유튜브·쇼츠·릴스·X·스레드·틱톡·AI뉴스 로컬 트렌드 관제판 (Python 3 stdlib only, 포트 8779).
@@ -91,6 +90,8 @@ node --check app.js                    # 문법
 - `claude-desk/` — 팀용 Claude Code 웹 데스크 (기존)
 
 ### 완료됨 (기록)
+- ~~저장공간 한계~~ → 자료실을 IndexedDB로 이전 (마이그레이션 자동, `navigator.storage.persist()` 요청, 설정 미터에 전체 한도 표시, PDF 캡 30만→100만 자). **주의: 테스트에서 docs는 `window.__senter.getDocs()`로 읽을 것**
+- ~~스크럼 회의 AI 대사~~ → API 키 연결 시 `aiScrumLines()`가 실제 보드 데이터를 근거로 자유 발언 생성(12초 타임아웃, "이름|대사" 파싱), 실패·미연결 시 기존 템플릿 대사 폴백. 회의록에 "🤖 AI 자유 발언 모드" 표기
 - ~~스튜디오 자산 ↔ 업무 연결~~ → 이모티콘 기획 승인 시 `senter:studioInbox` → 스튜디오 로드 시 소비(프로젝트명·제출 현황·본부 아이디어 뱅크 자동 등록, 제목 기준 중복 방지). iframe 재로딩은 `frame.src = frame.src` (contentWindow.reload는 file://에서 크로스오리진 차단)
 - ~~트렌드 한글 브리핑~~ → [🇰🇷 한글 브리핑] 버튼: AI가 급상승·뉴스를 쉬운 한국어 + 주제별 콘텐츠 아이디어로 요약, AI 불가 시 기본판 템플릿 폴백(철칙 5), 자료실 저장 버튼
 - ~~해시태그 리빙 고정~~ → `hashtagSet()`: 주제 파생 태그 + (리빙 계열일 때만) 리빙 전용 태그

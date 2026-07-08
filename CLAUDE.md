@@ -7,7 +7,7 @@
 1. **무의존성 정적 앱**: 빌드 도구·프레임워크·npm 금지. 순수 HTML/CSS/JS. 외부 라이브러리가 꼭 필요하면 `vendor/`에 파일로 내장 (현재: pdf.js, jszip).
 2. **렌더링을 막는 외부 리소스 금지**: 외부 CSS/폰트는 반드시 비차단 로드(`media="print" onload`). *교훈: 구글 폰트가 head를 막아 흰 화면 사고 발생.*
 3. **한국어 UI, 초보자 눈높이**: 전문 용어는 즉시 쉬운 말로 풀기. 에러 메시지는 "무엇을 하면 되는지"까지 안내.
-4. **localStorage가 유일한 DB**: 접두사 `senter:`. 모든 쓰기는 `store.set()` 경유(용량 초과 시 토스트). 대용량 목록은 반드시 cap (채팅 80, 팀채팅 60, 활동 30, 회의록 10).
+4. **localStorage + IndexedDB가 DB**: 작은 상태는 localStorage(접두사 `senter:`, 모든 쓰기는 `store.set()` 경유 — 용량 초과 시 토스트), **자료실(docs)만 IndexedDB**(`senter-db`/kv/"docs", 쓰기는 `saveDocs()` 경유 — 5MB 한계 우회, 시작 시 `initDocsStore()`가 메모리로 로드+레거시 마이그레이션). 대용량 목록은 반드시 cap (채팅 80, 팀채팅 60, 활동 30, 회의록 10).
 5. **AI 3단계 안전망**: `aiChat()` = ① 사용자 API 키(Anthropic 직접 호출) → ② 무료 AI(Puter.js) → ③ 실패 시 오프라인 템플릿 + "지시서 복사" 수동 흐름. **AI가 없어도 앱이 죽지 않아야 함.**
 6. **3D CSS 변환 금지**: 아이소메트릭 rotateX/Z는 환경에 따라 납작하게 뭉개짐(실제 사고). 사무실은 평면 탑다운 도트게임 스타일 유지.
 7. **`window.prompt()` 금지**: 긴 텍스트 입력은 전용 모달(`#doc-modal` 패턴) 사용.
@@ -32,7 +32,7 @@
 
 ## 테스트 방법
 
-Playwright(playwright-core + `/opt/pw-browsers/chromium`)로 headless 스모크 테스트. 패턴: `file:///.../index.html` 열기 → 온보딩 통과(`#ob-done`, `#kg-later`) → 기능 실행 → localStorage/DOM 검증. **테스트 훅**: `window.__senter = { chatterTick, holdScrum, rebuildStaff, taskBrief, verifyBrief, focusComplete, recordUsage, renderTokenBar, estTokens, ensureUsage, autoPilotTick, templateDraft }` (자율 근무 테스트는 `autoPilotTick(true)`로 강제 틱). 주의: 탭 전환 후 요소를 조작할 것(스크롤 이슈), 움직이는 캐릭터 대신 책상(`.f-desk[title=이름]`) 클릭, 재정렬되는 목록은 텍스트 필터로 지정.
+Playwright(playwright-core + `/opt/pw-browsers/chromium`)로 headless 스모크 테스트. 패턴: `file:///.../index.html` 열기 → 온보딩 통과(`#ob-done`, `#kg-later`) → 기능 실행 → localStorage/DOM 검증. **테스트 훅**: `window.__senter = { chatterTick, holdScrum, rebuildStaff, taskBrief, verifyBrief, focusComplete, recordUsage, renderTokenBar, estTokens, ensureUsage, autoPilotTick, templateDraft, getDocs }` (자율 근무 테스트는 `autoPilotTick(true)`로 강제 틱, 자료실 검증은 localStorage가 아니라 `getDocs()`로 — docs는 IndexedDB에 있음). 주의: 탭 전환 후 요소를 조작할 것(스크롤 이슈), 움직이는 캐릭터 대신 책상(`.f-desk[title=이름]`) 클릭, 재정렬되는 목록은 텍스트 필터로 지정.
 
 ## 핵심 데이터 흐름
 

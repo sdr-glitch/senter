@@ -14,12 +14,85 @@ const store = {
       localStorage.setItem("senter:" + key, JSON.stringify(value));
       return true;
     } catch (e) {
-      toast("⚠️ 저장 공간이 가득 찼어요. 자료실에서 안 쓰는 자료를 지워주세요.");
+      toast("⚠️ 저장 공간이 가득 찼어요. 설정 탭에서 백업한 뒤 오래된 대화·완료 업무를 정리해주세요.");
       return false;
     }
   },
   remove(key) { localStorage.removeItem("senter:" + key); }
 };
+
+/* ---------- IndexedDB 저장소 — 자료실 전용 (localStorage 5MB 한계 우회, 기가바이트급) ----------
+   자료실(docs)이 앱에서 가장 큰 데이터(PDF 전자책 등)라 이것만 IndexedDB로 옮기면
+   localStorage에는 작은 상태만 남아 용량 걱정이 사실상 사라진다.
+   읽기는 앱 시작 때 한 번 메모리로 올리고(기존 docs 배열 그대로), 쓰기만 비동기로 IDB에 저장. */
+const idb = {
+  _db: null,
+  ok: typeof indexedDB !== "undefined",
+  open() {
+    if (this._db) return Promise.resolve(this._db);
+    if (this._opening) return this._opening;
+    this._opening = new Promise((res, rej) => {
+      const rq = indexedDB.open("senter-db", 1);
+      rq.onupgradeneeded = () => rq.result.createObjectStore("kv");
+      rq.onsuccess = () => { this._db = rq.result; res(this._db); };
+      rq.onerror = () => { this._opening = null; rej(rq.error); };
+    });
+    return this._opening;
+  },
+  async get(key) {
+    const db = await this.open();
+    return new Promise((res, rej) => {
+      const rq = db.transaction("kv").objectStore("kv").get(key);
+      rq.onsuccess = () => res(rq.result);
+      rq.onerror = () => rej(rq.error);
+    });
+  },
+  async set(key, value) {
+    const db = await this.open();
+    return new Promise((res, rej) => {
+      const tx = db.transaction("kv", "readwrite");
+      tx.objectStore("kv").put(value, key);
+      tx.oncomplete = () => res(true);
+      tx.onerror = () => rej(tx.error);
+      tx.onabort = () => rej(tx.error || new Error("저장 중단"));
+    });
+  }
+};
+
+let docsInIdb = false; // 마이그레이션 완료 후 true → saveDocs()가 IDB로 저장
+function saveDocs() {
+  if (docsInIdb && idb.ok) {
+    idb.set("docs", docs).catch(() => {
+      // IDB가 갑자기 실패하면(디스크 가득 등) localStorage로 마지막 시도
+      docsInIdb = false;
+      store.set("docs", docs);
+    });
+    return true;
+  }
+  return store.set("docs", docs);
+}
+
+async function initDocsStore() {
+  if (!idb.ok) return; // 미지원 브라우저는 localStorage 그대로 사용
+  try {
+    const stored = await idb.get("docs");
+    if (Array.isArray(stored)) {
+      // IDB가 원본 — 시작 사이에 추가된 자료가 있으면 합침 (id 기준)
+      const fresh = docs.filter(d => !stored.some(s => s.id === d.id));
+      docs = stored.concat(fresh);
+      docsInIdb = true;
+      if (fresh.length) await idb.set("docs", docs);
+      store.remove("docs");
+      renderLibrary();
+    } else {
+      // 첫 실행: localStorage → IDB 이전 (성공 확인 후에만 원본 삭제)
+      await idb.set("docs", docs);
+      docsInIdb = true;
+      store.remove("docs");
+    }
+    renderStorageMeter();
+  } catch { /* 사파리 시크릿 모드 등 IDB 실패 → localStorage 유지 */ }
+}
 
 let settings = store.get("settings", null);
 if (settings && settings.autoPilot === undefined) settings.autoPilot = true; // 기존 사용자 마이그레이션
@@ -1608,6 +1681,30 @@ function agentReportLines(id) {
   return lines;
 }
 
+/* AI 자유 발언 스크럼 (API 키 연결 시) — 실제 보드 데이터를 근거로만 말하게 하고, 실패하면 템플릿 대사로 폴백 */
+async function aiScrumLines(speakers, extras, open, review) {
+  if (!((settings && settings.apiKey) || "").trim()) return null; // 키 없으면 시도 안 함 (무료 AI 팝업 방지)
+  const facts = speakers.map(a =>
+    `- ${staffName(a.id)}: ${agentReportLines(a.id).join(" / ")}`).join("\n");
+  try {
+    const raw = await Promise.race([
+      aiChat(
+        `너는 SNS 마케팅 회사의 스크럼 회의 대사 작가야. 아래 '사실'에 있는 내용만 근거로 삼아 — 없는 업무·숫자를 지어내면 안 돼. 각 직원이 자기 상황을 자연스럽고 짧게(45자 이내), 성격이 느껴지는 존댓말로 말하게 해줘.`,
+        [{ role: "user", content: `열린 업무 ${open}건, 검토 대기 ${review}건.\n${extras.length ? "공지: " + extras.join(" / ") + "\n" : ""}사실(직원별 현재 상황):\n${facts}\n\n형식: 한 줄에 하나씩 "이름|대사". 위 직원 전원 1줄씩, 다른 텍스트 금지.` }],
+        () => {}),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 12000))
+    ]);
+    const map = {};
+    String(raw).split("\n").forEach(l => {
+      const m = l.match(/^\s*(?:[-*]\s*)?(.+?)\s*\|\s*(.+)$/);
+      if (!m) return;
+      const st = STAFF.find(s => m[1].trim().includes(s.name) || s.name.includes(m[1].trim()));
+      if (st && !map[st.id]) map[st.id] = m[2].trim().slice(0, 90);
+    });
+    return Object.keys(map).length ? map : null;
+  } catch { return null; }
+}
+
 async function holdScrum(quick = false) {
   if (officeState.meeting) { toast("이미 회의가 진행 중이에요! 끝나면 다시 소집해주세요."); return; }
   officeState.meeting = true;
@@ -1678,13 +1775,17 @@ async function holdScrum(quick = false) {
     }
     await say("pm", `끝! 검토 대기 ${review}건${review ? ` — ${boss}님 확인 부탁드려요` : ""}. 업무 복귀! 🔥`);
   } else {
-    // 정식 스크럼: 전원 회의실 집합
+    // 정식 스크럼: 전원 회의실 집합. AI 연결 시 자유 발언 생성을 미리 요청해두고(걸어가는 동안) 실패하면 템플릿 대사
+    const aiLinesPromise = aiScrumLines(speakers, briefingExtras, open, review);
     OFFICE_AGENTS.forEach((a, i) => moveAgent(a.id, SEATS[i % SEATS.length][0], SEATS[i % SEATS.length][1]));
     await sleep(2100);
     await say("pm", `스크럼 시작할게요! 📣 현재 열린 업무 ${open}건, 검토 대기 ${review}건입니다. 돌아가면서 공유해주세요.`);
     for (const ex of briefingExtras) await say("pm", ex);
+    const aiLines = await aiLinesPromise;
+    if (aiLines) record("pm", "🤖 (AI 자유 발언 모드 — 실제 업무 데이터 기반)");
     for (const a of speakers) {
-      for (const line of agentReportLines(a.id)) {
+      const lines = aiLines && aiLines[a.id] ? [aiLines[a.id]] : agentReportLines(a.id);
+      for (const line of lines) {
         await say(a.id, line);
       }
     }
@@ -2011,7 +2112,7 @@ async function generateReport(quiet = false) {
 
   const doc = { id: Date.now() + "", title: `📑 운영 보고서 ${data.today}`, content, enabled: false };
   docs.push(doc);
-  store.set("docs", docs);
+  saveDocs();
   renderLibrary();
   logActivity(`📑 운영 보고서 작성 완료 → 자료실 저장`);
   postChat("pm", `${data.today} 운영 보고서 작성 완료! 자료실에 저장했습니다 📑`);
@@ -2083,7 +2184,7 @@ async function studyMeeting(docId, opts = {}) {
   logActivity(`📖 『${doc.title}』 스터디 회의 완료 — 회의록 저장`);
 
   // 스터디한 자료는 자동으로 활성화 → 직원들이 업무에 활용
-  if (!doc.enabled) { doc.enabled = true; store.set("docs", docs); renderLibrary(); }
+  if (!doc.enabled) { doc.enabled = true; saveDocs(); renderLibrary(); }
 
   officeState.meeting = false;
   $("#scrum-btn").disabled = false;
@@ -3164,7 +3265,7 @@ function renderBoard() {
         addBtn("📚 자료실 저장", "btn-small", () => {
           if (docs.some(d => d.title === `[결과물] ${t.title}`)) { toast("이미 자료실에 있어요!"); return; }
           docs.push({ id: Date.now() + "", title: `[결과물] ${t.title}`, content: t.result, enabled: false });
-          store.set("docs", docs);
+          saveDocs();
           renderLibrary();
           toast("📚 자료실에 저장됐어요! 필요할 때 스위치를 켜면 멘토·직원이 참고해요.");
         });
@@ -3477,7 +3578,7 @@ function renderLibrary() {
     cb.type = "checkbox"; cb.checked = d.enabled;
     cb.addEventListener("change", () => {
       d.enabled = cb.checked;
-      store.set("docs", docs);
+      saveDocs();
       renderLibrary();
       renderChat();
     });
@@ -3506,7 +3607,7 @@ function renderLibrary() {
     delBtn.addEventListener("click", () => {
       if (!confirm(`"${d.title}" 자료를 삭제할까요?`)) return;
       docs = docs.filter(x => x.id !== d.id);
-      store.set("docs", docs);
+      saveDocs();
       renderLibrary();
       renderChat();
     });
@@ -3550,7 +3651,7 @@ function saveDocModal() {
   } else {
     docs.push({ id: Date.now() + "", title: title || "이름 없는 자료", content, enabled: true });
   }
-  if (store.set("docs", docs)) toast(editingDocId ? "📚 자료가 수정됐어요!" : "📚 자료가 추가됐어요! 이제 멘토와 직원들이 이 내용을 참고해요.");
+  if (saveDocs()) toast(editingDocId ? "📚 자료가 수정됐어요!" : "📚 자료가 추가됐어요! 이제 멘토와 직원들이 이 내용을 참고해요.");
   $("#doc-modal").classList.add("hidden");
   editingDocId = null;
   renderLibrary();
@@ -3581,7 +3682,7 @@ function loadPdfJs() {
 }
 
 const PDF_MAX_PAGES = 150;
-const PDF_MAX_CHARS = 300000;
+const PDF_MAX_CHARS = 1000000; // 자료실이 IndexedDB로 옮겨져 여유가 커짐 (기존 30만 → 100만 자)
 
 async function extractPdfText(file) {
   const pdfjs = await loadPdfJs();
@@ -3630,7 +3731,7 @@ async function addDocsByFiles(files) {
   }
 
   if (added) {
-    store.set("docs", docs);
+    saveDocs();
     renderLibrary();
     renderChat();
   }
@@ -3993,7 +4094,7 @@ function sendTrendToLibrary(line) {
   }
   if (doc.content.includes(line)) { toast("이미 자료실에 보냈어요!"); return; }
   doc.content += `\n- ${line}`;
-  store.set("docs", docs);
+  saveDocs();
   renderLibrary();
   toast("📚 자료실로 보냈어요! 직원들이 스터디 회의로 소화할 거예요.");
 }
@@ -4181,7 +4282,7 @@ function saveTrendBrief() {
   const exist = docs.find(d => d.title === title);
   if (exist) exist.content = text;
   else docs.push({ id: Date.now() + "", title, content: text, enabled: true });
-  if (!store.set("docs", docs)) return; // 실패 시 store.set이 용량 안내 토스트를 띄움 — 성공 안내 금지
+  if (!saveDocs()) return; // 실패 시 store.set이 용량 안내 토스트를 띄움 — 성공 안내 금지
   renderLibrary();
   toast("📚 자료실에 저장됐어요! 직원들이 다음 기획에 반영해요.");
 }
@@ -4225,11 +4326,26 @@ function renderStorageMeter() {
     }
   } catch { el.textContent = ""; return; }
   const mb = bytes / 1048576;
-  const limit = 5; // 대부분의 브라우저 기준 약 5MB
+  const limit = 5; // localStorage는 대부분의 브라우저 기준 약 5MB
   const pct = Math.min(100, Math.round(mb / limit * 100));
-  el.innerHTML = `저장 공간 사용: <b>${mb.toFixed(2)}MB</b> / 약 ${limit}MB (${pct}%)` +
-    (pct >= 80 ? ` — ⚠️ 거의 찼어요! 백업 후 안 쓰는 자료·대화를 정리해주세요.` : "");
+  const docMb = docsInIdb ? (JSON.stringify(docs).length * 2 / 1048576) : 0;
+  el.innerHTML = `기본 저장 공간: <b>${mb.toFixed(2)}MB</b> / 약 ${limit}MB (${pct}%)` +
+    (docsInIdb ? ` · 자료실은 확장 저장소에 별도 보관 (${docMb.toFixed(1)}MB)` : "") +
+    (pct >= 80 ? ` — ⚠️ 거의 찼어요! 백업 후 오래된 대화·기록을 정리해주세요.` : "");
   el.style.color = pct >= 80 ? "#c0392b" : "";
+  // 브라우저 전체 저장 한도(확장 저장소 포함)는 비동기로 덧붙임
+  if (navigator.storage?.estimate) {
+    navigator.storage.estimate().then(est => {
+      if (!est || !est.quota || !$("#storage-meter")) return;
+      const usedMb = (est.usage || 0) / 1048576;
+      const quotaGb = est.quota / 1073741824;
+      const extra = document.createElement("div");
+      extra.className = "storage-meter-ext";
+      extra.textContent = `전체 한도(자료실 포함): ${usedMb.toFixed(1)}MB 사용 / 약 ${quotaGb >= 1 ? quotaGb.toFixed(0) + "GB" : (est.quota / 1048576).toFixed(0) + "MB"} 사용 가능`;
+      el.querySelector(".storage-meter-ext")?.remove();
+      el.appendChild(extra);
+    }).catch(() => {});
+  }
 }
 
 function renderSettings() {
@@ -4325,7 +4441,7 @@ function importBackup(file) {
       store.set("notes", notes);
       store.set("focusLog", focusLog);
       store.set("settings", settings);
-      store.set("docs", docs);
+      saveDocs();
       store.set("chats", chats);
       store.set("roadmapDone", roadmapDone);
       store.set("missions", missions);
@@ -5352,9 +5468,12 @@ function init() {
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
+  // 자료실을 IndexedDB로 (localStorage 5MB 한계 우회) + 브라우저에 영구 보관 요청(청소 대상 제외)
+  initDocsStore();
+  try { navigator.storage?.persist?.().catch(() => {}); } catch {}
 }
 
 init();
 
 // 자동 테스트용 훅 (앱 동작에는 영향 없음)
-window.__senter = { chatterTick, holdScrum, rebuildStaff, taskBrief, verifyBrief, focusComplete, recordUsage, renderTokenBar, estTokens, ensureUsage, autoPilotTick, templateDraft };
+window.__senter = { chatterTick, holdScrum, rebuildStaff, taskBrief, verifyBrief, focusComplete, recordUsage, renderTokenBar, estTokens, ensureUsage, autoPilotTick, templateDraft, getDocs: () => docs };
