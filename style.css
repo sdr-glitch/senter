@@ -618,6 +618,9 @@ body {
 }
 .task-assignee { font-size: .7rem; color: var(--accent-strong); font-weight: 700; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .task-dept { font-size: .62rem; font-weight: 700; color: var(--text-soft); background: var(--surface-2); border-radius: 999px; padding: 1px 7px; }
+.board-dept-filter { margin-top: 8px; gap: 6px; }
+.board-dept-chip { font-size: .72rem; padding: 5px 11px; }
+.board-dept-chip.on { background: var(--grad-btn, var(--accent)); color: #fff; border-color: transparent; }
 .task-title { font-size: .84rem; line-height: 1.45; word-break: break-word; }
 .task-actions { display: flex; flex-wrap: wrap; gap: 5px; }
 .task-actions .btn-small { font-size: .72rem; padding: 5px 9px; }

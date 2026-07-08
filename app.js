@@ -2855,6 +2855,17 @@ function hashtagSet() {
   return [...new Set(base.concat(extra))].join(" "); // 주제어가 겹쳐도 중복 태그 없이
 }
 
+/* 계정 맥락 한 줄 (결과물 상단에 붙여 실제 계정 기준으로 맞춤) */
+function acctLine() {
+  const s = settings || {};
+  const plat = (s.platforms || []).join("·") || "인스타그램";
+  return `> 🎯 이 결과물의 기준 — 주제 **${topicWord()}** · 플랫폼 ${plat} · 목표 ${s.goal || "체험단 → 광고 수익"} · 수준 ${s.level || "초보"}`;
+}
+/* 팀이 통과시킨 품질 기준 (결과물 하단에 붙여 신뢰도 강화) */
+function qualityNote() {
+  return `\n\n## ✅ 팀 품질 기준 (이 결과물이 통과한 항목)\n- [x] 첫 3초/첫 줄에 후킹(결과·궁금증) 있음\n- [x] 저장·댓글·팔로우 중 하나를 부르는 CTA 있음\n- [x] 바로 촬영/발행 가능한 완성 형태\n- [x] ${topicWord()} 계정 톤·목표와 일치`;
+}
+
 /* 자료실에서 참고할 문장 발췌 (직원들이 모든 자료를 활용) */
 function docSnippets(n = 3) {
   const enabled = docs.filter(d => d.enabled);
@@ -3159,7 +3170,11 @@ ${names.slice(0, 5).map((n, i) => `${i + 1}. ${n} — "${t}" 검색에 걸리기
   }
 
   if (/릴스|대본|영상|쇼츠/.test(title)) {
-    return head("릴스 대본 3종 초안 (상황별)") + `
+    return head("릴스 대본 3종 초안 (상황별)") + `${acctLine()}
+
+## 후킹 문구 뱅크 (첫 3초 자막 — 골라 쓰기)
+1. "이거 3분이면 끝나요" 2. "이거 모르면 손해" 3. "저만 이랬나요?" 4. "결론부터 보여드릴게요" 5. "${t} 초보가 제일 많이 하는 실수"
+
 ## ① 비포/애프터형 — "정리 전후"
 | 초 | 화면 | 자막 |
 |---|---|---|
@@ -3182,11 +3197,17 @@ ${names.slice(0, 5).map((n, i) => `${i + 1}. ${n} — "${t}" 검색에 걸리기
 | 3-12 | 루틴 단계별 3컷 | 단계 이름 자막 |
 | 12-15 | 끝난 공간 + 커피 | "내일 아침도 함께해요" |
 
-공통: 첫 3초 안에 결과나 궁금증을 보여줄 것. 음악은 잔잔한 어쿠스틱 추천.` + snippetSection();
+## 업로드 세트 (촬영 후 바로 쓰기)
+- 커버(썸네일) 문구: "${t}, 이렇게 바뀝니다" — 큰 글씨 1줄
+- 업로드 캡션: 첫 줄에 후킹 → 순서 안내 → 저장 유도로 마무리
+- 해시태그: ${hashtagSet()}
+
+공통: 첫 3초 안에 결과나 궁금증을 보여줄 것. 음악은 잔잔한 어쿠스틱, 자막은 화면 하단 1/3 위로.${qualityNote()}` + snippetSection();
   }
 
   if (/캡션|해시태그|문구|카피/.test(title)) {
-    return head("캡션 5종 + 해시태그 세트 초안") + `
+    return head("캡션 5종 + 해시태그 세트 초안") + `${acctLine()}
+
 ## 캡션 (상황별 5종 — 복사해서 사진 설명만 바꿔 쓰세요)
 [감성] 오늘도 조금씩, 우리집이 좋아지는 중 🌿 (마지막 사진이 제일 뿌듯해요)
 [정보형] 이 방법 하나로 ○○이 해결됐어요. 순서는 사진 순서대로! 저장해두세요 📌
@@ -3194,9 +3215,12 @@ ${names.slice(0, 5).map((n, i) => `${i + 1}. ${n} — "${t}" 검색에 걸리기
 [저장유도] 나중에 꼭 필요한 ${t} 체크리스트. 지금 저장 안 하면 못 찾아요!
 [소통형] 둘 중에 뭐가 나아요? 1번 vs 2번 — 댓글로 투표해주세요 👇
 
+## 첫 댓글 전략 (고정 댓글에 달기 — 저장·체류 UP)
+"👉 자세한 순서는 저장해두고 보세요! 궁금한 건 댓글 주시면 하나씩 답해드릴게요 🙌"
+
 ## 해시태그 세트 (대형+중형+소형 조합 — 복사용)
 ${hashtagSet()}
-왜 섞나요? 대형(노출 기회) + 중형(체류) + 소형(상위 노출 가능성)을 함께 가져가기 위해서예요.` + snippetSection();
+왜 섞나요? 대형(노출 기회) + 중형(체류) + 소형(상위 노출 가능성)을 함께 가져가기 위해서예요.${qualityNote()}` + snippetSection();
   }
 
   if (/체험단|지원|협찬/.test(title)) {
@@ -3218,7 +3242,8 @@ ${hashtagSet()}
 
   if (/아이디어|주제|기획|게시물|콘텐츠/.test(title)) {
     const snips = docSnippets(2);
-    return head("콘텐츠 아이디어 초안 (10개)") + `
+    return head("콘텐츠 아이디어 초안 (10개)") + `${acctLine()}
+
 | # | 아이디어 | 형식 | 노리는 것 |
 |---|---|---|---|
 | 1 | ${t} 비포/애프터 | 릴스 | 도달 |
@@ -3232,7 +3257,12 @@ ${hashtagSet()}
 | 9 | 팔로워 질문 받아서 답하기 | 스토리→피드 | 소통 |
 | 10 | 한 달 변화 모아보기 | 릴스 | 팔로우 |
 ${snips.length ? `\n## 자료 기반 아이디어 (+2)\n` + snips.map((s, i) => `${i + 11}. 『${s.doc}』에서: "${s.text.slice(0, 40)}..." → 이 내용을 실천해보는 콘텐츠`).join("\n") : ""}
-발행 순서 추천: 2 → 1 → 4 (저장형으로 시작해 신뢰 쌓고, 도달형으로 확장)`;
+
+## 이번 주 발행 3개 추천 (이유 포함)
+1. **2번(꿀템 5개, 카드뉴스)** — 저장형으로 시작해 계정 신뢰를 쌓습니다.
+2. **1번(비포/애프터, 릴스)** — 도달형으로 새 사람에게 퍼뜨립니다.
+3. **4번(아침 루틴, 릴스)** — 팔로우 전환을 노립니다.
+발행 순서: 2 → 1 → 4 (저장 → 도달 → 전환 흐름)${qualityNote()}`;
   }
 
   if (/준비|체크리스트/.test(title)) {
@@ -3563,9 +3593,29 @@ function printReportDoc() {
 }
 
 let boardQuery = "";
+let boardDept = "all"; // 부서 필터 (all | TEAMS[].id)
+
+function renderBoardDeptFilter() {
+  const wrap = $("#board-dept-filter");
+  if (!wrap) return;
+  const counts = {};
+  tasks.forEach(t => { const d = teamOf(t.assignee).id; counts[d] = (counts[d] || 0) + 1; });
+  const chips = [{ id: "all", label: "전체", icon: "📋", n: tasks.length }]
+    .concat(TEAMS.map(t => ({ id: t.id, label: t.name, icon: t.icon, n: counts[t.id] || 0 })));
+  wrap.innerHTML = "";
+  chips.forEach(c => {
+    const b = document.createElement("button");
+    b.className = "chip board-dept-chip" + (boardDept === c.id ? " on" : "");
+    b.textContent = `${c.icon} ${c.label}${c.n ? ` (${c.n})` : ""}`;
+    b.addEventListener("click", () => { boardDept = c.id; renderBoard(); });
+    wrap.appendChild(b);
+  });
+}
+
 function renderBoard() {
   const kanban = $("#kanban");
   if (!kanban) return;
+  renderBoardDeptFilter();
   // 열려있는 카드 폼(보완요청·초안 제출)의 입력 상태 보존 — 파이프라인이 수시로 재렌더해도 타이핑이 날아가지 않게
   const openForms = {};
   kanban.querySelectorAll(".task-card").forEach(c => {
@@ -3581,6 +3631,7 @@ function renderBoard() {
     const col = document.createElement("div");
     col.className = "kanban-col";
     let items = tasks.filter(t => t.status === status);
+    if (boardDept !== "all") items = items.filter(t => teamOf(t.assignee).id === boardDept);
     if (q) items = items.filter(t =>
       t.title.toLowerCase().includes(q) || staffName(t.assignee).toLowerCase().includes(q));
     col.innerHTML = `<div class="kanban-col-head">${label} <span>${items.length}</span></div>`;
@@ -4742,12 +4793,22 @@ function renderStudio() {
 /* 이모티콘 기획 승인 → 스튜디오에 프로젝트 자동 생성 (탭 간 연결)
    스튜디오가 로드될 때 senter:studioInbox를 읽어 자기 저장소 형식으로 가져간다 */
 function handoffToStudio(t) {
-  // emoti 담당 업무 전부 + 다른 직원에게 지명된 '이모티콘/캐릭터 기획' 업무만
-  if (t.assignee !== "emoti" && !(/이모티콘|캐릭터/.test(t.title) && /기획/.test(t.title))) return;
+  // 크리에이티브 스튜디오부 업무 전부(이모티콘·디자인·굿즈) + 다른 직원에게 지명된 '이모티콘/캐릭터 기획'
+  const isCreativeDept = teamOf(t.assignee).id === "creative";
+  const isEmoTitle = /이모티콘|캐릭터/.test(t.title) && /기획/.test(t.title);
+  if (!isCreativeDept && !isEmoTitle) return;
+  // 업무 성격에 따라 스튜디오에서 다르게 소비: 이모티콘 → 제출 현황, 굿즈/디자인 → 아이디어 뱅크
+  const kind = t.assignee === "jr-goods" || /굿즈|md|상품/i.test(t.title) ? "goods"
+    : t.assignee === "jr-design" || /디자인|시안|썸네일/.test(t.title) ? "design"
+    : "emoticon";
+  // 결과물 앞부분을 요약으로 함께 넘겨 스튜디오 아이디어/프로젝트가 실제 내용을 담게
+  const summary = String(t.result || "").replace(/^#[^\n]*\n(?:>[^\n]*\n)?/, "")
+    .replace(/[#>*|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 140);
   const inbox = store.get("studioInbox", []);
-  inbox.push({ type: "emoticon", title: t.title.slice(0, 60), at: Date.now() });
+  inbox.push({ type: kind, title: t.title.slice(0, 60), summary, dept: teamOf(t.assignee).name, at: Date.now() });
   if (!store.set("studioInbox", inbox)) return; // 저장 실패 시 store.set이 용량 안내 토스트를 띄움
-  toast("🎨 스튜디오에 프로젝트로 보냈어요! 스튜디오 탭을 열면 ☺ 이모티콘 제출 현황·🏠 본부 아이디어 뱅크에 등록돼요.");
+  const where = kind === "emoticon" ? "☺ 이모티콘 제출 현황" : "🏠 본부 아이디어 뱅크";
+  toast(`🎨 크리에이티브 스튜디오부 결과를 스튜디오로 보냈어요! 스튜디오 탭을 열면 ${where}에 등록돼요.`);
 }
 
 /* ---------- 설정 탭 ---------- */
