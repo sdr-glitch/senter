@@ -1,23 +1,23 @@
 /* ===== 센터 — AI 마케팅 멘토 ===== */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* 기본 테마: 오로라 (라벤더·핑크 파스텔 글래스) — 설정에서 오트밀 클래식으로 전환 가능 */
+/* 기본 테마: 오로라 그린 (민트·세이지 파스텔 글래스) — 설정에서 오트밀 클래식으로 전환 가능 */
 :root {
-  --bg: #f5f2fb;
-  --bg-grad: linear-gradient(160deg, #fdf2f5 0%, #f3eefc 45%, #edf2fd 100%);
+  --bg: #f1f8f3;
+  --bg-grad: linear-gradient(160deg, #f3fbf3 0%, #edf7f0 45%, #eaf4f6 100%);
   --surface: rgba(255, 255, 255, .8);
-  --surface-2: #f3effb;
-  --text: #3b3552;
-  --text-soft: #8f89a8;
-  --line: #eae4f6;
-  --accent: #8b7cf6;
-  --accent-soft: #efeafd;
-  --accent-strong: #6a58e8;
-  --danger: #e2547a;
+  --surface-2: #edf6f0;
+  --text: #33493d;
+  --text-soft: #82a191;
+  --line: #ddeee4;
+  --accent: #57b98c;
+  --accent-soft: #e3f4ea;
+  --accent-strong: #368a63;
+  --danger: #e07474;
   --radius: 18px;
-  --shadow: 0 2px 10px rgba(139, 124, 246, .07), 0 10px 30px rgba(180, 160, 255, .10);
-  --grad-btn: linear-gradient(120deg, #a78bfa, #f79ac0);
-  --grad-bar: linear-gradient(90deg, #f79ac0, #a78bfa);
+  --shadow: 0 2px 10px rgba(87, 185, 140, .07), 0 10px 30px rgba(140, 205, 170, .12);
+  --grad-btn: linear-gradient(120deg, #58c793, #9ddfb6);
+  --grad-bar: linear-gradient(90deg, #9ddfb6, #58c793);
 }
 body[data-theme="oatmeal"] {
   --bg: #f7f6f3;
@@ -98,6 +98,10 @@ body {
 .stat-label { font-size: .78rem; color: var(--text-soft); font-weight: 600; }
 .stat-delta { font-size: .72rem; color: var(--accent-strong); font-weight: 700; margin-top: 2px; min-height: 1em; }
 .home-activity .chatline { border-bottom: 1px dashed var(--line); }
+.idea-drop-card textarea { margin-bottom: 10px; }
+.idea-drop-actions { display: flex; gap: 8px; align-items: center; }
+.home-office-status { display: flex; flex-wrap: wrap; gap: 8px; font-size: .82rem; }
+.home-office-status .chip { cursor: default; }
 
 /* ===== 업무 카드 진행률 바 ===== */
 .task-progress {

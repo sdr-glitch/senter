@@ -7,7 +7,7 @@
 1. **무의존성 정적 앱**: 빌드 도구·프레임워크·npm 금지. 순수 HTML/CSS/JS. 외부 라이브러리가 꼭 필요하면 `vendor/`에 파일로 내장 (현재: pdf.js, jszip).
 2. **렌더링을 막는 외부 리소스 금지**: 외부 CSS/폰트는 반드시 비차단 로드(`media="print" onload`). *교훈: 구글 폰트가 head를 막아 흰 화면 사고 발생.*
 3. **한국어 UI, 초보자 눈높이**: 전문 용어는 즉시 쉬운 말로 풀기. 에러 메시지는 "무엇을 하면 되는지"까지 안내.
-4. **localStorage + IndexedDB가 DB**: 작은 상태는 localStorage(접두사 `senter:`, 모든 쓰기는 `store.set()` 경유 — 용량 초과 시 토스트), **자료실(docs)만 IndexedDB**(`senter-db`/kv/"docs", 쓰기는 `saveDocs()` 경유 — 5MB 한계 우회, 시작 시 `initDocsStore()`가 메모리로 로드+레거시 마이그레이션). 대용량 목록은 반드시 cap (채팅 80, 팀채팅 60, 활동 30, 회의록 10).
+4. **localStorage + IndexedDB가 DB**: 작은 상태는 localStorage(접두사 `senter:`), **큰 기록은 IndexedDB**(`senter-db`/kv) — docs는 `saveDocs()`, `BIG_KEYS`(tasks·meetings·chats·teamChat·activity)는 `store.set()`이 자동 라우팅(마이그레이션 후 `bigInIdb`). 시작 시 `initDocsStore()`+`initBigStore()`가 메모리 로드+레거시 이전, **`resumePendingFinals()`·`renderAll()`은 initBigStore 완료 후 실행**. cap: 채팅 400/페르소나(AI 전송은 최근 20), 팀채팅 500, 활동 300, 회의록 100(표시 30), 완료 업무 200. 전체 초기화는 IndexedDB(`senter-db`)도 삭제해야 함.
 5. **AI 3단계 안전망**: `aiChat()` = ① 사용자 API 키(Anthropic 직접 호출) → ② 무료 AI(Puter.js) → ③ 실패 시 오프라인 템플릿 + "지시서 복사" 수동 흐름. **AI가 없어도 앱이 죽지 않아야 함.**
 6. **3D CSS 변환 금지**: 아이소메트릭 rotateX/Z는 환경에 따라 납작하게 뭉개짐(실제 사고). 사무실은 평면 탑다운 도트게임 스타일 유지.
 7. **`window.prompt()` 금지**: 긴 텍스트 입력은 전용 모달(`#doc-modal` 패턴) 사용.
@@ -28,11 +28,11 @@
 
 ## 디자인 토큰 (테마 2종)
 
-**기본 = 오로라** (사용자 제공 목업 기준, 라벤더·핑크 파스텔 글래스): `:root`에 `--bg:#f5f2fb --bg-grad(라벤더 그라데이션) --surface:rgba(255,255,255,.8)+blur --accent:#8b7cf6 --grad-btn/--grad-bar(보라→핑크)`. **오트밀 클래식**은 `body[data-theme="oatmeal"]`로 전환(설정 탭, `settings.theme`): `--bg:#f7f6f3 --accent:#2e7d5b` 등 기존 세트. **새 색은 반드시 토큰으로만 추가** — 하드코딩하면 테마 전환이 깨짐. (studio.html은 자체 토큰: oat #EFEEE7, sage #5E7C64). 사무실 픽셀 파트만 예외적으로 진한 외곽선(#14161f)과 하드 섀도 사용. 모바일(≤720px)은 상단 탭 대신 하단 네비(#bottomnav 4탭+더보기 시트) — **하단 고정 요소는 bottom:64px 이상으로** (토큰 바 겹침 사고).
+**기본 = 오로라 그린** (목업 구조 + 파스텔 그린 요청 반영, 민트·세이지 파스텔 글래스): `:root`에 `--bg:#f1f8f3 --bg-grad(민트 그라데이션) --surface:rgba(255,255,255,.8)+blur --accent:#57b98c --grad-btn/--grad-bar(그린 그라데이션)`. **오트밀 클래식**은 `body[data-theme="oatmeal"]`로 전환(설정 탭, `settings.theme`): `--bg:#f7f6f3 --accent:#2e7d5b` 등 기존 세트. **새 색은 반드시 토큰으로만 추가** — 하드코딩하면 테마 전환이 깨짐. (studio.html은 자체 토큰: oat #EFEEE7, sage #5E7C64). 사무실 픽셀 파트만 예외적으로 진한 외곽선(#14161f)과 하드 섀도 사용. 모바일(≤720px)은 상단 탭 대신 하단 네비(#bottomnav 4탭+더보기 시트) — **하단 고정 요소는 bottom:64px 이상으로** (토큰 바 겹침 사고).
 
 ## 테스트 방법
 
-Playwright(playwright-core + `/opt/pw-browsers/chromium`)로 headless 스모크 테스트. 패턴: `file:///.../index.html` 열기 → 온보딩 통과(`#ob-done`, `#kg-later`) → 기능 실행 → localStorage/DOM 검증. **테스트 훅**: `window.__senter = { chatterTick, holdScrum, rebuildStaff, taskBrief, verifyBrief, focusComplete, recordUsage, renderTokenBar, estTokens, ensureUsage, autoPilotTick, templateDraft, getDocs }` (자율 근무 테스트는 `autoPilotTick(true)`로 강제 틱, 자료실 검증은 localStorage가 아니라 `getDocs()`로 — docs는 IndexedDB에 있음). 주의: 탭 전환 후 요소를 조작할 것(스크롤 이슈), 움직이는 캐릭터 대신 책상(`.f-desk[title=이름]`) 클릭, 재정렬되는 목록은 텍스트 필터로 지정.
+Playwright(playwright-core + `/opt/pw-browsers/chromium`)로 headless 스모크 테스트. 패턴: `file:///.../index.html` 열기 → 온보딩 통과(`#ob-done`, `#kg-later`) → 기능 실행 → localStorage/DOM 검증. **테스트 훅**: `window.__senter = { chatterTick, holdScrum, rebuildStaff, taskBrief, verifyBrief, focusComplete, recordUsage, renderTokenBar, estTokens, ensureUsage, autoPilotTick, templateDraft, getDocs, getTasks, getMeetings, setTasks }` (자율 근무 테스트는 `autoPilotTick(true)`로 강제 틱; **tasks·meetings·docs 등 큰 기록은 IndexedDB에 있으므로 localStorage 직접 읽기/시드 금지 — 훅 사용**). 주의: 탭 전환 후 요소를 조작할 것(스크롤 이슈), 움직이는 캐릭터 대신 책상(`.f-desk[title=이름]`) 클릭, 재정렬되는 목록은 텍스트 필터로 지정.
 
 ## 핵심 데이터 흐름
 

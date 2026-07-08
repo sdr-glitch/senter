@@ -23,6 +23,7 @@ studio.html─ 크리에이터 스튜디오(허브/패턴/이모티콘/템플릿
 |---|---|---|
 | `senter:settings` | 프로필·apiKey·model(팀장·과장용)·staffModel(팀원용, 기본 하이쿠)·workMode | - |
 | **IndexedDB** `senter-db`→kv→"docs" | 자료실 [{id,title,content,enabled}] — **localStorage 5MB 한계 우회(기가바이트급)**. 시작 시 `initDocsStore()`가 메모리 로드 + 레거시 `senter:docs` 자동 이전, 쓰기는 `saveDocs()` (IDB 실패 시 localStorage 폴백) | PDF 추출 100만 자/건 |
+| **IndexedDB** kv→tasks·meetings·chats·teamChat·activity | 큰 기록 전부 — `initBigStore()`가 이전(성공 후 localStorage 삭제), 이후 `store.set()`이 자동으로 IDB 라우팅. **재개(resumePendingFinals)·renderAll은 이전 완료 후 실행** (localStorage가 비어 보이는 창 방지). 전체 초기화 시 `senter-db` 삭제 필수 | 회의록 100 · 팀채팅 500 · 활동 300 · 채팅 400/멘토 · 완료 업무 200 |
 | `senter:chats` | 멘토별 대화 {personaId:[...]} | 페르소나당 80개 |
 | `senter:tasks` | 업무 [{id,title,assignee,status,stage,draft,critique,result,note}] | - |
 | `senter:customStaff` | 채용 직원 [{id,name,role,duty,emoji,keywords,look}] | 총 직원 11명 (기본 8: 이모티콘 기획자 포함) |
@@ -91,6 +92,9 @@ node --check app.js                    # 문법
 - `claude-desk/` — 팀용 Claude Code 웹 데스크 (기존)
 
 ### 완료됨 (기록)
+- ~~아이디어 던지기~~ → 홈 최상단 카드: 아이디어 입력 → `ideaToTask()`(키워드 라우팅) → 기획 회의 연출 → `ideaPlanDraft()` 기획 보고서(각도 3안·릴스 대본·캡션·체크리스트) → 검토 대기 → [📄 보고서 보기]. Enter 제출, [코치와 대화]는 기존 변환기 흐름
+- ~~기록 용량 확장~~ → BIG_KEYS(tasks·meetings·chats·teamChat·activity)를 IndexedDB로 이전, cap 대폭 상향. **교훈: ① `store.set` 라우팅 방식이라 호출부 무수정 ② 테스트가 localStorage를 직접 읽으면 전부 깨짐 → 훅(getTasks 등) 제공 ③ 전체 초기화에 IDB 삭제 누락 버그 발견·수정(연결 close 후 deleteDatabase)**
+- ~~파스텔 그린 전환~~ → 오로라 토큰만 민트·세이지 계열로 교체 (구조는 CSS 변수라 색만 갈아끼움)
 - ~~오로라 리디자인~~ → 사용자 제공 목업 반영: 라벤더·핑크 파스텔 글래스 테마(기본) + 오트밀 클래식 토글(`body[data-theme]` + CSS 변수 스왑), 홈 대시보드(인사말·통계 3카드·최근 활동), 모바일 하단 네비(4탭+더보기 시트, 상단 탭 숨김), 업무 카드 진행률 바(단계 33/66/90%). **교훈: 하단 고정 요소끼리 겹침 주의 — 토큰 바가 하단 네비 클릭을 가로챘음(z-index+bottom 오프셋으로 해결)**
 - ~~저장공간 한계~~ → 자료실을 IndexedDB로 이전 (마이그레이션 자동, `navigator.storage.persist()` 요청, 설정 미터에 전체 한도 표시, PDF 캡 30만→100만 자). **주의: 테스트에서 docs는 `window.__senter.getDocs()`로 읽을 것**
 - ~~스크럼 회의 AI 대사~~ → API 키 연결 시 `aiScrumLines()`가 실제 보드 데이터를 근거로 자유 발언 생성(12초 타임아웃, "이름|대사" 파싱), 실패·미연결 시 기존 템플릿 대사 폴백. 회의록에 "🤖 AI 자유 발언 모드" 표기

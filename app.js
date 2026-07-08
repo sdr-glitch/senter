@@ -1,7 +1,12 @@
 /* ===== 센터 — AI 마케팅 멘토 ===== */
 "use strict";
 
-/* ---------- 저장소 ---------- */
+/* ---------- 저장소 ----------
+   큰 기록(BIG_KEYS)은 마이그레이션 후 IndexedDB로 저장돼 localStorage 5MB 한계를 우회한다.
+   store.set이 자동으로 경로를 고르므로 호출부는 그대로 사용. */
+const BIG_KEYS = ["tasks", "meetings", "chats", "teamChat", "activity"];
+let bigInIdb = false; // initBigStore() 마이그레이션 완료 후 true
+
 const store = {
   get(key, fallback) {
     try {
@@ -10,6 +15,13 @@ const store = {
     } catch { return fallback; }
   },
   set(key, value) {
+    if (bigInIdb && BIG_KEYS.includes(key) && idb.ok) {
+      idb.set(key, value).catch(() => {
+        try { localStorage.setItem("senter:" + key, JSON.stringify(value)); }
+        catch (e) { toast("⚠️ 저장 공간이 가득 찼어요. 설정 탭에서 백업한 뒤 오래된 기록을 정리해주세요."); }
+      });
+      return true;
+    }
     try {
       localStorage.setItem("senter:" + key, JSON.stringify(value));
       return true;
@@ -92,6 +104,26 @@ async function initDocsStore() {
     }
     renderStorageMeter();
   } catch { /* 사파리 시크릿 모드 등 IDB 실패 → localStorage 유지 */ }
+}
+
+/* 회의록·대화·업무 등 큰 기록도 IndexedDB로 이전 (용량 최대 확장) */
+async function initBigStore() {
+  if (!idb.ok) return;
+  try {
+    const load = async (key, cur) => {
+      const v = await idb.get(key);
+      if (v !== undefined && v !== null) { store.remove(key); return v; }
+      await idb.set(key, cur); // 첫 이전: 성공 확인 후 localStorage 원본 삭제
+      store.remove(key);
+      return cur;
+    };
+    tasks = await load("tasks", tasks);
+    meetings = await load("meetings", meetings);
+    chats = await load("chats", chats);
+    teamChat = await load("teamChat", teamChat);
+    activity = await load("activity", activity);
+    bigInIdb = true;
+  } catch { /* IDB 불가 → localStorage 유지 */ }
 }
 
 let settings = store.get("settings", null);
@@ -1149,6 +1181,16 @@ function renderHomeStats() {
       ? recent.map(a => `<div class="chatline"><span class="chatline-text">${escapeHtml(a.text)}</span><span class="chatline-time">${new Date(a.at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</span></div>`).join("")
       : `<div class="mission-empty">아직 활동이 없어요. 직원들이 일을 시작하면 여기에 기록돼요!</div>`;
   }
+  // 우리 사무실 현황 배지
+  const os = $("#home-office-status");
+  if (os) {
+    const working = tasks.filter(t => t.status === "doing").length;
+    os.innerHTML =
+      `<span class="chip">👥 직원 ${STAFF.length}명 출근</span>` +
+      `<span class="chip">${(settings.autoPilot !== false) ? "🤖 자율 근무 ON" : "💤 자율 근무 OFF"}</span>` +
+      `<span class="chip">${working ? `🔨 작업 중 ${working}건` : "☕ 지시 대기 중"}</span>` +
+      `<span class="chip">📣 회의실 사용 가능</span>`;
+  }
 }
 
 function renderMissions() {
@@ -1851,7 +1893,7 @@ async function holdScrum(quick = false) {
   }
 
   meetings.unshift({ date: Date.now(), minutes, quick });
-  meetings = meetings.slice(0, 10);
+  meetings = meetings.slice(0, 100); // 회의록 저장 상한 (IndexedDB라 여유)
   store.set("meetings", meetings);
   logActivity(quick ? "⚡ 빠른 브리핑 완료" : "📝 스크럼 미팅 완료 — 회의록 저장됨");
   postChat("pm", quick
@@ -1871,7 +1913,7 @@ let teamChat = store.get("teamChat", []);
 function postChat(id, text) {
   const name = id === "boss" ? `👑 ${(settings && settings.name) || "사장"}님` : staffName(id);
   teamChat.push({ at: Date.now(), id, name, emoji: id === "boss" ? "" : staffEmoji(id), text });
-  teamChat = teamChat.slice(-60);
+  teamChat = teamChat.slice(-500); // IndexedDB 저장이라 여유
   store.set("teamChat", teamChat);
   renderTeamChat();
 }
@@ -2234,7 +2276,7 @@ async function studyMeeting(docId, opts = {}) {
   await say("pm", `정리 감사합니다. 이 자료는 앞으로 업무에 자동으로 반영됩니다. 회의 끝! 📖`);
 
   meetings.unshift({ date: Date.now(), minutes, study: doc.title });
-  meetings = meetings.slice(0, 10);
+  meetings = meetings.slice(0, 100); // 회의록 저장 상한 (IndexedDB라 여유)
   store.set("meetings", meetings);
   logActivity(`📖 『${doc.title}』 스터디 회의 완료 — 회의록 저장`);
 
@@ -2256,7 +2298,7 @@ function renderMinutesList() {
     return;
   }
   list.innerHTML = "";
-  meetings.forEach(m => {
+  meetings.slice(0, 30).forEach(m => { // 표시는 최근 30개 (저장은 100개)
     const det = document.createElement("details");
     det.className = "minute-entry";
     const when = new Date(m.date).toLocaleString("ko-KR", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -2273,7 +2315,7 @@ function renderMinutesList() {
 /* ----- 활동 로그 ----- */
 function logActivity(text) {
   activity.unshift({ at: Date.now(), text });
-  activity = activity.slice(0, 30);
+  activity = activity.slice(0, 300);
   store.set("activity", activity);
   renderActivity();
 }
@@ -2300,8 +2342,8 @@ function routeDirective(text) {
 /* 저장 공간 보호: 완료 업무는 최근 40개만 보관 */
 function trimDoneTasks() {
   const done = tasks.filter(t => t.status === "done");
-  if (done.length <= 40) return;
-  const cut = done.sort((a, b) => (a.doneAt || 0) - (b.doneAt || 0)).slice(0, done.length - 40);
+  if (done.length <= 200) return;
+  const cut = done.sort((a, b) => (a.doneAt || 0) - (b.doneAt || 0)).slice(0, done.length - 200);
   const ids = new Set(cut.map(t => t.id));
   tasks = tasks.filter(t => !ids.has(t.id));
 }
@@ -2327,6 +2369,24 @@ function createTask(title, assignee) {
     postChat(assignee, reply);
   }, 1400);
   return task;
+}
+
+/* 아이디어 던지기 → 기획 회의 → 대본·기획 보고서 → 검토 대기 (문서 뷰어로 확인) */
+function ideaToTask(ideaRaw) {
+  const idea = ideaRaw.slice(0, 120);
+  // 아이디어 내용으로 담당 라우팅: 릴스/영상이면 릴스 PD, 이모티콘이면 기획자, 기본은 콘텐츠 기획자
+  const assignee = /릴스|영상|숏츠|대본/.test(idea) ? "reels"
+    : /이모티콘|캐릭터|스티커/.test(idea) ? "emoti"
+    : /캡션|해시태그|문구/.test(idea) ? "copywriter" : "planner";
+  postChat("pm", `사장님이 아이디어를 던져주셨어요: "${idea}" — 기획 회의 소집합니다! 🙋`);
+  speak("pm", "아이디어 기획 회의 소집! 🙋", 2600);
+  const t = createTask(`아이디어 기획 — "${idea}"`, assignee);
+  t.idea = idea;
+  store.set("tasks", tasks);
+  renderBoard(); updateOfficeStatuses();
+  if (t.status === "doing") dispatchWork(t);
+  toast("🚀 직원들이 기획 회의를 시작했어요! 사무실 탭에서 진행을 보고, 완성되면 검토 대기에 보고서가 올라와요.", 5000);
+  return t;
 }
 
 async function handleDirective() {
@@ -2690,6 +2750,40 @@ function snippetSection() {
   return `\n\n## 📚 학습 자료에서 참고한 내용\n` + snips.map(s => `> "${s.text}" — 『${s.doc}』`).join("\n");
 }
 
+/* ── 아이디어 기획 보고서 엔진: 사장님이 던진 아이디어 → 회의 → 실행안 ── */
+function ideaPlanDraft(head, t, idea) {
+  return head(`아이디어 기획 보고서 — "${idea}"`) + `
+## 1. 기획 회의 요약
+- 원안: "${idea}"
+- 회의 결론: ${t} 계정의 결에 맞춰 **저장·공감을 부르는 실용 콘텐츠**로 발전시키는 것이 최적입니다.
+- 왜 통하나: 구체적인 상황이 있는 아이디어는 첫 3초 후킹을 만들기 쉽고, "나도 해봐야지"라는 저장 행동으로 이어집니다.
+
+## 2. 콘텐츠 각도 3안 (하나만 골라도 충분해요)
+| 각도 | 형식 | 첫 화면(후킹) | 노리는 것 |
+|---|---|---|---|
+| A. 비포/애프터 | 릴스 | 지저분한 전 → 3초 뒤 완성 컷 | 도달·팔로우 |
+| B. 순서 공개형 | 카드뉴스 | "${idea.slice(0, 18)}… 순서는 딱 3단계" | 저장 |
+| C. 공감 실패담 | 사진+글 | "저만 이거 실패했나요?" | 댓글·소통 |
+
+## 3. 릴스 대본 (A안 기준 — 촬영표)
+| 초 | 화면 | 자막/나레이션 |
+|---|---|---|
+| 0-3 | 결과(완성 컷) 먼저 | "${idea.slice(0, 16)}… 이렇게 됩니다" |
+| 3-10 | 과정 3컷 (빠른 컷 전환) | 단계 이름 자막 |
+| 10-15 | 완성 + 꿀팁 한 줄 | "저장해두고 따라해보세요 📌" |
+
+## 4. 업로드 캡션 (복사해서 쓰세요)
+"${idea.slice(0, 24)}" — 생각보다 간단해요. 순서는 영상 그대로! 나중에 꼭 필요할 테니 저장해두세요 📌
+${hashtagSet()}
+
+## 5. 실행 체크리스트
+□ 오늘: 재료/소품 준비, 촬영 동선 확인 (밝은 자연광 시간대)
+□ 내일: 촬영 15분 + 편집 (캡컷 자동 자막)
+□ 업로드 직후: 첫 댓글에 추가 꿀팁 1개 달기 (댓글 유도)
+
+**사장님 결정 요청: A/B/C 중 선택하거나 보완 요청을 남겨주세요 — 선택안으로 촬영 지시서를 이어서 만듭니다.**` + snippetSection();
+}
+
 /* ── 벤치마킹 지식 엔진: 사장이 직접 찾아보지 않아도 되는 리서치 보고서 ── */
 function benchDraft(head, t, goal) {
   return head(`벤치마킹 보고서 — ${t} 분야 인기 계정 분석`) + `
@@ -2902,6 +2996,7 @@ function templateDraft(task) {
   const title = task.title;
   const head = (label) => `# ${label}\n(직원 회의로 작성한 초안 — AI를 연결하면 더 정교해져요)\n`;
 
+  if (/^아이디어 기획/.test(title)) return ideaPlanDraft(head, t, task.idea || title.replace(/^아이디어 기획 — /, "").replace(/^"|"$/g, ""));
   if (/페르소나|타깃 정의/.test(title)) return personasDraft(head, t, goal);
   if (/포지셔닝|차별화 선언/.test(title)) return positioningDraft(head, t, goal);
   if (/북극성|지표 설계/.test(title)) return northStarDraft(head, t, goal);
@@ -3671,7 +3766,7 @@ async function sendChat(presetText) {
     liveEl.classList.remove("typing");
     history.push({ role: "assistant", content: full });
     // 저장 공간 보호: 페르소나당 최근 80개 메시지만 보관
-    if (history.length > 80) chats[currentPersona] = history.slice(-80);
+    if (history.length > 400) chats[currentPersona] = history.slice(-400); // 저장은 넉넉히, AI 전송은 최근 20개만
     store.set("chats", chats);
   } catch (e) {
     liveEl.remove();
@@ -4469,7 +4564,7 @@ function renderStorageMeter() {
   const pct = Math.min(100, Math.round(mb / limit * 100));
   const docMb = docsInIdb ? (JSON.stringify(docs).length * 2 / 1048576) : 0;
   el.innerHTML = `기본 저장 공간: <b>${mb.toFixed(2)}MB</b> / 약 ${limit}MB (${pct}%)` +
-    (docsInIdb ? ` · 자료실은 확장 저장소에 별도 보관 (${docMb.toFixed(1)}MB)` : "") +
+    (docsInIdb ? ` · 자료실·업무·회의록·대화는 확장 저장소에 별도 보관 (자료실 ${docMb.toFixed(1)}MB)` : "") +
     (pct >= 80 ? ` — ⚠️ 거의 찼어요! 백업 후 오래된 대화·기록을 정리해주세요.` : "");
   el.style.color = pct >= 80 ? "#c0392b" : "";
   // 브라우저 전체 저장 한도(확장 저장소 포함)는 비동기로 덧붙임
@@ -4791,17 +4886,25 @@ function bindEvents() {
     sugWrap.appendChild(b);
   });
 
-  // 아이디어 변환기
-  const ideaGo = () => {
-    const v = $("#idea-input").value.trim();
-    if (!v) { $("#idea-input").focus(); return; }
+  // 아이디어 던지기: 회의 시작(업무 파이프라인) 또는 코치와 대화
+  const ideaText = () => ($("#idea-drop")?.value || "").trim();
+  $("#idea-meet")?.addEventListener("click", () => {
+    const v = ideaText();
+    if (!v) { $("#idea-drop").focus(); return; }
+    $("#idea-drop").value = "";
+    ideaToTask(v);
+  });
+  $("#idea-go")?.addEventListener("click", () => {
+    const v = ideaText();
+    if (!v) { $("#idea-drop").focus(); return; }
     switchTab("chat");
     selectPersona("coach");
-    $("#idea-input").value = "";
+    $("#idea-drop").value = "";
     sendChat(`이건 ${v}(이)야. 마케팅 콘텐츠로 어떻게 활용하면 좋을까?`);
-  };
-  $("#idea-go").addEventListener("click", ideaGo);
-  $("#idea-input").addEventListener("keydown", e => { if (e.key === "Enter") ideaGo(); });
+  });
+  $("#idea-drop")?.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("#idea-meet").click(); }
+  });
 
   // 미션
   $("#mission-gen").addEventListener("click", generateMissions);
@@ -4846,7 +4949,15 @@ function bindEvents() {
     if (!confirm("정말 모든 데이터(설정, 자료, 대화, 진행 상황)를 지울까요? 되돌릴 수 없어요.")) return;
     if (!confirm("마지막 확인이에요. 전체 초기화할까요?")) return;
     Object.keys(localStorage).filter(k => k.startsWith("senter:")).forEach(k => localStorage.removeItem(k));
-    location.reload();
+    // 확장 저장소(IndexedDB — 자료실·업무·회의록·대화)도 함께 삭제
+    let reloaded = false;
+    const done = () => { if (!reloaded) { reloaded = true; location.reload(); } };
+    try {
+      idb._db?.close();
+      const rq = indexedDB.deleteDatabase("senter-db");
+      rq.onsuccess = rq.onerror = rq.onblocked = done;
+      setTimeout(done, 1500); // 삭제가 지연돼도 새로고침은 진행
+    } catch { done(); }
   });
 }
 
@@ -5629,18 +5740,28 @@ function init() {
   } else {
     $("#app").classList.remove("hidden");
     renderAll();
-    resumePendingFinals();
   }
   // 오프라인·홈화면 설치 지원 (https에서만 — file://로 열면 브라우저가 지원 안 함)
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
-  // 자료실을 IndexedDB로 (localStorage 5MB 한계 우회) + 브라우저에 영구 보관 요청(청소 대상 제외)
+  // 자료실·큰 기록을 IndexedDB로 (localStorage 5MB 한계 우회) + 영구 보관 요청(청소 대상 제외)
   initDocsStore();
+  initBigStore().then(() => {
+    if (settings) { renderAll(); resumePendingFinals(); } // IDB의 진짜 기록으로 다시 그린 뒤 끊긴 업무 재개
+  });
   try { navigator.storage?.persist?.().catch(() => {}); } catch {}
 }
 
 init();
 
 // 자동 테스트용 훅 (앱 동작에는 영향 없음)
-window.__senter = { chatterTick, holdScrum, rebuildStaff, taskBrief, verifyBrief, focusComplete, recordUsage, renderTokenBar, estTokens, ensureUsage, autoPilotTick, templateDraft, getDocs: () => docs };
+window.__senter = {
+  chatterTick, holdScrum, rebuildStaff, taskBrief, verifyBrief, focusComplete,
+  recordUsage, renderTokenBar, estTokens, ensureUsage, autoPilotTick, templateDraft,
+  // 큰 기록이 IndexedDB로 이동해 localStorage 직접 읽기/쓰기가 불가 — 테스트는 이 훅 사용
+  getDocs: () => docs,
+  getTasks: () => tasks,
+  getMeetings: () => meetings,
+  setTasks: (arr) => { tasks = arr; store.set("tasks", tasks); renderBoard(); updateOfficeStatuses(); }
+};

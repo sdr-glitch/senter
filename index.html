@@ -486,21 +486,27 @@
       <div class="stat-card"><div class="stat-num" id="stat-events">0</div><div class="stat-label">예정된 일정</div><div class="stat-delta" id="stat-events-delta"></div></div>
     </section>
 
-    <section class="card home-activity">
-      <div class="card-head">
-        <h3>🕐 최근 활동</h3>
-        <button class="btn-small" id="home-to-office">사무실 가기 →</button>
+    <section class="card idea-drop-card">
+      <h3>💡 아이디어 던지기</h3>
+      <p class="card-desc">갑자기 떠오른 아이디어를 적어주세요. 직원들이 바로 <b>기획 회의</b>를 열고 대본·기획 보고서로 만들어 올립니다. 승인 전에 [📄 보고서 보기]로 문서처럼 확인할 수 있어요.</p>
+      <textarea id="idea-drop" rows="2" placeholder="예: 다이소 수납템으로 냉장고 정리하는 릴스 어때? / 장마철 제습 꿀팁 시리즈"></textarea>
+      <div class="idea-drop-actions">
+        <button class="btn-primary" id="idea-meet">🚀 회의 시작</button>
+        <button class="btn-ghost btn-small" id="idea-go" title="업무로 만들지 않고 아이디어 코치와 가볍게 대화">💬 코치와 먼저 대화</button>
       </div>
-      <div id="home-activity-list"></div>
     </section>
 
     <section class="card">
-      <h3>💡 아이디어 변환기</h3>
-      <p class="card-desc">아무 소재나 던져보세요. "이건 계란이야" 라고만 해도, 마케팅 크리에이터 관점의 콘텐츠 각도로 바꿔드립니다.</p>
-      <div class="idea-row">
-        <input type="text" id="idea-input" placeholder="예: 계란, 수납 바구니, 오늘 산 무드등...">
-        <button class="btn-primary" id="idea-go">변환 →</button>
+      <div class="card-head">
+        <h3>🏢 우리 사무실</h3>
+        <button class="btn-small" id="home-to-office">열기 →</button>
       </div>
+      <div id="home-office-status" class="home-office-status"></div>
+    </section>
+
+    <section class="card home-activity">
+      <h3>🕐 최근 활동</h3>
+      <div id="home-activity-list"></div>
     </section>
 
     <section class="card">
@@ -653,7 +659,7 @@
 <div id="minutes-modal" class="modal-backdrop hidden">
   <div class="modal">
     <h2>📜 회의록 보관함</h2>
-    <p class="modal-desc">최근 회의 10개가 자동 저장돼요. 제목을 누르면 전체 내용이 펼쳐집니다.</p>
+    <p class="modal-desc">회의록이 최대 100개까지 확장 저장소에 보관돼요 (아래에는 최근 30개 표시). 제목을 누르면 전체 내용이 펼쳐집니다.</p>
     <div id="minutes-list" class="minutes-list"></div>
     <div class="modal-actions"><button class="btn-ghost" id="minutes-close">닫기</button></div>
   </div>
