@@ -770,7 +770,7 @@ async function callClaude(personaId, messages, onDelta) {
   return aiChat(buildSystemPrompt(persona), messages, onDelta);
 }
 
-async function callClaudeSystem(system, messages, onDelta) {
+async function callClaudeSystem(system, messages, onDelta, modelOverride) {
   const apiKey = (settings && settings.apiKey || "").trim();
   if (!apiKey) throw new Error("NO_KEY");
 
@@ -783,7 +783,7 @@ async function callClaudeSystem(system, messages, onDelta) {
       "anthropic-dangerous-direct-browser-access": "true"
     },
     body: JSON.stringify({
-      model: (settings && settings.model) || "claude-sonnet-5",
+      model: modelOverride || (settings && settings.model) || "claude-sonnet-5",
       max_tokens: 4096,
       system,
       messages: messages.map(m => ({ role: m.role, content: m.content })),
@@ -801,7 +801,7 @@ async function callClaudeSystem(system, messages, onDelta) {
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  const model = (settings && settings.model) || "claude-sonnet-5";
+  const model = modelOverride || (settings && settings.model) || "claude-sonnet-5";
   let buffer = "";
   let full = "";
   let inTok = 0, outTok = 0; // 실제 토큰 사용량 (Anthropic 응답에서 수집)
@@ -873,10 +873,11 @@ function extractPuterText(resp) {
 }
 
 /* AI 호출 통합 경로: ① 내 API 키(Anthropic) → ② 무료 AI(Puter) */
-async function aiChat(system, messages, onDelta = () => {}) {
+async function aiChat(system, messages, onDelta = () => {}, modelOverride) {
   if ((settings && settings.apiKey || "").trim()) {
-    return callClaudeSystem(system, messages, onDelta);
+    return callClaudeSystem(system, messages, onDelta, modelOverride);
   }
+  // 무료 AI 경로는 직급별 모델 구분 없음 (modelOverride 무시)
   if (freeAiBroken) {
     const err = new Error("NO_AI");
     throw err;
@@ -1330,7 +1331,32 @@ function copyText(text) {
   });
 }
 
+function renderOrgChart() {
+  const el = $("#org-chart");
+  if (!el) return;
+  const bossName = (settings && settings.name) || "사장";
+  const memberChip = (id) => {
+    const s = STAFF.find(x => x.id === id);
+    return s ? `<span class="org-member">${s.emoji} ${escapeHtml(s.name)}</span>` : "";
+  };
+  const customs = STAFF.filter(s => s.custom).map(s => s.id);
+  el.innerHTML = `
+    <div class="org-row"><span class="org-node org-boss">👑 ${escapeHtml(bossName)}님 (사장)</span></div>
+    <div class="org-line">│</div>
+    <div class="org-row"><span class="org-node org-manager">🧑‍💼 매니저 (과장 · 상위 모델) — 전체 회의·최종 보고서</span></div>
+    <div class="org-line">│</div>
+    <div class="org-teams">${TEAMS.map(t => {
+      const lead = STAFF.find(s => s.id === t.lead);
+      const members = t.members.filter(id => id !== t.lead).concat(t.id === "content" ? customs : []);
+      return `<div class="org-team">
+        <div class="org-node org-lead">👔 ${lead ? lead.emoji + " " + escapeHtml(lead.name) : ""} <b>${t.name} 팀장</b> <span class="org-tier">상위 모델</span></div>
+        <div class="org-members">${members.map(memberChip).join("")}<span class="org-tier">팀원 · 하위 모델(절약)</span></div>
+      </div>`;
+    }).join("")}</div>`;
+}
+
 function renderStaff() {
+  renderOrgChart();
   const list = $("#staff-list");
   list.innerHTML = "";
   STAFF.forEach(st => {
@@ -1340,7 +1366,8 @@ function renderStaff() {
     const head = document.createElement("div");
     head.className = "staff-head";
     const sk = skillNames(st.id);
-    head.innerHTML = `<span class="staff-emoji">${st.emoji}</span><div><div class="staff-name">${escapeHtml(st.name)}${st.custom ? ' <span class="staff-badge">직접 채용</span>' : ""}</div><div class="staff-role">${escapeHtml(st.role)}</div>${sk.length ? `<div class="staff-skillbadges">🎓 ${sk.join(" · ")}</div>` : ""}</div>`;
+    const leadBadge = isTeamLead(st.id) ? ` <span class="staff-badge staff-lead-badge">👔 ${teamOf(st.id).name} 팀장</span>` : "";
+    head.innerHTML = `<span class="staff-emoji">${st.emoji}</span><div><div class="staff-name">${escapeHtml(st.name)}${leadBadge}${st.custom ? ' <span class="staff-badge">직접 채용</span>' : ""}</div><div class="staff-role">${escapeHtml(st.role)}</div>${sk.length ? `<div class="staff-skillbadges">🎓 ${sk.join(" · ")}</div>` : ""}</div>`;
     if (st.custom) {
       const fire = document.createElement("button");
       fire.className = "btn-small btn-task-del staff-fire";
@@ -2328,10 +2355,32 @@ async function handleDirective() {
    ① 담당자 초안(draft) → ② 전문가 2명 교차검증 후 수정·재검토(verify) → ③ 매니저 최종 검토(final) → 보고(review) */
 
 const STAGE_LABEL = {
-  draft: "1/3 초안 작성",
-  verify: "2/3 교차검증·보완",
-  final: "3/3 매니저 최종 검토"
+  draft: "1/3 팀원 초안",
+  verify: "2/3 팀장 검토·팀 회의",
+  final: "3/3 과장 최종 검토"
 };
+
+/* ---------- 조직 구조: 사장(사용자) → 과장(매니저) → 분야별 팀장 → 팀원 ----------
+   토큰 절약 설계: 팀원 초안은 하위 모델(저렴), 팀장 검토·과장 최종은 상위 모델.
+   결재선: 팀원 작성 → 팀장 검토·수정 + 팀 회의 → 과장 전체 회의·재검토 → 최종 보고서 → 사장 승인 */
+const TEAMS = [
+  { id: "content", name: "콘텐츠팀", lead: "planner", members: ["planner", "copywriter", "reels"] },
+  { id: "growth", name: "성장팀", lead: "analyst", members: ["analyst", "review", "brand"] },
+  { id: "creative", name: "지식·창작팀", lead: "digest", members: ["digest", "emoti"] },
+];
+function teamOf(staffId) {
+  return TEAMS.find(t => t.members.includes(staffId)) || TEAMS[0]; // 채용 직원은 콘텐츠팀 소속
+}
+function isTeamLead(staffId) { return TEAMS.some(t => t.lead === staffId); }
+function teamLeadFor(staffId) {
+  return STAFF.find(s => s.id === teamOf(staffId).lead) || STAFF[0];
+}
+/* 직급별 모델: 팀원(staff)=하위 모델로 토큰 절약, 팀장(lead)·과장(manager)=상위 모델 */
+function tierModel(tier) {
+  const top = (settings && settings.model) || "claude-sonnet-5";
+  if (tier === "staff") return (settings && settings.staffModel) || "claude-haiku-4-5-20251001";
+  return top;
+}
 
 function reviewersFor(assignee) {
   const others = STAFF.filter(s => s.id !== assignee);
@@ -2518,49 +2567,54 @@ async function autoWork(task) {
       return;
     }
 
-    // ① 초안 (이미 초안이 있으면 이 단계는 건너뜀)
+    // ① 팀원 초안 — 하위 모델로 토큰 절약 (팀장이 직접 맡은 업무면 상위 모델)
     if (!task.draft || task.stage === "draft") {
       task.stage = "draft"; renderBoard();
       speak(task.assignee, "초안 작업 시작합니다... 🔨", 2500);
       task.draft = await aiChat(cleanPrompt(st) + staffKnowledge(),
-        [{ role: "user", content: `인사나 질문 없이, 이 업무의 결과물 초안을 바로 쓸 수 있는 완성된 형태로 만들어줘:\n${task.title}${task.note ? `\n(보완 요청: ${task.note})` : ""}` }], () => {});
+        [{ role: "user", content: `인사나 질문 없이, 이 업무의 결과물 초안을 바로 쓸 수 있는 완성된 형태로 만들어줘:\n${task.title}${task.note ? `\n(보완 요청: ${task.note})` : ""}` }], () => {},
+        tierModel(isTeamLead(task.assignee) ? "lead" : "staff"));
     }
     task.stage = "verify";
     store.set("tasks", tasks);
-    logActivity(`${staffEmoji(task.assignee)} ${staffName(task.assignee)}: 「${task.title}」 초안 완성 → 1차 교차검증`);
+    // 팀장이 직접 쓴 초안은 과장이 검토 (자기 검토 방지)
+    const lead = isTeamLead(task.assignee) ? { id: "pm", name: "매니저" } : teamLeadFor(task.assignee);
+    const leadName = lead.id === "pm" ? "매니저(과장)" : `${lead.name}(${teamOf(task.assignee).name} 팀장)`;
+    logActivity(`${staffEmoji(task.assignee)} ${staffName(task.assignee)}: 「${task.title}」 초안 완성 → ${leadName} 검토`);
     renderBoard();
 
-    // ② 1차 교차검증
-    const [r1, r2] = reviewersFor(task.assignee);
-    const critique = await aiChat(
-      `너는 ${r1.name}(${r1.role})와 ${r2.name}(${r2.role}) 두 전문가로 구성된 검증 패널이다. 결과물의 오류, 빠진 것, 보완점을 찾아라. 최대 5개, 각 한 줄, 심각한 문제 우선. 문제가 없으면 "이상 없음"이라고만 답하라.\n\n${staffContext()}`,
-      [{ role: "user", content: `업무: ${task.title}\n\n━━━ 초안 ━━━\n${task.draft}` }], () => {});
-    task.critique = critique;
-    huddleTheater(task, critique.split("\n")[0]); // 연출은 기다리지 않음
-
-    // 수정 + 재검토
-    const revised = await aiChat(cleanPrompt(st),
-      [{ role: "user", content: `아래 초안에 대한 검증 의견이 도착했어. 의견을 모두 반영해 수정하고, 스스로 재검토까지 마친 최종본만 출력해줘 (설명 없이 결과물만).\n\n[검증 의견]\n${critique}\n\n━━━ 초안 ━━━\n${task.draft}` }], () => {});
+    // ② 팀장 검토·수정 + 팀 회의 — 상위 모델 1회 호출로 지적과 수정본을 한 번에 (토큰 절약)
+    speak(lead.id, "팀 검토 들어갑니다 🔍", 2500);
+    const leadOut = await aiChat(
+      `너는 ${leadName}이다. 팀원 ${st.name}(${st.role})이 올린 초안을 팀장으로서 검토하라: 오류·빠진 것·보완점을 찾고 직접 수정까지 마쳐라.\n출력 형식(딱 이 형식만):\n[검토 의견]\n- (최대 4개, 각 한 줄. 문제 없으면 "- 이상 없음")\n[수정본]\n(의견을 반영해 다듬은 결과물 전체 — 설명 없이 결과물만)\n\n${staffContext()}`,
+      [{ role: "user", content: `업무: ${task.title}${task.note ? `\n(사장님 보완 요청: ${task.note})` : ""}\n\n━━━ 팀원 초안 ━━━\n${task.draft}` }], () => {},
+      tierModel("lead"));
+    const cut = leadOut.indexOf("[수정본]");
+    const critique = (cut > -1 ? leadOut.slice(0, cut) : "").replace("[검토 의견]", "").trim() || "팀장 검토 완료 — 이상 없음";
+    const revised = (cut > -1 ? leadOut.slice(cut + 5) : leadOut).trim() || task.draft;
+    task.critique = `👔 ${leadName} 검토:\n${critique}`;
+    huddleTheater(task, critique.split("\n")[0]); // 팀 회의 연출 (기다리지 않음)
+    postChat(lead.id, `「${task.title}」 팀 검토·수정 완료. 팀 회의 거쳐 과장님께 올립니다 ✅`);
     task.stage = "final";
     store.set("tasks", tasks);
-    logActivity(`✔ 「${task.title}」 교차검증·보완·재검토 완료 → 매니저 최종 검토`);
-    postChat(task.assignee, `「${task.title}」 보완 완료, 재검토까지 마쳤습니다 ✅`);
+    logActivity(`👔 ${leadName}: 「${task.title}」 검토·수정 + 팀 회의 완료 → 과장 보고`);
     renderBoard();
 
-    // ③ 매니저 3차 최종 검토
-    speak("pm", "3차 최종 검토 들어갑니다 🧐", 2500);
-    postChat("pm", `「${task.title}」 3차 최종 검토 중입니다 🧐`);
+    // ③ 과장(매니저) 전체 회의 → 재검토·보완 → 최종 보고서 — 상위 모델
+    speak("pm", "전체 회의 소집! 최종 보고서 작성합니다 🧐", 2500);
+    postChat("pm", `「${task.title}」 전체 회의 후 최종 검토 중입니다 🧐`);
     const final = await aiChat(
-      `너는 SNS 마케팅 팀의 매니저(PM)다. 아래 결과물을 3차 최종 점검하라: 지시 사항을 충족하는지, 바로 사용 가능한지 확인하고 사소한 다듬기만 해라. 첫 줄에 "✅ 3차 검토 통과 — (한 줄 총평)"을 쓰고, 그 아래에 최종 결과물 전체를 출력하라.\n\n${staffContext()}`,
-      [{ role: "user", content: `업무 지시: ${task.title}\n\n━━━ 결과물 ━━━\n${revised}` }], () => {});
+      `너는 SNS 마케팅 회사의 과장(매니저)이다. 팀장 검토를 거친 결과물을 전체 회의 관점에서 재검토하라: 지시 충족 여부·바로 사용 가능 여부를 확인하고 필요한 보완만 직접 반영하라. 첫 줄에 "✅ 최종 검토 통과 — (한 줄 총평)"을 쓰고, 그 아래에 사장님께 올릴 최종 보고서 전체를 출력하라.\n\n${staffContext()}`,
+      [{ role: "user", content: `업무 지시: ${task.title}\n\n[팀장 검토 의견]\n${critique}\n\n━━━ 팀장 수정본 ━━━\n${revised}` }], () => {},
+      tierModel("manager"));
     task.result = final;
     task.status = "review";
     task.stage = "";
     task.autoWorking = false;
     store.set("tasks", tasks);
-    logActivity(`🧑‍💼 매니저: 「${task.title}」 3차 검토 통과 → 사장님 보고`);
-    postChat("pm", `「${task.title}」 3차 검토 통과! 사장님께 보고 올립니다 📋`);
-    speak("pm", "3차 검토 통과! 보고 올립니다 📋");
+    logActivity(`🧑‍💼 과장: 「${task.title}」 최종 보고서 완성 → 사장님 보고`);
+    postChat("pm", `「${task.title}」 최종 보고서 올렸습니다! 사장님 승인 부탁드려요 📋`);
+    speak("pm", "최종 보고서 올렸습니다! 📋");
     renderBoard();
     updateOfficeStatuses();
   } catch (e) {
@@ -2976,10 +3030,11 @@ async function templateWork(task) {
   await sleep(3500);
   if (task.status !== "doing") { task.autoWorking = false; return; }
 
-  task.critique = "구성·필수 요소·말투 점검 완료 (내부 회의). AI 연결 시 내용 자체의 교차검증이 더 깊어져요.";
+  const twLead = isTeamLead(task.assignee) ? { id: "pm", name: "매니저(과장)" } : teamLeadFor(task.assignee);
+  task.critique = `👔 ${twLead.name} 검토: 구성·필수 요소·말투 점검 완료 (팀 회의). AI 연결 시 내용 자체의 검토가 더 깊어져요.`;
   task.stage = "final";
   renderBoard();
-  speak("pm", "3차 최종 검토 들어갑니다 🧐", 2500);
+  speak("pm", "과장 최종 검토 들어갑니다 🧐", 2500);
   await sleep(3000);
   if (task.status !== "doing") { task.autoWorking = false; return; }
 
@@ -3136,6 +3191,54 @@ function promoteQueue(assignee) {
   }
 }
 
+/* ---------- 보고서 문서 뷰어: 웹에서 문서로 보고, 인쇄/PDF 저장 (브라우저 내장 인쇄 → 무의존성) ---------- */
+let reportModalTask = null;
+function openReportModal(t) {
+  reportModalTask = t;
+  $("#report-title").textContent = `📄 ${t.title}`;
+  const team = teamOf(t.assignee);
+  $("#report-meta").innerHTML =
+    `<span>${staffEmoji(t.assignee)} ${escapeHtml(staffName(t.assignee))} (${escapeHtml(team.name)})</span>` +
+    `<span>결재: 팀장 검토 → 과장 최종</span>` +
+    `<span>${new Date(t.doneAt || Date.now()).toLocaleDateString("ko-KR")}</span>` +
+    `<span>${t.status === "done" ? "✅ 승인 완료" : "🕐 검토 대기"}</span>`;
+  $("#report-body").innerHTML = renderMarkdown(t.result || "");
+  $("#report-modal").classList.remove("hidden");
+}
+
+function printReportDoc() {
+  const t = reportModalTask;
+  if (!t) return;
+  const frame = document.createElement("iframe");
+  frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
+  document.body.appendChild(frame);
+  const d = frame.contentDocument;
+  d.open();
+  d.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${escapeHtml(t.title)}</title><style>
+    body { font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; color: #262522; margin: 36px; line-height: 1.7; font-size: 13px; }
+    h1 { font-size: 20px; border-bottom: 2px solid #2e7d5b; padding-bottom: 10px; }
+    .meta { color: #6b6a63; font-size: 11px; margin-bottom: 22px; }
+    h2, h3 { color: #1f5c42; margin-top: 20px; }
+    table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+    th, td { border: 1px solid #d8d5cc; padding: 6px 9px; text-align: left; font-size: 12px; }
+    th { background: #f2f0ea; }
+    blockquote { border-left: 3px solid #2e7d5b; margin: 8px 0; padding: 4px 12px; color: #55534b; }
+    ul, ol { padding-left: 22px; }
+    .footer { margin-top: 30px; color: #a9a69c; font-size: 10px; border-top: 1px solid #e5e2d9; padding-top: 8px; }
+  </style></head><body>
+    <h1>${escapeHtml(t.title)}</h1>
+    <div class="meta">담당: ${escapeHtml(staffName(t.assignee))} (${escapeHtml(teamOf(t.assignee).name)}) · 결재: 팀장 검토 → 과장 최종 · ${new Date(t.doneAt || Date.now()).toLocaleDateString("ko-KR")}</div>
+    ${renderMarkdown(t.result || "")}
+    <div class="footer">🌱 센터(Senter) — 나의 AI 마케팅 멘토 팀 보고서</div>
+  </body></html>`);
+  d.close();
+  // 인쇄 대화상자에서 "PDF로 저장"을 고르면 PDF 다운로드가 됩니다
+  setTimeout(() => {
+    try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch {}
+    setTimeout(() => frame.remove(), 3000);
+  }, 150);
+}
+
 let boardQuery = "";
 function renderBoard() {
   const kanban = $("#kanban");
@@ -3269,6 +3372,10 @@ function renderBoard() {
           renderLibrary();
           toast("📚 자료실에 저장됐어요! 필요할 때 스위치를 켜면 멘토·직원이 참고해요.");
         });
+      }
+
+      if (t.result && (status === "review" || status === "done")) {
+        addBtn("📄 보고서 보기", "btn-small", () => openReportModal(t));
       }
 
       addBtn("🗑", "btn-small btn-task-del", () => {
@@ -4353,6 +4460,8 @@ function renderSettings() {
   renderStorageMeter();
   $("#set-key").value = s.apiKey || "";
   $("#set-model").value = s.model || "claude-sonnet-5";
+  const smEl = $("#set-staffmodel");
+  if (smEl) smEl.value = s.staffModel || "claude-haiku-4-5-20251001";
   $("#set-workmode").value = s.workMode || "thorough";
   $("#set-freemodel").value = s.freeModel || "";
   $("#set-name").value = s.name || "";
@@ -4365,6 +4474,7 @@ function renderSettings() {
 function saveSettings() {
   settings.apiKey = $("#set-key").value.trim();
   settings.model = $("#set-model").value;
+  settings.staffModel = $("#set-staffmodel")?.value || settings.staffModel;
   settings.workMode = $("#set-workmode").value;
   settings.freeModel = $("#set-freemodel").value.trim();
   settings.name = $("#set-name").value.trim() || "크리에이터";
@@ -4584,6 +4694,13 @@ function bindEvents() {
   // 캐시된 구버전 HTML과 조합돼도 앱 전체가 죽지 않도록 새 요소는 옵셔널 바인딩
   $("#trend-brief")?.addEventListener("click", makeTrendBrief);
   $("#trend-brief-save")?.addEventListener("click", saveTrendBrief);
+  $("#report-close")?.addEventListener("click", () => $("#report-modal").classList.add("hidden"));
+  $("#report-modal")?.addEventListener("click", (e) => { if (e.target.id === "report-modal") $("#report-modal").classList.add("hidden"); });
+  $("#report-print")?.addEventListener("click", printReportDoc);
+  $("#report-copy")?.addEventListener("click", async () => {
+    if (!reportModalTask) return;
+    try { await copyText(reportModalTask.result || ""); toast("복사됐어요!"); } catch { toast("⚠️ 복사 실패 — 다시 시도해주세요."); }
+  });
   const addTrendKw = () => {
     const v = $("#trend-kw-input").value.trim();
     if (!v) return;

@@ -924,3 +924,43 @@ body {
   white-space: pre-wrap; word-break: break-word;
 }
 #trend-brief-save { margin-top: 8px; }
+
+/* ===== 조직도 ===== */
+.org-chart { text-align: center; font-size: .85rem; }
+.org-row { margin: 2px 0; }
+.org-line { color: var(--line); font-size: .8rem; line-height: 1; }
+.org-node {
+  display: inline-block; padding: 6px 14px; border-radius: 10px;
+  background: var(--surface-2); font-weight: 700;
+}
+.org-boss { background: var(--accent); color: #fff; }
+.org-manager { background: var(--accent-soft); color: var(--accent-strong); }
+.org-teams { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 8px; }
+.org-team {
+  flex: 1; min-width: 170px; max-width: 240px; padding: 10px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
+}
+.org-lead { display: block; margin-bottom: 8px; font-size: .82rem; }
+.org-members { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; }
+.org-member {
+  padding: 3px 9px; border-radius: 999px; background: var(--surface-2); font-size: .78rem;
+}
+.org-tier { font-size: .68rem; color: var(--text-soft); font-weight: 600; width: 100%; margin-top: 3px; }
+.staff-lead-badge { background: var(--accent-strong); color: #fff; }
+
+/* ===== 보고서 문서 뷰어 ===== */
+.report-modal { max-width: 720px; width: 92vw; }
+.report-meta {
+  display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: .78rem; color: var(--text-soft);
+  border-bottom: 2px solid var(--accent); padding-bottom: 10px; margin-bottom: 12px;
+}
+.report-body {
+  max-height: 55vh; overflow-y: auto; font-size: .88rem; line-height: 1.7;
+  padding-right: 6px;
+}
+.report-body h2, .report-body h3 { color: var(--accent-strong); margin: 14px 0 6px; }
+.report-body table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: .82rem; }
+.report-body th, .report-body td { border: 1px solid var(--line); padding: 5px 8px; text-align: left; }
+.report-body th { background: var(--surface-2); }
+.report-body blockquote { border-left: 3px solid var(--accent); margin: 6px 0; padding: 2px 10px; color: var(--text-soft); }
+.report-body ul, .report-body ol { padding-left: 20px; }

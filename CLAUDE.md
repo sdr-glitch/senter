@@ -36,7 +36,7 @@ Playwright(playwright-core + `/opt/pw-browsers/chromium`)로 headless 스모크 
 
 ## 핵심 데이터 흐름
 
-지시 입력 → `createTask()`(키워드 라우팅, @이름 지명) → `dispatchWork()` = API 키 있으면 `autoWork()`(AI 파이프라인), 없으면 `templateWork()`(오프라인 초안 엔진) → 3단계(초안 draft → 교차검증 verify → 최종검토 final) → 검토 대기 review → 승인 done. 보완 요청은 카드 안 폼(철칙 7)이며 **draft/result를 비워야** 재작업이 처음부터 실행됨(`templateWork`는 draft가 있으면 검증부터 이어감 — 새로고침 복구용). 새로고침 복구는 `resumePendingFinals()`가 저장된 `autoWorking`/`finalizing` 플래그를 지운 뒤 재개. 직원 채용은 `customStaff` + `rebuildStaff()`가 책상·좌석·라우팅 전부 자동 재생성. 사무실 연출(말풍선·회의)은 항상 **실제 데이터 기반** — 지어낸 대사 금지.
+지시 입력 → `createTask()`(키워드 라우팅, @이름 지명) → `dispatchWork()` = API 키 있으면 `autoWork()`(AI 파이프라인), 없으면 `templateWork()`(오프라인 초안 엔진) → 3단계(팀원 초안 draft → 팀장 검토·팀 회의 verify → 과장 최종 final) → 검토 대기 review → 승인 done. **조직 계층**: 사장(사용자)→과장(pm)→`TEAMS` 3팀(팀장+팀원, 채용 직원은 콘텐츠팀). AI 파이프라인은 `tierModel()`로 팀원 초안=하위 모델(settings.staffModel, 기본 하이쿠), 팀장·과장=상위 모델(settings.model) — 총 3회 호출. 검토 대기/완료 카드의 [📄 보고서 보기]가 문서 뷰어(#report-modal), 인쇄는 숨김 iframe `print()`(브라우저 "PDF로 저장"). 보완 요청은 카드 안 폼(철칙 7)이며 **draft/result를 비워야** 재작업이 처음부터 실행됨(`templateWork`는 draft가 있으면 검증부터 이어감 — 새로고침 복구용). 새로고침 복구는 `resumePendingFinals()`가 저장된 `autoWorking`/`finalizing` 플래그를 지운 뒤 재개. 직원 채용은 `customStaff` + `rebuildStaff()`가 책상·좌석·라우팅 전부 자동 재생성. 사무실 연출(말풍선·회의)은 항상 **실제 데이터 기반** — 지어낸 대사 금지.
 
 **자율 근무(오토파일럿)**: `autoPilotTick()`(60초 주기, `settings.autoPilot` 기본 ON)이 ① 새 자료 → 자동 스터디 회의(silent, 탭 안 뺏음) ② 열린 업무 <2 & 검토 <4일 때 INITIATIVES 풀에서 다음 업무 자동 착수 ③ 3일 내 일정 준비 태스크 ④ 3일마다 자동 보고서. 상태는 `senter:autoState`. `templateDraft()`가 AI 없이 닉네임/릴스 대본/캡션 등 실제 초안을 생성하며 자료실 발췌(`docSnippets`)를 인용.
 

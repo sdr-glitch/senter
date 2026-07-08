@@ -21,7 +21,7 @@ studio.html─ 크리에이터 스튜디오(허브/패턴/이모티콘/템플릿
 
 | 키 | 내용 | 상한 |
 |---|---|---|
-| `senter:settings` | 프로필·apiKey·model·workMode | - |
+| `senter:settings` | 프로필·apiKey·model(팀장·과장용)·staffModel(팀원용, 기본 하이쿠)·workMode | - |
 | **IndexedDB** `senter-db`→kv→"docs" | 자료실 [{id,title,content,enabled}] — **localStorage 5MB 한계 우회(기가바이트급)**. 시작 시 `initDocsStore()`가 메모리 로드 + 레거시 `senter:docs` 자동 이전, 쓰기는 `saveDocs()` (IDB 실패 시 localStorage 폴백) | PDF 추출 100만 자/건 |
 | `senter:chats` | 멘토별 대화 {personaId:[...]} | 페르소나당 80개 |
 | `senter:tasks` | 업무 [{id,title,assignee,status,stage,draft,critique,result,note}] | - |
@@ -47,7 +47,8 @@ studio.html─ 크리에이터 스튜디오(허브/패턴/이모티콘/템플릿
 | 리서치 자동화 | 벤치마킹 보고서(`benchDraft`)·카카오 이모티콘 시장 분석(`emoticonKakaoDraft`)·멀티 플랫폼 기획(`emoticonMultiDraft`)을 자율 이니셔티브로 생성. 실시간 크롤링은 불가하므로 검증된 패턴 지식 + "10분 직접 확인 체크리스트" + AI 연결 시 심화 분석의 3층 구조. 7일마다 주간 벤치마킹 갱신 |
 | AI 3단계 체인 `aiChat()` | 사용자가 API 결제 실패(카드 문제). ① Anthropic(브라우저 직접, `anthropic-dangerous-direct-browser-access`) → ② Puter.js 무료(키 불필요, 첫 사용 시 무료계정 팝업 1회) → ③ 오프라인 템플릿(미션=로드맵 기반, 우선순위=마감순, 보고서·회의=데이터 조립) + "지시서 복사→무료 챗봇" 수동 흐름 |
 | 자동 실행은 **버튼**으로 (키 없을 때) | Puter 첫 인증 팝업은 사용자 제스처 필요 + 예상 못 한 백그라운드 호출 방지 |
-| 업무 파이프라인 3단계 검증 | draft→verify(전문가 2명 교차검증→수정→재검토)→final(매니저)→review. `workMode:"quick"`으로 1단계 모드 전환 가능. 검증 대사·회의는 실제 보드 데이터에서 생성 |
+| 업무 파이프라인 = 회사 결재선 | draft(팀원 초안, **하위 모델로 토큰 절약**)→verify(팀장 검토·수정+팀 회의 — 지적·수정을 1회 호출로 통합)→final(과장 전체 회의·최종 보고서)→review(사장 승인). `TEAMS` 3팀: 콘텐츠(planner장)·성장(analyst장)·지식창작(digest장), 팀장 담당 업무는 과장이 검토. 총 AI 3회 호출(기존 4회에서 절감 + 초안은 하이쿠). `workMode:"quick"`으로 1단계 모드 전환 가능 |
+| 보고서 PDF는 브라우저 인쇄로 | pdf 생성 라이브러리 대신 숨김 iframe에 인쇄용 HTML을 만들어 `print()` — 인쇄 대화상자의 "PDF로 저장"이 곧 다운로드. 무의존성 유지, file://·https 모두 동작 |
 | 사무실 = 평면 탑다운 픽셀 | **아이소메트릭 3D CSS(rotateX+역회전)는 환경에 따라 납작하게 렌더되는 사고 발생** → 전면 폐기. 도트게임 스타일이 안정적이고 사용자도 선호 |
 | 채용 시스템 완전 데이터 주도 | `rebuildStaff()`가 STAFF·책상 그리드·회의 좌석 타원(seatRing)·키워드 라우팅을 전부 재생성. 하드코딩 좌표 금지 |
 | studio.html은 iframe 격리 | 2,800줄 독립 앱을 인라인 병합하면 CSS/JS 충돌. iframe이면 충돌 0. **교훈: 구글 폰트 CSS가 렌더링 차단 → `media="print" onload` 비차단 로드 필수** |

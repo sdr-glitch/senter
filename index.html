@@ -447,6 +447,11 @@
       ② 결과가 마음에 안 들면 "다시 해줘" 대신 <b>"○○ 부분을 △△하게 바꿔줘"</b>처럼 구체적으로 피드백하세요<br>
       ③ 잘 나온 결과물은 "앞으로 이 스타일 유지해줘"라고 말해서 기준으로 굳히세요</div>
     </section>
+    <section class="card">
+      <h3>🏢 조직도 — 결재선</h3>
+      <p class="card-desc">팀원이 초안을 쓰면(저렴한 모델) → 팀장이 검토·수정하고 팀 회의(상위 모델) → 과장이 전체 회의 후 최종 보고서(상위 모델) → 사장님이 승인해요. 토큰은 아끼고 품질은 위에서 챙기는 구조예요.</p>
+      <div id="org-chart" class="org-chart"></div>
+    </section>
     <div id="staff-list" class="staff-list"></div>
 
     <section class="card">
@@ -556,11 +561,18 @@
       </label>
       <button class="btn-ghost btn-small" id="set-key-guide">발급 방법 다시 보기</button>
       <label class="field">
-        <span>AI 모델</span>
+        <span>AI 모델 — 팀장·과장용 (상위 직급이 검토·최종 보고서를 씁니다)</span>
         <select id="set-model">
           <option value="claude-sonnet-5">Claude Sonnet 5 — 추천 (품질·비용 균형)</option>
           <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 — 가장 저렴하고 빠름</option>
           <option value="claude-opus-4-8">Claude Opus 4.8 — 가장 똑똑함 (비용 높음)</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>팀원 모델 — 초안 작성용 (저렴한 모델로 토큰 절약)</span>
+        <select id="set-staffmodel">
+          <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 — 추천 (초안은 저렴하게, 검토는 위에서)</option>
+          <option value="claude-sonnet-5">Claude Sonnet 5 — 팀장과 동일 (품질 우선)</option>
         </select>
       </label>
       <label class="field">
@@ -623,6 +635,20 @@
     <p class="modal-desc">최근 회의 10개가 자동 저장돼요. 제목을 누르면 전체 내용이 펼쳐집니다.</p>
     <div id="minutes-list" class="minutes-list"></div>
     <div class="modal-actions"><button class="btn-ghost" id="minutes-close">닫기</button></div>
+  </div>
+</div>
+
+<!-- ===== 보고서 문서 뷰어 (인쇄 / PDF 저장) ===== -->
+<div id="report-modal" class="modal-backdrop hidden">
+  <div class="modal report-modal">
+    <h2 id="report-title">📄 보고서</h2>
+    <div id="report-meta" class="report-meta"></div>
+    <div id="report-body" class="report-body"></div>
+    <div class="modal-actions">
+      <button class="btn-primary" id="report-print">🖨️ 인쇄 / PDF 저장</button>
+      <button class="btn-ghost" id="report-copy">📋 복사</button>
+      <button class="btn-ghost" id="report-close">닫기</button>
+    </div>
   </div>
 </div>
 
