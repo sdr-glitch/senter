@@ -404,9 +404,20 @@ body {
 .room-meet {
   background: repeating-linear-gradient(45deg, #bcd8b5 0 17px, #b1cfa9 17px 34px);
 }
-.room-work {
-  background: repeating-linear-gradient(0deg, #e4dcc4 0 24px, #ddd4b8 24px 48px),
-              repeating-linear-gradient(90deg, transparent 0 23px, rgba(90,70,30,.12) 23px 24px);
+.room-mgr {
+  background: repeating-linear-gradient(90deg, #e6d3b0 0 22px, #ddc9a2 22px 44px);
+}
+.room-dept-content {
+  background: repeating-linear-gradient(0deg, #e9e0c8 0 22px, #e1d7ba 22px 44px),
+              repeating-linear-gradient(90deg, transparent 0 21px, rgba(200,120,40,.10) 21px 22px);
+}
+.room-dept-growth {
+  background: repeating-linear-gradient(0deg, #dde6d2 0 22px, #d3dec6 22px 44px),
+              repeating-linear-gradient(90deg, transparent 0 21px, rgba(40,120,80,.10) 21px 22px);
+}
+.room-dept-creative {
+  background: repeating-linear-gradient(0deg, #e4dced 0 22px, #dbd1e6 22px 44px),
+              repeating-linear-gradient(90deg, transparent 0 21px, rgba(120,70,160,.10) 21px 22px);
 }
 .room-pantry {
   background: repeating-linear-gradient(0deg, #ccd3e6 0 24px, #c2cadf 24px 48px),

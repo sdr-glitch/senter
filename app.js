@@ -494,6 +494,22 @@ ${staffContext()}
 4. 제작으로 이어지게: 이 앱의 스튜디오 탭(이모티콘 스튜디오)에서 규격에 맞춰 만들 수 있다고 연결할 것
 
 ${staffEnding()}`
+  },
+  // ── 일반 직원(팀원) — 팀장 밑에서 실무를 맡고, 팀장에게 보고 ──
+  {
+    id: "jr-editor", emoji: "🧑‍💻", name: "콘텐츠 에디터", role: "콘텐츠 마케팅부 팀원 — 게시물 정리·자막·편집표",
+    tasks: ["게시물 초안 정리해줘", "릴스 자막 다듬어줘", "카드뉴스 텍스트 배치해줘"],
+    prompt: () => juniorPrompt("콘텐츠 에디터", "콘텐츠 마케팅부", "콘텐츠 기획자(팀장)", "게시물 초안 정리, 릴스 자막·컷 편집표 작성, 카드뉴스 텍스트 배치")
+  },
+  {
+    id: "jr-research", emoji: "🔎", name: "리서치 어시스턴트", role: "성장 전략부 팀원 — 자료 수집·경쟁 계정 리스트업",
+    tasks: ["경쟁 계정 10곳 리스트업해줘", "이번 주 저장 잘 된 게시물 모아줘"],
+    prompt: () => juniorPrompt("리서치 어시스턴트", "성장 전략부", "벤치마킹 분석가(팀장)", "경쟁 계정·인기 게시물 수집과 표 정리, 분석가가 볼 수 있게 근거 자료 준비")
+  },
+  {
+    id: "jr-edu", emoji: "📔", name: "교육 도우미", role: "지식·창작부 팀원 — 자료 요약·용어 정리",
+    tasks: ["이 강의 자료 3줄 요약해줘", "어려운 마케팅 용어 쉽게 풀어줘"],
+    prompt: () => juniorPrompt("교육 도우미", "지식·창작부", "강의 소화 코치(팀장)", "학습 자료 요약, 용어 쉬운 말 풀이, 코치가 쓸 교육 카드 초안 준비")
   }
 ];
 
@@ -505,7 +521,25 @@ const LOOK_PALETTE = [
   { shirt: "#f1c40f", hair: "#2a2118" }, { shirt: "#34495e", hair: "#3b2d23" },
   { shirt: "#1abc9c", hair: "#553a24" }, { shirt: "#9b59b6", hair: "#241d18" }
 ];
-const MAX_STAFF = 11; // 사무공간 책상 한계 (매니저 포함 12자리)
+const MAX_STAFF = 14; // 부서 사무공간 책상 한계 (기본 11 + 채용 3, 채용은 콘텐츠 마케팅부 배치)
+
+/* 일반 직원(팀원) 지시서 — 팀장 밑에서 실무를 맡고 팀장에게 보고하는 톤 */
+function juniorPrompt(name, dept, boss, duty) {
+  return `지금부터 너는 나의 '${name}' 직원이야. ${dept} 소속 팀원이고, 직속 상사는 ${boss}야.
+
+${staffContext()}
+
+[담당 업무]
+${duty}
+
+[업무 규칙]
+1. 팀장의 지시를 정확히 반영하고, 결과물은 바로 쓸 수 있는 완성된 형태로 만들 것
+2. 내가 판단하기 애매한 부분은 "팀장 확인 필요" 표시를 남길 것
+3. 전문 용어는 쓰되 즉시 쉬운 말로 풀어줄 것
+4. 팀장이 보완을 지시하면 그 기준을 기억하고 다음 결과물에 반영할 것
+
+${staffEnding()}`;
+}
 
 function customPrompt(c) {
   return `지금부터 너는 나의 '${c.name}' 직원이야. 역할: ${c.role}
@@ -554,6 +588,33 @@ function seatRing(n) {
   return out;
 }
 
+/* ---------- 조직 구조: 대표 → 과장(pm) → 부서 팀장 → 일반 직원 ----------
+   각 부서는 사무실에서 별도 사무공간(room)을 가진다. 채용 직원은 콘텐츠 마케팅부 소속. */
+const TEAMS = [
+  { id: "content", name: "콘텐츠 마케팅부", icon: "🎨", lead: "planner",
+    members: ["planner", "copywriter", "reels", "jr-editor"],
+    room: { x: 1.5, y: 39, w: 24, h: 53 } },
+  { id: "growth", name: "성장 전략부", icon: "📈", lead: "analyst",
+    members: ["analyst", "review", "brand", "jr-research"],
+    room: { x: 26.5, y: 39, w: 24, h: 53 } },
+  { id: "creative", name: "지식·창작부", icon: "📚", lead: "digest",
+    members: ["digest", "emoti", "jr-edu"],
+    room: { x: 51.5, y: 48, w: 23, h: 44 } },
+];
+function teamOf(staffId) {
+  return TEAMS.find(t => t.members.includes(staffId)) || TEAMS[0]; // 채용 직원은 콘텐츠 마케팅부 소속
+}
+function isTeamLead(staffId) { return TEAMS.some(t => t.lead === staffId); }
+function teamLeadFor(staffId) {
+  return STAFF.find(s => s.id === teamOf(staffId).lead) || STAFF[0];
+}
+/* 직급별 모델: 팀원(staff)=하위 모델로 토큰 절약, 팀장(lead)·과장(manager)=상위 모델 */
+function tierModel(tier) {
+  const top = (settings && settings.model) || "claude-sonnet-5";
+  if (tier === "staff") return (settings && settings.staffModel) || "claude-haiku-4-5-20251001";
+  return top;
+}
+
 function rebuildStaff() {
   STAFF = [
     ...BASE_STAFF,
@@ -571,23 +632,34 @@ function rebuildStaff() {
     ...STAFF.map(s => ({ id: s.id, emoji: s.emoji, name: s.name }))
   ];
 
-  // 책상 자동 배치: 사무공간에 4열 그리드
-  DESK_POS = { boss: [12, 15] };
-  WORK_POS = { boss: [12, 26] };
-  const deskIds = ["pm", ...STAFF.map(s => s.id)];
-  deskIds.forEach((id, i) => {
-    const col = i % 4, row = Math.floor(i / 4);
-    DESK_POS[id] = [9 + 12.8 * col, 50 + 18 * row];
-    WORK_POS[id] = [9 + 12.8 * col, 58 + 18 * row];
+  // 책상 자동 배치: 대표실 / 과장실 / 부서별 사무공간
+  DESK_POS = { boss: [12, 14], pm: [34, 8] };
+  WORK_POS = { boss: [12, 24], pm: [34, 15] };
+  TEAMS.forEach(team => {
+    const room = team.room;
+    const cols = room.w >= 23.5 ? 2 : 1;
+    const cellW = room.w / cols;
+    const memberIds = STAFF.filter(s => teamOf(s.id).id === team.id).map(s => s.id)
+      .sort((a, b) => (b === team.lead ? 1 : 0) - (a === team.lead ? 1 : 0)); // 팀장 먼저
+    memberIds.forEach((id, i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      const dx = room.x + cellW * col + cellW / 2 - 2;
+      const dy = room.y + 9 + row * 11.5;
+      DESK_POS[id] = [dx, dy];
+      WORK_POS[id] = [dx, dy + 6.5];
+    });
   });
 
   SEATS = seatRing(OFFICE_AGENTS.length);
 
-  // 배정 규칙: 커스텀 직원 키워드가 우선
+  // 배정 규칙: 커스텀 직원 키워드 우선 → 일반 직원(팀원) 키워드 → 팀장·전문직 키워드
   ROUTES = [
     ...customStaff
       .filter(c => c.keywords && c.keywords.length)
       .map(c => [new RegExp(c.keywords.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")), c.id]),
+    [/에디터|자막|편집표/, "jr-editor"],
+    [/리서치|자료 수집|리스트업/, "jr-research"],
+    [/요약|용어 정리|용어풀이/, "jr-edu"],
     ...BASE_ROUTES
   ];
 }
@@ -604,7 +676,10 @@ function getLook(id) {
     review: { shirt: "#c0392b", hair: "#2a2118" },
     brand: { shirt: "#2980b9", hair: "#4a3625" },
     digest: { shirt: "#7f8c8d", hair: "#241d18" },
-    emoti: { shirt: "#f5b942", hair: "#3b2d23" }
+    emoti: { shirt: "#f5b942", hair: "#3b2d23" },
+    "jr-editor": { shirt: "#6c8ebf", hair: "#3b2d23" },
+    "jr-research": { shirt: "#5aa06f", hair: "#4a3625" },
+    "jr-edu": { shirt: "#b58bce", hair: "#241d18" }
   };
   if (AGENT_LOOK_BASE[id]) return AGENT_LOOK_BASE[id];
   const c = customStaff.find(x => x.id === id);
@@ -1494,18 +1569,19 @@ tasks.forEach(t => {
 
 /* 사무실 구조 (좌표는 % 단위) */
 const ROOMS = [
-  { id: "ceo", name: "대표실", x: 1.5, y: 2, w: 26, h: 34 },
+  { id: "ceo", name: "대표실", x: 1.5, y: 2, w: 24, h: 33 },
+  { id: "mgr", name: "과장실", x: 27, y: 2, w: 18, h: 20 },
   { id: "meet", name: "회의실", x: 55, y: 2, w: 43.5, h: 44 },
-  { id: "work", name: "사무공간", x: 1.5, y: 40, w: 50, h: 58 },
-  { id: "pantry", name: "탕비실", x: 55, y: 50, w: 20.5, h: 48 },
-  { id: "lounge", name: "휴게공간", x: 78, y: 50, w: 20.5, h: 48 }
+  ...TEAMS.map(t => ({ id: "dept-" + t.id, name: `${t.icon} ${t.name}`, x: t.room.x, y: t.room.y, w: t.room.w, h: t.room.h })),
+  { id: "pantry", name: "탕비실", x: 76, y: 48, w: 22, h: 20 },
+  { id: "lounge", name: "휴게공간", x: 76, y: 69, w: 22, h: 23 }
 ];
 
-/* 휴식 공간 자리 */
-const LOUNGE_SPOTS = [[84, 70], [92, 70], [88, 86], [83, 91]];
-const PANTRY_SPOTS = [[61, 72], [70, 72], [65, 87], [70, 91]];
+/* 휴식 공간 자리 (탕비실·휴게 새 좌표에 맞춤) */
+const LOUNGE_SPOTS = [[81, 76], [93, 76], [84, 85], [90, 89]];
+const PANTRY_SPOTS = [[80, 55], [92, 55], [82, 63], [92, 63]];
 const BREAK_BUBBLES = ["☕ 커피 한 잔...", "잠깐 쉬는 중이에요", "🍪 간식 타임!", "금방 복귀합니다!"];
-const HALL_SPOTS = [[35, 22], [42, 30], [30, 30], [48, 20]];
+const HALL_SPOTS = [[36, 26], [46, 30], [30, 30], [48, 24]];
 
 const officeState = { built: false, meeting: false, agents: {} };
 
@@ -1578,8 +1654,8 @@ function buildOffice() {
   const bossDesk = addFurniture(floor, "f-desk f-bigdesk", DESK_POS.boss[0], DESK_POS.boss[1], `<span class="stand f-monitor">🖥️</span>`);
   bossDesk.classList.add("f-clickable");
   bossDesk.addEventListener("click", () => openStaffModal("boss"));
-  addFurniture(floor, "f-prop", 23, 8, `<span class="stand">📚</span>`);
-  addFurniture(floor, "f-prop", 4, 30, `<span class="stand">🪴</span>`);
+  addFurniture(floor, "f-prop", 21, 7, `<span class="stand">📚</span>`);
+  addFurniture(floor, "f-prop", 4, 28, `<span class="stand">🪴</span>`);
 
   // 가구 — 회의실
   addFurniture(floor, "f-table", 76.5, 25, "<span>회의 테이블</span>");
@@ -1596,20 +1672,19 @@ function buildOffice() {
     desk.title = a.name;
     desk.addEventListener("click", () => openStaffModal(a.id));
   });
-  addFurniture(floor, "f-prop", 4, 44, `<span class="stand">🖨️</span>`);
-  addFurniture(floor, "f-prop", 48, 94, `<span class="stand">🌿</span>`);
+  addFurniture(floor, "f-prop", 52, 94, `<span class="stand">🖨️</span>`);
 
   // 가구 — 탕비실
-  addFurniture(floor, "f-counter", 65, 58, `<span class="stand">☕🫖🍪</span>`);
-  addFurniture(floor, "f-prop", 58, 93, `<span class="stand">🧃</span>`);
+  addFurniture(floor, "f-counter", 86, 53, `<span class="stand">☕🫖🍪</span>`);
+  addFurniture(floor, "f-prop", 78, 63, `<span class="stand">🧃</span>`);
 
   // 가구 — 휴게공간
-  addFurniture(floor, "f-sofa", 88, 61);
-  addFurniture(floor, "f-rug", 88, 80);
-  addFurniture(floor, "f-prop", 95, 55, `<span class="stand">🪴</span>`);
+  addFurniture(floor, "f-sofa", 86, 75);
+  addFurniture(floor, "f-rug", 86, 85);
+  addFurniture(floor, "f-prop", 95, 71, `<span class="stand">🪴</span>`);
 
   // 복도 소품
-  addFurniture(floor, "f-prop", 52.5, 20, `<span class="stand">🌿</span>`);
+  addFurniture(floor, "f-prop", 50, 24, `<span class="stand">🌿</span>`);
 
   // 캐릭터
   OFFICE_AGENTS.forEach(a => {
@@ -2397,19 +2472,28 @@ async function handleDirective() {
   const btn = $("#directive-go");
   btn.disabled = true;
 
-  // "@직원이름 지시내용" 으로 담당 직접 지정
-  const mention = text.match(/^@(\S+)\s+(.+)/);
-  if (mention) {
-    const target = STAFF.find(s => s.name.replace(/\s/g, "").includes(mention[1].replace(/\s/g, "")));
+  // "@직원이름 지시내용" 으로 담당 직접 지정 (두 단어 이름 지원: 이름 글자 수만큼 소비 후 나머지를 지시로)
+  if (text.startsWith("@")) {
+    const body = text.slice(1).replace(/^\s+/, "");
+    const bodyNs = body.replace(/\s/g, "");
+    const target = STAFF
+      .filter(s => bodyNs.startsWith(s.name.replace(/\s/g, "")))
+      .sort((a, b) => b.name.replace(/\s/g, "").length - a.name.replace(/\s/g, "").length)[0];
     if (target) {
-      const t = createTask(mention[2].trim(), target.id);
-      renderBoard(); updateOfficeStatuses();
-      toast(`🎯 ${target.name}에게 직접 배정!`);
-      btn.disabled = false;
-      dispatchWork(t);
-      return;
+      const need = target.name.replace(/\s/g, "").length;
+      let consumed = 0, i = 0;
+      while (i < body.length && consumed < need) { if (!/\s/.test(body[i])) consumed++; i++; }
+      const directive = body.slice(i).trim();
+      if (directive) {
+        const t = createTask(directive, target.id);
+        renderBoard(); updateOfficeStatuses();
+        toast(`🎯 ${target.name}에게 직접 배정!`);
+        btn.disabled = false;
+        dispatchWork(t);
+        return;
+      }
     }
-    text = mention[2].trim(); // 못 찾으면 일반 배정으로
+    text = body; // 못 찾으면 일반 배정으로
   }
 
   let assignments = null;
@@ -2451,25 +2535,6 @@ const STAGE_LABEL = {
 /* ---------- 조직 구조: 사장(사용자) → 과장(매니저) → 분야별 팀장 → 팀원 ----------
    토큰 절약 설계: 팀원 초안은 하위 모델(저렴), 팀장 검토·과장 최종은 상위 모델.
    결재선: 팀원 작성 → 팀장 검토·수정 + 팀 회의 → 과장 전체 회의·재검토 → 최종 보고서 → 사장 승인 */
-const TEAMS = [
-  { id: "content", name: "콘텐츠팀", lead: "planner", members: ["planner", "copywriter", "reels"] },
-  { id: "growth", name: "성장팀", lead: "analyst", members: ["analyst", "review", "brand"] },
-  { id: "creative", name: "지식·창작팀", lead: "digest", members: ["digest", "emoti"] },
-];
-function teamOf(staffId) {
-  return TEAMS.find(t => t.members.includes(staffId)) || TEAMS[0]; // 채용 직원은 콘텐츠팀 소속
-}
-function isTeamLead(staffId) { return TEAMS.some(t => t.lead === staffId); }
-function teamLeadFor(staffId) {
-  return STAFF.find(s => s.id === teamOf(staffId).lead) || STAFF[0];
-}
-/* 직급별 모델: 팀원(staff)=하위 모델로 토큰 절약, 팀장(lead)·과장(manager)=상위 모델 */
-function tierModel(tier) {
-  const top = (settings && settings.model) || "claude-sonnet-5";
-  if (tier === "staff") return (settings && settings.staffModel) || "claude-haiku-4-5-20251001";
-  return top;
-}
-
 function reviewersFor(assignee) {
   const others = STAFF.filter(s => s.id !== assignee);
   return [others[0], others[1] || others[0]];
@@ -3189,8 +3254,10 @@ async function templateWork(task) {
   await sleep(3500);
   if (task.status !== "doing") { task.autoWorking = false; return; }
 
-  const twLead = isTeamLead(task.assignee) ? { id: "pm", name: "매니저(과장)" } : teamLeadFor(task.assignee);
-  task.critique = `👔 ${twLead.name} 검토: 구성·필수 요소·말투 점검 완료 (팀 회의). AI 연결 시 내용 자체의 검토가 더 깊어져요.`;
+  const twLeadName = isTeamLead(task.assignee)
+    ? "매니저(과장)"
+    : `${teamLeadFor(task.assignee).name}(${teamOf(task.assignee).name} 팀장)`;
+  task.critique = `👔 ${twLeadName} 검토: 구성·필수 요소·말투 점검 완료 (팀 회의). AI 연결 시 내용 자체의 검토가 더 깊어져요.`;
   task.stage = "final";
   renderBoard();
   speak("pm", "과장 최종 검토 들어갑니다 🧐", 2500);
