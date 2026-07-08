@@ -2311,7 +2311,8 @@ async function studyMeeting(docId, opts = {}) {
   const log = $("#meeting-log");
   logWrap.classList.remove("hidden");
   log.innerHTML = "";
-  $("#meeting-log-date").textContent = `📖 자료 스터디 · ${new Date().toLocaleString("ko-KR", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
+  const deep = opts.deep || 1; // 같은 자료 반복 회의 회차 (1=최초)
+  $("#meeting-log-date").textContent = `📖 ${deep > 1 ? `심화 스터디 (${deep}회차)` : "자료 스터디"} · ${new Date().toLocaleString("ko-KR", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
 
   const minutes = [];
   const record = (id, text) => {
@@ -2330,17 +2331,24 @@ async function studyMeeting(docId, opts = {}) {
   attendees.forEach((id, i) => moveAgent(id, ...SEATS[i % SEATS.length]));
   await sleep(2100);
 
-  await say("pm", `『${doc.title}』 자료 스터디 회의 시작합니다 📖 소화 코치님, 핵심 브리핑 부탁해요.`);
+  await say("pm", deep > 1
+    ? `『${doc.title}』 ${deep}회차 심화 스터디입니다 🔁 지난 회의보다 더 깊이 파봅시다. 소화 코치님, 새 각도로 브리핑 부탁해요.`
+    : `『${doc.title}』 자료 스터디 회의 시작합니다 📖 소화 코치님, 핵심 브리핑 부탁해요.`);
 
-  // 핵심 요약: AI 가능하면 진짜 요약, 아니면 자료 발췌
+  // 핵심 요약: AI 가능하면 진짜 요약, 아니면 자료 발췌 (심화 회차는 다른 관점·다른 구간)
   let summary = "";
   try {
     summary = await aiChat(
-      `너는 강의 자료를 소화시키는 코치다. 아래 자료의 핵심을 3줄로 요약하고, 이 팀(SNS 계정 운영)이 바로 실행할 액션 3가지를 제안하라. 형식: "핵심: ..." 3줄, "실행: ..." 3줄. 한국어 간결하게.\n\n${staffContext()}`,
+      `너는 강의 자료를 소화시키는 코치다. ${deep > 1 ? `이번은 ${deep}회차 심화 회의다. 앞선 회의에서 다룬 뻔한 요약은 피하고, 남들이 놓치는 디테일·반례·적용 심화 포인트를 새로 뽑아라. ` : ""}아래 자료의 핵심을 3줄로 요약하고, 이 팀(SNS 계정 운영)이 바로 실행할 액션 3가지를 제안하라. 형식: "핵심: ..." 3줄, "실행: ..." 3줄. 한국어 간결하게.\n\n${staffContext()}`,
       [{ role: "user", content: doc.content.slice(0, 20000) }], () => {});
   } catch {
-    const firstBits = doc.content.replace(/\s+/g, " ").slice(0, 150);
-    summary = `핵심 발췌: "${firstBits}..." — 전체 내용은 자료실에서 확인할 수 있어요. (AI 연결 시 진짜 요약과 실행 계획이 나와요)`;
+    // 회차마다 다른 구간을 발췌해 반복 회의가 새 내용을 다루게
+    const clean = doc.content.replace(/\s+/g, " ");
+    const start = Math.min(clean.length - 1, (deep - 1) * 150);
+    const bits = clean.slice(start, start + 150);
+    summary = deep > 1
+      ? `핵심(${deep}회차): "${bits}..." — 이 구간을 더 파고들면 실행 디테일이 나옵니다. (AI 연결 시 심화 요약이 자동)`
+      : `핵심 발췌: "${clean.slice(0, 150)}..." — 전체 내용은 자료실에서 확인할 수 있어요. (AI 연결 시 진짜 요약과 실행 계획이 나와요)`;
   }
   for (const line of summary.split("\n").map(s => s.trim()).filter(Boolean).slice(0, 6)) {
     await say("digest", line, 2400);
@@ -2350,7 +2358,7 @@ async function studyMeeting(docId, opts = {}) {
   await say("copywriter", "저도 캡션 쓸 때 이 자료 톤을 참고할게요!");
   await say("pm", `정리 감사합니다. 이 자료는 앞으로 업무에 자동으로 반영됩니다. 회의 끝! 📖`);
 
-  meetings.unshift({ date: Date.now(), minutes, study: doc.title });
+  meetings.unshift({ date: Date.now(), minutes, study: doc.title + (deep > 1 ? ` (심화 ${deep}회차)` : "") });
   meetings = meetings.slice(0, 100); // 회의록 저장 상한 (IndexedDB라 여유)
   store.set("meetings", meetings);
   logActivity(`📖 『${doc.title}』 스터디 회의 완료 — 회의록 저장`);
@@ -3382,7 +3390,43 @@ async function autoPilotTick(force = false) {
     return;
   }
 
-  // 6) 3일마다 운영 보고서 자동 작성
+  // 7) 같은 자료로 반복 심화 스터디 회의 — 자료당 최대 3회, 매번 새 각도로 파고들어 최적화
+  const enabledDocs = docs.filter(d => d.enabled && !d.title.startsWith("📑") && !d.title.startsWith("🇰🇷"));
+  if (enabledDocs.length) {
+    auto.deepCount = auto.deepCount || {};
+    const target = enabledDocs.slice().sort((a, b) => (auto.deepCount[a.id] || 0) - (auto.deepCount[b.id] || 0))[0];
+    const rounds = auto.deepCount[target.id] || 0;
+    if (rounds < 3) {
+      if (chatterBusy) return; // 연출 겹침 방지 — 다음 틱 재시도
+      auto.deepCount[target.id] = rounds + 1;
+      store.set("autoState", auto);
+      postChat("pm", `『${target.title}』를 다시 파고드는 심화 스터디 회의를 엽니다 (${rounds + 2}회차) 🔁`);
+      await studyMeeting(target.id, { silent: true, deep: rounds + 2 });
+      return;
+    }
+  }
+
+  // 8) 최적화 개선 라운드 — 초안이 소진돼도 루프가 멈추지 않게 핵심 자산을 계속 개선(vN)
+  auto.improve = auto.improve || {};
+  const IMPROVE = [
+    { key: "reels", title: "릴스 대본 개선안", assignee: "reels" },
+    { key: "caption", title: "캡션·해시태그 개선안", assignee: "copywriter" },
+    { key: "ideas", title: "게시물 아이디어 개선안", assignee: "planner" },
+    { key: "bench", title: "벤치마킹 심화 개선안", assignee: "analyst" }
+  ];
+  // 가장 적게 개선된 자산을 골라 다음 버전 착수 (라운드 순환 → 계속 돌아감)
+  const pick = IMPROVE.slice().sort((a, b) => (auto.improve[a.key] || 0) - (auto.improve[b.key] || 0))[0];
+  const ver = (auto.improve[pick.key] || 0) + 2; // v2부터 (v1 = 최초 초안)
+  auto.improve[pick.key] = ver;
+  store.set("autoState", auto);
+  postChat("pm", `기획 회의 결과, 지난 결과물을 더 끌어올릴 개선 라운드를 진행합니다: 「${pick.title} v${ver}」 → ${staffName(pick.assignee)} 담당 🔧`);
+  speak("pm", `개선 라운드 v${ver}, 알아서 착수합니다! 🔧`, 3000);
+  const impTask = createTask(`${pick.title} v${ver} (${todayStr()})`, pick.assignee);
+  logActivity(`🔁 자율 근무: 「${pick.title} v${ver}」 최적화 개선 착수`);
+  renderBoard(); updateOfficeStatuses();
+  dispatchWork(impTask);
+
+  // 9) 3일마다 운영 보고서도 별도로 자동 작성
   if (Date.now() - (auto.lastReportAt || 0) > 3 * 86400000) {
     auto.lastReportAt = Date.now();
     store.set("autoState", auto);
