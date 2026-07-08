@@ -26,9 +26,9 @@
 | `trend-viewer/` | 별도 로컬 트렌드 관제판 (Python 3 stdlib, 포트 8779, 웹 배포와 무관) |
 | `docs/` | ARCHITECTURE.md(상세 설계), PROMPT-TEMPLATE.md(재사용 프롬프트) |
 
-## 디자인 토큰 (오트밀/세이지)
+## 디자인 토큰 (테마 2종)
 
-`--bg:#f7f6f3 --surface:#fff --text:#262522 --accent:#2e7d5b --accent-strong:#1f5c42 --accent-soft:#e3f0e9 --line:#e5e2d9` (studio.html은 자체 토큰: oat #EFEEE7, sage #5E7C64). 사무실 픽셀 파트만 예외적으로 진한 외곽선(#14161f)과 하드 섀도 사용.
+**기본 = 오로라** (사용자 제공 목업 기준, 라벤더·핑크 파스텔 글래스): `:root`에 `--bg:#f5f2fb --bg-grad(라벤더 그라데이션) --surface:rgba(255,255,255,.8)+blur --accent:#8b7cf6 --grad-btn/--grad-bar(보라→핑크)`. **오트밀 클래식**은 `body[data-theme="oatmeal"]`로 전환(설정 탭, `settings.theme`): `--bg:#f7f6f3 --accent:#2e7d5b` 등 기존 세트. **새 색은 반드시 토큰으로만 추가** — 하드코딩하면 테마 전환이 깨짐. (studio.html은 자체 토큰: oat #EFEEE7, sage #5E7C64). 사무실 픽셀 파트만 예외적으로 진한 외곽선(#14161f)과 하드 섀도 사용. 모바일(≤720px)은 상단 탭 대신 하단 네비(#bottomnav 4탭+더보기 시트) — **하단 고정 요소는 bottom:64px 이상으로** (토큰 바 겹침 사고).
 
 ## 테스트 방법
 

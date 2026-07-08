@@ -1117,10 +1117,38 @@ function renderHome() {
   const s = settings;
   const hour = new Date().getHours();
   const hi = hour < 6 ? "새벽까지 열정이네요" : hour < 12 ? "좋은 아침이에요" : hour < 18 ? "좋은 오후예요" : "오늘 하루 수고했어요";
-  $("#home-greeting").textContent = `${hi}, ${s.name}님! 🌱`;
-  $("#home-sub").textContent = `${s.topic} 계정 · 목표: ${s.goal}`;
+  $("#home-greeting").textContent = `${hi}, ${s.name}님! 👋`;
+  $("#home-sub").textContent = `${s.topic} 계정 · 목표: ${s.goal} — 우리의 성과를 한눈에 확인해보세요.`;
+  renderHomeStats();
   renderMissions();
   renderRoadmap();
+}
+
+/* 홈 대시보드: 진행 중 업무 / 완료 / 예정 일정 (실제 데이터) */
+function renderHomeStats() {
+  if (!$("#stat-open")) return;
+  const weekAgo = Date.now() - 7 * 86400000;
+  const open = tasks.filter(t => t.status === "todo" || t.status === "doing").length;
+  const review = tasks.filter(t => t.status === "review").length;
+  const doneAll = tasks.filter(t => t.status === "done");
+  const doneWeek = doneAll.filter(t => (t.doneAt || 0) >= weekAgo).length;
+  const today = todayStr();
+  const upcoming = events.filter(e => e.date >= today).length;
+  const todayCnt = events.filter(e => e.date === today).length;
+  $("#stat-open").textContent = open + review;
+  $("#stat-open-delta").textContent = review ? `검토 대기 ${review}건` : "";
+  $("#stat-done").textContent = doneAll.length;
+  $("#stat-done-delta").textContent = doneWeek ? `+${doneWeek} 이번 주` : "";
+  $("#stat-events").textContent = upcoming;
+  $("#stat-events-delta").textContent = todayCnt ? `오늘 ${todayCnt}건 🗓️` : "";
+  // 최근 활동 3건
+  const list = $("#home-activity-list");
+  if (list) {
+    const recent = activity.slice(0, 3);
+    list.innerHTML = recent.length
+      ? recent.map(a => `<div class="chatline"><span class="chatline-text">${escapeHtml(a.text)}</span><span class="chatline-time">${new Date(a.at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</span></div>`).join("")
+      : `<div class="mission-empty">아직 활동이 없어요. 직원들이 일을 시작하면 여기에 기록돼요!</div>`;
+  }
 }
 
 function renderMissions() {
@@ -3400,6 +3428,10 @@ function renderBoard() {
           return `<span class="stage-dot ${done ? "sd-done" : cur ? "sd-cur" : ""}"></span>`;
         }).join("") + `<span class="stage-text">${STAGE_LABEL[t.stage]}</span>`;
         card.appendChild(stageEl);
+        const prog = document.createElement("div");
+        prog.className = "task-progress";
+        prog.innerHTML = `<i style="width:${{ draft: 33, verify: 66, final: 90 }[t.stage] || 10}%"></i>`;
+        card.appendChild(prog);
       }
 
       if (t.critique && status !== "done") {
@@ -4462,6 +4494,8 @@ function renderSettings() {
   $("#set-model").value = s.model || "claude-sonnet-5";
   const smEl = $("#set-staffmodel");
   if (smEl) smEl.value = s.staffModel || "claude-haiku-4-5-20251001";
+  const thEl = $("#set-theme");
+  if (thEl) thEl.value = s.theme || "aurora";
   $("#set-workmode").value = s.workMode || "thorough";
   $("#set-freemodel").value = s.freeModel || "";
   $("#set-name").value = s.name || "";
@@ -4475,7 +4509,9 @@ function saveSettings() {
   settings.apiKey = $("#set-key").value.trim();
   settings.model = $("#set-model").value;
   settings.staffModel = $("#set-staffmodel")?.value || settings.staffModel;
+  settings.theme = $("#set-theme")?.value || settings.theme || "aurora";
   settings.workMode = $("#set-workmode").value;
+  applyTheme();
   settings.freeModel = $("#set-freemodel").value.trim();
   settings.name = $("#set-name").value.trim() || "크리에이터";
   settings.topic = $("#set-topic").value.trim() || "리빙";
@@ -4490,6 +4526,12 @@ function saveSettings() {
   const note = $("#set-saved");
   note.classList.remove("hidden");
   setTimeout(() => note.classList.add("hidden"), 2000);
+}
+
+function applyTheme() {
+  const th = (settings && settings.theme) || "aurora";
+  if (th === "oatmeal") document.body.dataset.theme = "oatmeal";
+  else document.body.removeAttribute("data-theme");
 }
 
 function renderKeyStatus() {
@@ -4574,6 +4616,8 @@ function importBackup(file) {
 /* ---------- 탭 전환 ---------- */
 function switchTab(name) {
   $$(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
+  $$(".bn-item").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+  $("#morenav")?.classList.add("hidden");
   $$(".tab-panel").forEach(p => p.classList.add("hidden"));
   $("#tab-" + name).classList.remove("hidden");
   window.scrollTo({ top: 0 });
@@ -4701,6 +4745,11 @@ function bindEvents() {
     if (!reportModalTask) return;
     try { await copyText(reportModalTask.result || ""); toast("복사됐어요!"); } catch { toast("⚠️ 복사 실패 — 다시 시도해주세요."); }
   });
+  // 모바일 하단 네비게이션
+  $$("#bottomnav [data-tab], #morenav [data-tab]").forEach(b =>
+    b.addEventListener("click", () => switchTab(b.dataset.tab)));
+  $("#bn-more")?.addEventListener("click", () => $("#morenav").classList.toggle("hidden"));
+  $("#home-to-office")?.addEventListener("click", () => switchTab("office"));
   const addTrendKw = () => {
     const v = $("#trend-kw-input").value.trim();
     if (!v) return;
@@ -5572,6 +5621,7 @@ function renderReels() {
 
 /* ---------- 시작 ---------- */
 function init() {
+  applyTheme();
   setupChipRows();
   bindEvents();
   if (!settings) {
