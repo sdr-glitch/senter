@@ -419,6 +419,10 @@ body {
   background: repeating-linear-gradient(0deg, #e4dced 0 22px, #dbd1e6 22px 44px),
               repeating-linear-gradient(90deg, transparent 0 21px, rgba(120,70,160,.10) 21px 22px);
 }
+.room-dept-education {
+  background: repeating-linear-gradient(0deg, #e8e2d0 0 22px, #ded7c0 22px 44px),
+              repeating-linear-gradient(90deg, transparent 0 21px, rgba(150,110,40,.10) 21px 22px);
+}
 .room-pantry {
   background: repeating-linear-gradient(0deg, #ccd3e6 0 24px, #c2cadf 24px 48px),
               repeating-linear-gradient(90deg, transparent 0 23px, rgba(50,60,100,.12) 23px 24px);

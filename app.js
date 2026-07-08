@@ -507,9 +507,34 @@ ${staffEnding()}`
     prompt: () => juniorPrompt("리서치 어시스턴트", "성장 전략부", "벤치마킹 분석가(팀장)", "경쟁 계정·인기 게시물 수집과 표 정리, 분석가가 볼 수 있게 근거 자료 준비")
   },
   {
-    id: "jr-edu", emoji: "📔", name: "교육 도우미", role: "지식·창작부 팀원 — 자료 요약·용어 정리",
+    id: "jr-edu", emoji: "📔", name: "교육 도우미", role: "내부 교육부 팀원 — 자료 요약·용어 정리",
     tasks: ["이 강의 자료 3줄 요약해줘", "어려운 마케팅 용어 쉽게 풀어줘"],
-    prompt: () => juniorPrompt("교육 도우미", "지식·창작부", "강의 소화 코치(팀장)", "학습 자료 요약, 용어 쉬운 말 풀이, 코치가 쓸 교육 카드 초안 준비")
+    prompt: () => juniorPrompt("교육 도우미", "내부 교육부", "강의 소화 코치(팀장)", "학습 자료 요약, 용어 쉬운 말 풀이, 코치가 쓸 교육 카드 초안 준비")
+  },
+  {
+    id: "jr-shorts", emoji: "🎞️", name: "숏폼 편집자", role: "콘텐츠 마케팅부 팀원 — 숏폼 컷 편집·자막 실무",
+    tasks: ["이 영상 컷 편집표 만들어줘", "숏폼 자막 타이밍 잡아줘"],
+    prompt: () => juniorPrompt("숏폼 편집자", "콘텐츠 마케팅부", "콘텐츠 기획자(팀장)", "릴스/숏폼 컷 편집표 작성, 자막 타이밍·후킹 컷 배치, 릴스 PD 지시 반영")
+  },
+  {
+    id: "jr-data", emoji: "📊", name: "데이터 분석원", role: "성장 전략부 팀원 — 인사이트 수치 정리·성과 리포트",
+    tasks: ["이번 주 인사이트 수치 정리해줘", "게시물별 저장수 표로 만들어줘"],
+    prompt: () => juniorPrompt("데이터 분석원", "성장 전략부", "벤치마킹 분석가(팀장)", "인사이트 수치 정리, 게시물 성과 표·주간 리포트 작성, 분석가가 해석할 근거 데이터 준비")
+  },
+  {
+    id: "jr-design", emoji: "🖌️", name: "디자인 어시스턴트", role: "크리에이티브 스튜디오부 팀원 — 시안·썸네일 비주얼",
+    tasks: ["썸네일 문구·구도 시안 뽑아줘", "이모티콘 시안 배치안 잡아줘"],
+    prompt: () => juniorPrompt("디자인 어시스턴트", "크리에이티브 스튜디오부", "이모티콘 기획자(팀장)", "썸네일·시안 구도와 문구 배치안, 이모티콘 시안 레이아웃 초안, 기획자 지시 반영")
+  },
+  {
+    id: "jr-goods", emoji: "🧷", name: "굿즈 기획자", role: "크리에이티브 스튜디오부 팀원 — 굿즈·MD 상품 기획",
+    tasks: ["우리 캐릭터로 만들 굿즈 3종 제안해줘", "스티커 상품 구성안 짜줘"],
+    prompt: () => juniorPrompt("굿즈 기획자", "크리에이티브 스튜디오부", "이모티콘 기획자(팀장)", "캐릭터 기반 굿즈·MD 상품 아이디어와 구성안, 제작 준비물 리스트, 기획자 검토용 초안")
+  },
+  {
+    id: "jr-onboard", emoji: "🧑‍🏫", name: "온보딩 담당", role: "내부 교육부 팀원 — 신입 온보딩·사내 가이드",
+    tasks: ["신입 직원 온보딩 체크리스트 만들어줘", "우리 팀 업무 가이드 정리해줘"],
+    prompt: () => juniorPrompt("온보딩 담당", "내부 교육부", "강의 소화 코치(팀장)", "신규 직원 온보딩 체크리스트, 팀 업무 가이드·용어집 정리, 코치가 배포할 교육 문서 초안")
   }
 ];
 
@@ -521,7 +546,7 @@ const LOOK_PALETTE = [
   { shirt: "#f1c40f", hair: "#2a2118" }, { shirt: "#34495e", hair: "#3b2d23" },
   { shirt: "#1abc9c", hair: "#553a24" }, { shirt: "#9b59b6", hair: "#241d18" }
 ];
-const MAX_STAFF = 14; // 부서 사무공간 책상 한계 (기본 11 + 채용 3, 채용은 콘텐츠 마케팅부 배치)
+const MAX_STAFF = 18; // 부서 사무공간 책상 한계 (기본 16 + 채용 2, 채용은 콘텐츠 마케팅부 배치)
 
 /* 일반 직원(팀원) 지시서 — 팀장 밑에서 실무를 맡고 팀장에게 보고하는 톤 */
 function juniorPrompt(name, dept, boss, duty) {
@@ -591,15 +616,18 @@ function seatRing(n) {
 /* ---------- 조직 구조: 대표 → 과장(pm) → 부서 팀장 → 일반 직원 ----------
    각 부서는 사무실에서 별도 사무공간(room)을 가진다. 채용 직원은 콘텐츠 마케팅부 소속. */
 const TEAMS = [
-  { id: "content", name: "콘텐츠 마케팅부", icon: "🎨", lead: "planner",
-    members: ["planner", "copywriter", "reels", "jr-editor"],
-    room: { x: 1.5, y: 39, w: 24, h: 53 } },
+  { id: "content", name: "콘텐츠 마케팅부", icon: "🎬", lead: "planner",
+    members: ["planner", "copywriter", "reels", "jr-editor", "jr-shorts"],
+    room: { x: 1.5, y: 20, w: 25, h: 34 } },
   { id: "growth", name: "성장 전략부", icon: "📈", lead: "analyst",
-    members: ["analyst", "review", "brand", "jr-research"],
-    room: { x: 26.5, y: 39, w: 24, h: 53 } },
-  { id: "creative", name: "지식·창작부", icon: "📚", lead: "digest",
-    members: ["digest", "emoti", "jr-edu"],
-    room: { x: 51.5, y: 48, w: 23, h: 44 } },
+    members: ["analyst", "review", "brand", "jr-research", "jr-data"],
+    room: { x: 28, y: 20, w: 25, h: 34 } },
+  { id: "creative", name: "크리에이티브 스튜디오부", icon: "🎨", lead: "emoti",
+    members: ["emoti", "jr-design", "jr-goods"],
+    room: { x: 1.5, y: 57, w: 25, h: 34 } },
+  { id: "education", name: "내부 교육부", icon: "📚", lead: "digest",
+    members: ["digest", "jr-edu", "jr-onboard"],
+    room: { x: 28, y: 57, w: 25, h: 34 } },
 ];
 function teamOf(staffId) {
   return TEAMS.find(t => t.members.includes(staffId)) || TEAMS[0]; // 채용 직원은 콘텐츠 마케팅부 소속
@@ -633,18 +661,19 @@ function rebuildStaff() {
   ];
 
   // 책상 자동 배치: 대표실 / 과장실 / 부서별 사무공간
-  DESK_POS = { boss: [12, 14], pm: [34, 8] };
-  WORK_POS = { boss: [12, 24], pm: [34, 15] };
+  DESK_POS = { boss: [11, 8], pm: [31, 8] };
+  WORK_POS = { boss: [11, 14], pm: [31, 14] };
   TEAMS.forEach(team => {
     const room = team.room;
-    const cols = room.w >= 23.5 ? 2 : 1;
-    const cellW = room.w / cols;
     const memberIds = STAFF.filter(s => teamOf(s.id).id === team.id).map(s => s.id)
       .sort((a, b) => (b === team.lead ? 1 : 0) - (a === team.lead ? 1 : 0)); // 팀장 먼저
+    // 5명 이상이면 3열로 (좁은 방에서도 2줄 안에 들어오게), 아니면 2열
+    const cols = memberIds.length >= 5 ? 3 : (room.w >= 23.5 ? 2 : 1);
+    const cellW = room.w / cols;
     memberIds.forEach((id, i) => {
       const col = i % cols, row = Math.floor(i / cols);
       const dx = room.x + cellW * col + cellW / 2 - 2;
-      const dy = room.y + 9 + row * 11.5;
+      const dy = room.y + 9 + row * 12;
       DESK_POS[id] = [dx, dy];
       WORK_POS[id] = [dx, dy + 6.5];
     });
@@ -658,7 +687,12 @@ function rebuildStaff() {
       .filter(c => c.keywords && c.keywords.length)
       .map(c => [new RegExp(c.keywords.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")), c.id]),
     [/에디터|자막|편집표/, "jr-editor"],
+    [/숏폼|컷 편집|컷편집/, "jr-shorts"],
     [/리서치|자료 수집|리스트업/, "jr-research"],
+    [/인사이트|성과 리포트|성과표|수치 정리/, "jr-data"],
+    [/시안|썸네일 디자인|배치안/, "jr-design"],
+    [/굿즈|MD 상품|스티커 상품/, "jr-goods"],
+    [/온보딩|신입|사내 가이드|업무 가이드/, "jr-onboard"],
     [/요약|용어 정리|용어풀이/, "jr-edu"],
     ...BASE_ROUTES
   ];
@@ -679,7 +713,12 @@ function getLook(id) {
     emoti: { shirt: "#f5b942", hair: "#3b2d23" },
     "jr-editor": { shirt: "#6c8ebf", hair: "#3b2d23" },
     "jr-research": { shirt: "#5aa06f", hair: "#4a3625" },
-    "jr-edu": { shirt: "#b58bce", hair: "#241d18" }
+    "jr-edu": { shirt: "#b58bce", hair: "#241d18" },
+    "jr-shorts": { shirt: "#a0559b", hair: "#3b2d23" },
+    "jr-data": { shirt: "#4a90a4", hair: "#4a3625" },
+    "jr-design": { shirt: "#d98cae", hair: "#241d18" },
+    "jr-goods": { shirt: "#c99a5b", hair: "#3b2d23" },
+    "jr-onboard": { shirt: "#7d9b76", hair: "#4a3625" }
   };
   if (AGENT_LOOK_BASE[id]) return AGENT_LOOK_BASE[id];
   const c = customStaff.find(x => x.id === id);
@@ -1569,19 +1608,19 @@ tasks.forEach(t => {
 
 /* 사무실 구조 (좌표는 % 단위) */
 const ROOMS = [
-  { id: "ceo", name: "대표실", x: 1.5, y: 2, w: 24, h: 33 },
-  { id: "mgr", name: "과장실", x: 27, y: 2, w: 18, h: 20 },
+  { id: "ceo", name: "대표실", x: 1.5, y: 2, w: 20, h: 16 },
+  { id: "mgr", name: "과장실", x: 23, y: 2, w: 16, h: 16 },
   { id: "meet", name: "회의실", x: 55, y: 2, w: 43.5, h: 44 },
   ...TEAMS.map(t => ({ id: "dept-" + t.id, name: `${t.icon} ${t.name}`, x: t.room.x, y: t.room.y, w: t.room.w, h: t.room.h })),
-  { id: "pantry", name: "탕비실", x: 76, y: 48, w: 22, h: 20 },
-  { id: "lounge", name: "휴게공간", x: 76, y: 69, w: 22, h: 23 }
+  { id: "pantry", name: "탕비실", x: 55, y: 49, w: 21, h: 42 },
+  { id: "lounge", name: "휴게공간", x: 77, y: 49, w: 21, h: 42 }
 ];
 
 /* 휴식 공간 자리 (탕비실·휴게 새 좌표에 맞춤) */
-const LOUNGE_SPOTS = [[81, 76], [93, 76], [84, 85], [90, 89]];
-const PANTRY_SPOTS = [[80, 55], [92, 55], [82, 63], [92, 63]];
+const LOUNGE_SPOTS = [[82, 60], [93, 60], [84, 76], [91, 84]];
+const PANTRY_SPOTS = [[60, 58], [70, 58], [62, 72], [70, 82]];
 const BREAK_BUBBLES = ["☕ 커피 한 잔...", "잠깐 쉬는 중이에요", "🍪 간식 타임!", "금방 복귀합니다!"];
-const HALL_SPOTS = [[36, 26], [46, 30], [30, 30], [48, 24]];
+const HALL_SPOTS = [[42, 24], [48, 30], [34, 32], [50, 20]];
 
 const officeState = { built: false, meeting: false, agents: {} };
 
@@ -1654,8 +1693,7 @@ function buildOffice() {
   const bossDesk = addFurniture(floor, "f-desk f-bigdesk", DESK_POS.boss[0], DESK_POS.boss[1], `<span class="stand f-monitor">🖥️</span>`);
   bossDesk.classList.add("f-clickable");
   bossDesk.addEventListener("click", () => openStaffModal("boss"));
-  addFurniture(floor, "f-prop", 21, 7, `<span class="stand">📚</span>`);
-  addFurniture(floor, "f-prop", 4, 28, `<span class="stand">🪴</span>`);
+  addFurniture(floor, "f-prop", 17, 5, `<span class="stand">📚</span>`);
 
   // 가구 — 회의실
   addFurniture(floor, "f-table", 76.5, 25, "<span>회의 테이블</span>");
@@ -1672,19 +1710,19 @@ function buildOffice() {
     desk.title = a.name;
     desk.addEventListener("click", () => openStaffModal(a.id));
   });
-  addFurniture(floor, "f-prop", 52, 94, `<span class="stand">🖨️</span>`);
+  addFurniture(floor, "f-prop", 54, 90, `<span class="stand">🖨️</span>`);
 
   // 가구 — 탕비실
-  addFurniture(floor, "f-counter", 86, 53, `<span class="stand">☕🫖🍪</span>`);
-  addFurniture(floor, "f-prop", 78, 63, `<span class="stand">🧃</span>`);
+  addFurniture(floor, "f-counter", 65, 53, `<span class="stand">☕🫖🍪</span>`);
+  addFurniture(floor, "f-prop", 58, 66, `<span class="stand">🧃</span>`);
 
   // 가구 — 휴게공간
-  addFurniture(floor, "f-sofa", 86, 75);
-  addFurniture(floor, "f-rug", 86, 85);
-  addFurniture(floor, "f-prop", 95, 71, `<span class="stand">🪴</span>`);
+  addFurniture(floor, "f-sofa", 87, 58);
+  addFurniture(floor, "f-rug", 87, 72);
+  addFurniture(floor, "f-prop", 95, 52, `<span class="stand">🪴</span>`);
 
   // 복도 소품
-  addFurniture(floor, "f-prop", 50, 24, `<span class="stand">🌿</span>`);
+  addFurniture(floor, "f-prop", 47, 20, `<span class="stand">🌿</span>`);
 
   // 캐릭터
   OFFICE_AGENTS.forEach(a => {
