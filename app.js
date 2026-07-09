@@ -4030,14 +4030,25 @@ async function runCompetitorAnalysis(urls) {
    ① 프록시 경유 덕덕고(최근 1개월 필터) ② 웹 리더 경유 덕덕고 ③ 웹 리더 경유 구글(최근 1개월) */
 let sponsorFeeds = store.get("sponsorFeeds", []); // [{url,title,cat,at}] — 작은 상태라 localStorage
 const SP_CATS = [
-  { key: "beauty", label: "뷰티", emoji: "💄", re: /뷰티|화장품|스킨|코스메|헤어|네일|메이크/ },
-  { key: "food", label: "식품·맛집", emoji: "🍽️", re: /식품|맛집|음식|간식|음료|카페|디저트|식당|베이커리/ },
-  { key: "living", label: "리빙·생활", emoji: "🏠", re: /리빙|인테리어|주방|수납|생활|가전|청소|홈/ },
-  { key: "kids", label: "육아·키즈", emoji: "👶", re: /육아|아기|키즈|유아|장난감|맘/ },
-  { key: "fashion", label: "패션", emoji: "👗", re: /패션|의류|옷|가방|신발|주얼리|악세/ },
+  { key: "furniture", label: "가구·인테리어", emoji: "🪑", re: /가구|소파|테이블|침대|의자|매트리스|인테리어|조명|커튼|러그/ },
+  { key: "household", label: "생활용품·주방", emoji: "🧺", re: /생활용품|주방|수납|세제|청소|정리|욕실|식기|밀폐|행주|리빙/ },
+  { key: "appliance", label: "가전·디지털", emoji: "🔌", re: /가전|전자|공기청정|청소기|디지털|음향|모니터|보조배터리/ },
+  { key: "beauty", label: "뷰티", emoji: "💄", re: /뷰티|화장품|스킨|코스메|헤어|네일|메이크|세럼|크림/ },
+  { key: "food", label: "식품·맛집", emoji: "🍽️", re: /식품|맛집|음식|간식|음료|카페|디저트|식당|베이커리|건강식/ },
+  { key: "kids", label: "육아·키즈", emoji: "👶", re: /육아|아기|키즈|유아|장난감|맘|이유식/ },
+  { key: "fashion", label: "패션·잡화", emoji: "👗", re: /패션|의류|옷|가방|신발|주얼리|악세|잡화/ },
   { key: "travel", label: "여행·숙박", emoji: "✈️", re: /여행|호텔|펜션|숙박|리조트|글램핑/ },
+  { key: "pet", label: "반려동물", emoji: "🐶", re: /반려|강아지|고양이|펫|사료/ },
   { key: "etc", label: "기타", emoji: "📌", re: /$^/ }
 ];
+/* 링크 출처 표시 (인스타/블로그/카페) */
+function sponsorSrc(url) {
+  if (/instagram\.com/.test(url)) return "📸 인스타";
+  if (/cafe\.naver\.com/.test(url)) return "☕ 카페";
+  if (/blog\.naver\.com|tistory\.com|brunch\.co\.kr/.test(url)) return "✍️ 블로그";
+  return "🌐 웹";
+}
+const SPONSOR_URL_RE = /instagram\.com|blog\.naver\.com|cafe\.naver\.com|tistory\.com|brunch\.co\.kr/;
 function classifySponsor(text) {
   return (SP_CATS.find(c => c.re.test(text)) || SP_CATS[SP_CATS.length - 1]).key;
 }
@@ -4065,7 +4076,7 @@ function parseSponsorResults(text) {
   const mdRe = /\[([^\]]{4,120})\]\((https?:\/\/[^)\s]+)\)([^[]{0,200})/g;
   while ((m = mdRe.exec(text))) items.push({ url: m[2], title: m[1].trim(), snip: (m[3] || "").replace(/\s+/g, " ").trim() });
   return items
-    .filter(it => /instagram\.com/.test(it.url))
+    .filter(it => SPONSOR_URL_RE.test(it.url) && !/duckduckgo\.com|google\.|search\.naver/.test(it.url))
     .map(it => {
       const snip = (it.snip || "").replace(/\s+/g, " ").trim().slice(0, 140);
       let title = (it.title || "").replace(/\s+/g, " ").trim();
@@ -4081,7 +4092,10 @@ async function collectSponsorFeeds() {
   const btn = $("#sp-run");
   if (btn) btn.disabled = true;
   const t = topicWord();
-  const queries = [`"체험단 모집" site:instagram.com`, `${t} 체험단 모집 인스타그램`, `체험단 모집 인스타 피드`];
+  const queries = [
+    `"체험단 모집" site:instagram.com`, `${t} 체험단 모집 인스타그램`,
+    `"체험단 모집" blog.naver.com`, `${t} 체험단 모집 블로그`
+  ];
   const found = [];
   const seen = new Set(sponsorFeeds.map(f => f.url));
   for (let i = 0; i < queries.length; i++) {
@@ -4091,7 +4105,10 @@ async function collectSponsorFeeds() {
     for (const it of parseSponsorResults(text)) {
       if (seen.has(it.url)) continue;
       seen.add(it.url);
-      found.push({ url: it.url, title: it.title, snip: it.snip, cat: classifySponsor(it.title + " " + (it.snip || "")), at: Date.now() });
+      const cat = classifySponsor(it.title + " " + (it.snip || ""));
+      const label = (SP_CATS.find(c => c.key === cat) || {}).label || "기타";
+      const bare = it.title.replace(/^\[[^\]]{1,12}\]\s*/, ""); // 이미 태그가 있으면 중복 방지
+      found.push({ url: it.url, title: `[${label}] ${bare}`.slice(0, 100), snip: it.snip, cat, src: sponsorSrc(it.url), at: Date.now() });
     }
     if (found.length >= 40) break;
   }
@@ -4112,7 +4129,7 @@ let sponsorSaved = store.get("sponsorSaved", []); // [{id,url,title,snip,cat,at}
 
 function saveToLinkbox(f) {
   if (sponsorSaved.some(x => x.url === f.url)) { toast("이미 링크함에 있어요!"); return; }
-  sponsorSaved.unshift({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), url: f.url, title: f.title, snip: f.snip || "", cat: f.cat, at: Date.now() });
+  sponsorSaved.unshift({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), url: f.url, title: f.title, snip: f.snip || "", cat: f.cat, src: f.src || sponsorSrc(f.url), at: Date.now() });
   sponsorSaved = sponsorSaved.slice(0, 200);
   store.set("sponsorSaved", sponsorSaved);
   // 수집 목록에서 링크함으로 "이동" (중복 표시 방지)
@@ -4126,6 +4143,10 @@ let sbCat = "";
 function renderSponsorBox() {
   const list = $("#sb-list");
   if (!list) return;
+  // 분야 세분화 이전에 저장된 항목은 새 분류로 자동 이전
+  let migrated = false;
+  sponsorSaved.forEach(f => { if (!SP_CATS.some(c => c.key === f.cat)) { f.cat = classifySponsor(f.title + " " + (f.snip || "")); migrated = true; } });
+  if (migrated) store.set("sponsorSaved", sponsorSaved);
   const chipWrap = $("#sb-cats");
   chipWrap.innerHTML = "";
   if (sponsorSaved.length) {
@@ -4159,15 +4180,18 @@ function renderSponsorBox() {
     const badge = document.createElement("span");
     badge.className = "lib-cat";
     badge.textContent = `${cat.emoji} ${cat.label}`;
+    const srcBadge = document.createElement("span");
+    srcBadge.className = "lib-cat";
+    srcBadge.textContent = f.src || sponsorSrc(f.url);
     const renameBtn = document.createElement("button");
     renameBtn.textContent = "✏️"; renameBtn.title = "이름 바꾸기";
     const open = document.createElement("button");
-    open.textContent = "🔗"; open.title = "인스타그램에서 열기";
+    open.textContent = "🔗"; open.title = "원본 게시글 열기";
     open.addEventListener("click", () => window.open(f.url, "_blank", "noopener"));
     const del = document.createElement("button");
     del.textContent = "🗑️"; del.title = "링크함에서 지우기";
     del.addEventListener("click", () => { sponsorSaved = sponsorSaved.filter(x => x.id !== f.id); store.set("sponsorSaved", sponsorSaved); renderSponsorBox(); });
-    row.append(title, badge, renameBtn, open, del);
+    row.append(title, badge, srcBadge, renameBtn, open, del);
 
     // 이름 수정 폼 (철칙 7: prompt() 금지 — 인라인 입력)
     const form = document.createElement("div");
@@ -4204,6 +4228,9 @@ let spCat = "";
 function renderSponsorFeeds() {
   const list = $("#sp-list");
   if (!list) return;
+  let migrated = false;
+  sponsorFeeds.forEach(f => { if (!SP_CATS.some(c => c.key === f.cat)) { f.cat = classifySponsor(f.title + " " + (f.snip || "")); migrated = true; } });
+  if (migrated) store.set("sponsorFeeds", sponsorFeeds);
   const chipWrap = $("#sp-cats");
   chipWrap.innerHTML = "";
   if (sponsorFeeds.length) {
@@ -4234,16 +4261,19 @@ function renderSponsorFeeds() {
     const badge = document.createElement("span");
     badge.className = "lib-cat";
     badge.textContent = `${cat.emoji} ${cat.label}`;
+    const srcBadge = document.createElement("span");
+    srcBadge.className = "lib-cat";
+    srcBadge.textContent = f.src || sponsorSrc(f.url);
     const keep = document.createElement("button");
     keep.textContent = "🔖"; keep.title = "체험단 링크함에 담기 (보관)";
     keep.addEventListener("click", () => saveToLinkbox(f));
     const open = document.createElement("button");
-    open.textContent = "🔗"; open.title = "인스타그램에서 열기";
+    open.textContent = "🔗"; open.title = "원본 게시글 열기";
     open.addEventListener("click", () => window.open(f.url, "_blank", "noopener"));
     const del = document.createElement("button");
     del.textContent = "🗑️"; del.title = "목록에서 지우기";
     del.addEventListener("click", () => { sponsorFeeds = sponsorFeeds.filter(x => x.url !== f.url); store.set("sponsorFeeds", sponsorFeeds); renderSponsorFeeds(); });
-    row.append(title, badge, keep, open, del);
+    row.append(title, badge, srcBadge, keep, open, del);
     item.appendChild(row);
     if (f.snip) {
       const snip = document.createElement("div");
