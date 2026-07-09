@@ -4224,13 +4224,80 @@ function docsTotalSize() {
   return docs.reduce((sum, d) => sum + d.content.length, 0);
 }
 
+/* ── 자료 자동 분류 + 제목 자동 생성 ──
+   막 올린 자료도 내용을 훑어 분야를 배정하고, 제목이 없거나 대충이면 내용 기반 제목을 지어줌 (오프라인, 즉시) */
+const DOC_CATS = [
+  { key: "reels", label: "릴스·영상", emoji: "🎬", kw: ["릴스", "영상", "대본", "편집", "숏폼", "쇼츠", "촬영", "후킹", "컷"] },
+  { key: "writing", label: "캡션·글쓰기", emoji: "✍️", kw: ["캡션", "글쓰기", "카피", "문구", "해시태그", "스토리텔링"] },
+  { key: "strategy", label: "계정 전략", emoji: "🎯", kw: ["알고리즘", "팔로워", "프로필", "포지셔닝", "타겟", "페르소나", "노출", "도달", "계정 성장", "브랜딩"] },
+  { key: "money", label: "수익화·협찬", emoji: "💰", kw: ["수익", "협찬", "체험단", "광고", "단가", "미디어킷", "공동구매", "판매", "상품", "고객", "매출", "부수입"] },
+  { key: "creative", label: "이모티콘·굿즈", emoji: "🎨", kw: ["이모티콘", "굿즈", "캐릭터", "디자인", "일러스트", "시안"] },
+  { key: "trend", label: "트렌드·벤치마킹", emoji: "📈", kw: ["트렌드", "벤치마킹", "급상승", "레퍼런스", "사례 분석", "인기 계정"] },
+  { key: "edu", label: "교육·마인드", emoji: "📚", kw: ["마인드", "습관", "루틴", "회고", "목표", "동기", "강의", "공부", "워크북", "프롬프트"] },
+  { key: "etc", label: "기타", emoji: "📄", kw: [] }
+];
+
+function classifyDoc(title, content) {
+  const sample = ((title || "") + " " + String(content || "").slice(0, 8000)).toLowerCase();
+  let best = "etc", bestScore = 0;
+  for (const c of DOC_CATS) {
+    let s = 0;
+    for (const k of c.kw) s += Math.min(countOcc(sample, k), 8) * (k.length >= 3 ? 2 : 1);
+    if (s > bestScore) { bestScore = s; best = c.key; }
+  }
+  return best;
+}
+
+function docCat(d) {
+  return DOC_CATS.find(c => c.key === d.cat) || DOC_CATS[DOC_CATS.length - 1];
+}
+
+/* 파일명이 대충일 때(스크린샷·IMG 등) 내용으로 제목 생성 */
+function isGenericName(name) {
+  return !name || /^(img|image|스크린샷|screenshot|캡처|kakaotalk|제목\s*없|무제|다운로드|photo|사진|clipboard|스캔|scan|noname|새 문서|untitled)/i.test(name.trim());
+}
+
+function autoDocTitle(content) {
+  const ctx = (String(content).match(/\[맥락\]\s*(.+)/) || [])[1]; // 이미지 분석의 맥락 한 줄이 최고의 제목
+  if (ctx) return ctx.trim().slice(0, 30);
+  const h = String(content).match(/^#+\s*(.+)$/m);
+  if (h && h[1].trim().length >= 2) return h[1].trim().slice(0, 30);
+  const first = String(content).replace(/\[이미지 자료[^\]]*\]/g, " ").replace(/\s+/g, " ").trim()
+    .split(/(?<=[.!?다요])\s/).find(s => s.trim().length >= 8);
+  const base = (first || String(content)).trim().slice(0, 24);
+  return base ? base + (base.length >= 24 ? "…" : "") : "이름 없는 자료";
+}
+
+let libCat = ""; // 자료실 분야 필터 ("" = 전체)
+
 function renderLibrary() {
   const list = $("#lib-list");
   list.innerHTML = "";
   if (!docs.length) {
     list.innerHTML = `<div class="lib-empty">아직 자료가 없어요.<br>강의 노트나 전자책 내용을 추가하면 멘토들이 훨씬 똑똑해져요! 📚</div>`;
   }
-  docs.forEach(d => {
+  // 분류가 없는 자료는 내용을 훑어 자동 배정 (기존 자료 포함, 한 번만)
+  let classified = false;
+  docs.forEach(d => { if (!d.cat) { d.cat = classifyDoc(d.title, d.content); classified = true; } });
+  if (classified) saveDocs();
+
+  // 분야 필터 칩 (전체 + 자료가 있는 분야만)
+  const chipWrap = $("#lib-cat-chips");
+  if (chipWrap) {
+    chipWrap.innerHTML = "";
+    const present = DOC_CATS.filter(c => docs.some(d => d.cat === c.key));
+    if (present.length >= 2) {
+      [{ key: "", label: "전체", emoji: "📚" }, ...present].forEach(c => {
+        const chip = document.createElement("button");
+        chip.className = "lib-cat-chip" + ((libCat || "") === c.key ? " on" : "");
+        chip.textContent = `${c.emoji} ${c.label}`;
+        chip.addEventListener("click", () => { libCat = c.key; renderLibrary(); });
+        chipWrap.appendChild(chip);
+      });
+    } else libCat = "";
+  }
+
+  docs.filter(d => !libCat || d.cat === libCat).forEach(d => {
     const item = document.createElement("div");
     item.className = "lib-item" + (d.enabled ? "" : " off");
 
@@ -4252,6 +4319,12 @@ function renderLibrary() {
     const title = document.createElement("div");
     title.className = "lib-title";
     title.textContent = d.title;
+
+    const cat = docCat(d);
+    const catBadge = document.createElement("span");
+    catBadge.className = "lib-cat";
+    catBadge.textContent = `${cat.emoji} ${cat.label}`;
+    catBadge.title = "내용을 분석해 자동 분류된 분야";
 
     const meta = document.createElement("div");
     meta.className = "lib-meta";
@@ -4282,7 +4355,7 @@ function renderLibrary() {
       renderChat();
     });
 
-    item.append(toggle, title, meta, ...(syncBtn ? [syncBtn] : []), meetBtn, editBtn, delBtn);
+    item.append(toggle, title, catBadge, meta, ...(syncBtn ? [syncBtn] : []), meetBtn, editBtn, delBtn);
     list.appendChild(item);
   });
 
@@ -4318,9 +4391,11 @@ function saveDocModal() {
   if (!content) { $("#dm-content").focus(); toast("⚠️ 내용을 붙여넣어 주세요!"); return; }
   if (editingDocId) {
     const d = docs.find(x => x.id === editingDocId);
-    if (d) { d.title = title || d.title; d.content = content; }
+    if (d) { d.title = title || d.title; d.content = content; d.cat = classifyDoc(d.title, content); }
   } else {
-    docs.push({ id: Date.now() + "", title: title || "이름 없는 자료", content, enabled: true });
+    // 제목이 비면 내용을 분석해 자동 생성 + 분야 자동 분류
+    const autoTitle = title || autoDocTitle(content);
+    docs.push({ id: Date.now() + "", title: autoTitle, content, enabled: true, cat: classifyDoc(autoTitle, content) });
   }
   if (saveDocs()) toast(editingDocId ? "📚 자료가 수정됐어요!" : "📚 자료가 추가됐어요! 이제 멘토와 직원들이 이 내용을 참고해요.");
   $("#doc-modal").classList.add("hidden");
@@ -4384,6 +4459,99 @@ async function fetchViaJina(url) {
   return text.length > 50 && !/^error/i.test(text) ? text : null;
 }
 
+/* ---------- 이미지 자료 분석 (AI 비전) ----------
+   강의 캡처 같은 PNG/JPG 속 글자와 맥락을 추출해 자료로 저장.
+   철칙 5: ① 내 API 키(Claude 비전) → ② 무료 AI(Puter 비전) → ③ 없으면 안내 후 계속 (앱은 안 죽음) */
+const VISION_PROMPT = "이 이미지는 강의·자료의 한 장면이야. ① 이미지 속 글자를 빠짐없이 그대로 옮겨 적어줘 (표는 마크다운 표로, 목록은 목록으로). ② 글자가 없는 도표·그래프·화면 구성은 무엇을 보여주는지 설명해줘. ③ 마지막 줄에 '[맥락] '으로 시작하는 핵심 한 줄 요약을 붙여줘. 한국어로만, 인사 없이 내용만.";
+
+function visionAvailable() {
+  return !!((settings && settings.apiKey || "").trim()) || !freeAiBroken;
+}
+
+/* 큰 이미지는 AI 전송 전에 축소 (비용·전송량 절약, 1568px이면 비전 인식에 충분) */
+function shrinkImage(dataUrl, maxSide = 1568) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+      if (scale >= 1) return resolve(dataUrl);
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * scale);
+      c.height = Math.round(img.height * scale);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL("image/jpeg", 0.88));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+async function anthropicVision(dataUrl, prompt) {
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!m) throw new Error("BAD_IMAGE");
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": (settings.apiKey || "").trim(),
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify({
+      model: tierModel("staff"), // 이미지 추출은 팀원(하위) 모델로 토큰 절약
+      max_tokens: 2048,
+      messages: [{ role: "user", content: [
+        { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } },
+        { type: "text", text: prompt }
+      ] }]
+    })
+  });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const j = await res.json();
+  const text = (j.content || []).filter(b => b.type === "text").map(b => b.text).join("\n").trim();
+  if (!text) throw new Error("빈 응답");
+  recordUsage(tierModel("staff"), (j.usage && j.usage.input_tokens) || 1600, (j.usage && j.usage.output_tokens) || estTokens(text), false);
+  return text;
+}
+
+async function imageToText(dataUrl) {
+  const small = await shrinkImage(dataUrl);
+  if ((settings && settings.apiKey || "").trim()) return anthropicVision(small, VISION_PROMPT);
+  if (freeAiBroken) throw new Error("NO_AI");
+  const puter = await loadPuter().catch(() => { throw new Error("NO_AI"); });
+  const resp = await puter.ai.chat(VISION_PROMPT, small); // Puter 비전: (프롬프트, 이미지 dataURL)
+  const text = extractPuterText(resp).trim();
+  if (!text) throw new Error("빈 응답");
+  recordUsage("free", 1600, estTokens(text), true);
+  return text;
+}
+
+/* 노션 블록 맵에서 이미지 URL 수집 (노션 이미지 프록시 경유 — 공개 페이지는 로그인 없이 접근됨) */
+function notionImageUrls(blocks) {
+  const urls = [];
+  for (const key of Object.keys(blocks || {})) {
+    const v = blocks[key] && blocks[key].value;
+    if (!v || v.type !== "image") continue;
+    const src = (v.format && v.format.display_source) || (v.properties && v.properties.source && v.properties.source[0] && v.properties.source[0][0]);
+    if (src) urls.push(`https://www.notion.so/image/${encodeURIComponent(src)}?table=block&id=${key}&cache=v2`);
+  }
+  return urls;
+}
+
+async function fetchImageAsDataUrl(url) {
+  const tries = [url, `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`];
+  for (const u of tries) {
+    try {
+      const res = await fetch(u);
+      if (!res.ok) continue;
+      const blob = await res.blob();
+      if (blob.size < 500 || blob.size > 4500000) continue; // 아이콘·초대형 파일 제외
+      return await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.onerror = () => r(null); fr.readAsDataURL(blob); });
+    } catch {}
+  }
+  return null;
+}
+
 // 쪽수 상한 없음 — 중복 방문 차단(seen)과 글자 상한(PDF_MAX_CHARS=100만 자)이 안전장치.
 // LINKED_HARD_STOP은 비정상 상황(순환 링크 등)만 막는 넉넉한 백스톱.
 const LINKED_HARD_STOP = 500;
@@ -4416,6 +4584,7 @@ async function fetchLinkedPage(url, onProgress) {
       const seen = new Set([id]);
       let queue = [id];
       const out = [];
+      const imgUrls = [];
       let pages = 0;
       let chars = 0;
       while (queue.length && pages < LINKED_HARD_STOP && chars < PDF_MAX_CHARS) {
@@ -4427,6 +4596,7 @@ async function fetchLinkedPage(url, onProgress) {
           const text = notionBlocksToText(f.blocks, f.pid);
           if (text.trim()) { out.push(text.trim()); chars += text.length; }
           pages++;
+          if (imgUrls.length < 20) imgUrls.push(...notionImageUrls(f.blocks).slice(0, 20 - imgUrls.length));
           const kids = notionChildIds(f.blocks, f.pid).concat(await notionTableRowIds(f.blocks));
           for (const cid of kids) {
             if (!seen.has(cid)) { seen.add(cid); queue.push(cid); }
@@ -4434,7 +4604,27 @@ async function fetchLinkedPage(url, onProgress) {
         }
         if (onProgress) onProgress(`📖 ${pages}쪽 읽음 · 남은 하위 페이지 ${queue.length}개... (${(chars / 1000).toFixed(0)}천 자)`);
       }
-      const joined = out.join("\n\n──────────\n\n");
+      let joined = out.join("\n\n──────────\n\n");
+      // 페이지 속 이미지(강의 캡처 등)도 글자·맥락 추출해 함께 저장
+      if (imgUrls.length && joined.trim().length > 20) {
+        if (visionAvailable()) {
+          let n = 0;
+          for (const iu of imgUrls) {
+            n++;
+            if (onProgress) onProgress(`🖼️ 이미지 ${n}/${imgUrls.length} 분석 중... (글자·맥락 추출)`);
+            try {
+              const durl = await fetchImageAsDataUrl(iu);
+              if (!durl) continue;
+              joined += `\n\n[이미지 자료 ${n} — 추출 내용]\n${await imageToText(durl)}`;
+            } catch (e) {
+              if (String(e && e.message) === "NO_AI") break; // AI가 죽어도 텍스트 저장은 계속
+            }
+            if (joined.length > PDF_MAX_CHARS) break;
+          }
+        } else {
+          joined += `\n\n(이 페이지에 이미지 ${imgUrls.length}개가 있어요 — 설정 탭에서 AI를 연결한 뒤 자료실의 🔄 새로고침을 누르면 이미지 속 글자와 맥락까지 분석해 저장돼요.)`;
+        }
+      }
       if (joined.trim().length > 20) return joined.slice(0, PDF_MAX_CHARS);
     } catch {}
   }
@@ -4488,8 +4678,10 @@ async function addLinkedDoc(url) {
     if (existing) {
       existing.content = text;
       existing.syncedAt = Date.now();
+      existing.cat = classifyDoc(existing.title, text);
     } else {
-      docs.push({ id: Date.now() + "", title: linkedDocTitle(text, url), content: text, enabled: true, url, syncedAt: Date.now() });
+      const lt = linkedDocTitle(text, url);
+      docs.push({ id: Date.now() + "", title: lt, content: text, enabled: true, url, syncedAt: Date.now(), cat: classifyDoc(lt, text) });
     }
     saveDocs();
     renderLibrary(); renderChat();
@@ -4512,6 +4704,7 @@ async function syncLinkedDoc(d) {
   try {
     d.content = await fetchLinkedPage(d.url);
     d.syncedAt = Date.now();
+    d.cat = classifyDoc(d.title, d.content);
     saveDocs();
     renderLibrary(); renderChat();
     toast("🔄 최신 내용으로 새로고침했어요!");
@@ -4591,14 +4784,31 @@ async function addDocsByFiles(files) {
           failed.push(`${file.name} — 글자를 찾지 못했어요 (사진으로 스캔된 PDF일 수 있어요)`);
           continue;
         }
+      } else if (/\.(png|jpe?g|webp|gif)$/i.test(file.name)) {
+        // 이미지 자료: AI 비전으로 글자·맥락 추출 (강의 캡처 대응)
+        if (!visionAvailable()) { failed.push(`${file.name} — 이미지 분석에는 AI 연결이 필요해요 (설정 탭에서 API 키 또는 무료 AI 연결 후 다시 업로드)`); continue; }
+        if (file.size > 4500000) { failed.push(`${file.name} — 이미지가 너무 커요 (4MB 이하로 줄여주세요)`); continue; }
+        toast(`🖼️ ${file.name} 이미지 속 글자를 분석 중이에요...`, 60000);
+        const durl = await new Promise((r, j) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.onerror = () => j(new Error("파일 읽기 실패")); fr.readAsDataURL(file); });
+        try {
+          content = `[이미지 자료: ${file.name}]\n${await imageToText(durl)}`;
+        } catch (e) {
+          failed.push(String(e && e.message) === "NO_AI"
+            ? `${file.name} — 이미지 분석에는 AI 연결이 필요해요 (설정 탭)`
+            : `${file.name} — 이미지 분석 실패 (${friendlyApiError(e)})`);
+          continue;
+        }
       } else {
         content = String(await file.text()).trim();
         if (!content) { failed.push(`${file.name} — 내용이 비어있어요`); continue; }
       }
+      // 파일명이 대충이면(스크린샷·IMG 등) 내용을 분석해 제목 자동 생성
+      const bare = file.name.replace(/\.(txt|md|markdown|pdf|png|jpe?g|webp|gif)$/i, "");
+      const isImg = /\.(png|jpe?g|webp|gif)$/i.test(file.name);
+      const niceTitle = isGenericName(bare) ? autoDocTitle(content) : bare + (isImg ? " (이미지)" : "");
       docs.push({
         id: Date.now() + "-" + Math.random().toString(36).slice(2, 6),
-        title: file.name.replace(/\.(txt|md|markdown|pdf)$/i, ""),
-        content, enabled: true
+        title: niceTitle, content, enabled: true, cat: classifyDoc(niceTitle, content)
       });
       added++;
     } catch (e) {
@@ -4613,7 +4823,7 @@ async function addDocsByFiles(files) {
   }
   if (added && !failed.length) toast(`📚 자료 ${added}개가 추가됐어요!`);
   else if (added && failed.length) toast(`📚 ${added}개 추가, ⚠️ 실패: ${failed[0]}`, 6000);
-  else toast(`⚠️ 파일을 읽지 못했어요. ${failed[0] || "(.txt / .md / .pdf 지원)"}`, 6000);
+  else toast(`⚠️ 파일을 읽지 못했어요. ${failed[0] || "(.txt / .md / .pdf / 이미지 지원)"}`, 7000);
 }
 
 /* ==================================================
@@ -6440,5 +6650,7 @@ window.__senter = {
   setTasks: (arr) => { tasks = arr; store.set("tasks", tasks); renderBoard(); updateOfficeStatuses(); },
   setDocs: (arr) => { docs = arr; saveDocs(); renderLibrary(); renderChat(); },
   staffKnowledge, docSnippets, pickDocRefs, buildSystemPrompt,
-  fetchLinkedPage, notionBlocksToText, addLinkedDoc, autoSyncLinkedDocs
+  fetchLinkedPage, notionBlocksToText, addLinkedDoc, autoSyncLinkedDocs,
+  imageToText, visionAvailable, fetchImageAsDataUrl,
+  classifyDoc, autoDocTitle, isGenericName
 };

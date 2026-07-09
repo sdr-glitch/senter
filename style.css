@@ -331,6 +331,18 @@ body {
 /* ===== 자료실 ===== */
 .lib-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
 .lib-usage { font-size: .8rem; color: var(--text-soft); margin-bottom: 12px; }
+.lib-cat-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.lib-cat-chips:empty { display: none; }
+.lib-cat-chip {
+  border: 1px solid var(--line); background: var(--surface); color: var(--text-soft);
+  border-radius: 999px; padding: 4px 11px; font-size: .78rem; cursor: pointer;
+}
+.lib-cat-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+.lib-cat {
+  flex-shrink: 0; font-size: .7rem; color: var(--text-soft);
+  border: 1px solid var(--line); background: var(--surface-2);
+  border-radius: 999px; padding: 2px 8px; white-space: nowrap;
+}
 .lib-list { display: flex; flex-direction: column; gap: 10px; }
 .lib-item {
   display: flex; align-items: center; gap: 12px; padding: 13px 15px;

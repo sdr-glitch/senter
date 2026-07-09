@@ -556,14 +556,15 @@
   <main id="tab-library" class="tab-panel hidden">
     <section class="card">
       <h3>📚 내 자료실</h3>
-      <p class="card-desc">유료 강의 노트, 전자책, 노션에 정리한 내용을 여기에 넣어두면 <b>멘토와 AI 직원들이 이 자료를 참고해서</b> 일해요. <b>PDF 전자책은 그대로 업로드</b>하면 자동으로 읽고, <b>노션은 공개 링크만 붙여넣으면</b> 복사 없이 알아서 읽어와요 (수정하면 🔄 새로고침).</p>
+      <p class="card-desc">유료 강의 노트, 전자책, 노션에 정리한 내용을 여기에 넣어두면 <b>멘토와 AI 직원들이 이 자료를 참고해서</b> 일해요. <b>PDF는 그대로 업로드</b>하면 자동으로 읽고, <b>강의 캡처(PNG/JPG)도 업로드하면 AI가 글자와 맥락을 추출</b>해요. <b>노션은 공개 링크만 붙여넣으면</b> 하위 페이지·이미지까지 알아서 읽어와요 (수정하면 🔄 새로고침).</p>
       <div class="lib-actions">
         <button class="btn-primary" id="lib-add-paste">✍️ 붙여넣기로 추가</button>
-        <button class="btn-ghost" id="lib-add-file">📄 파일 업로드 (.pdf / .txt / .md)</button>
+        <button class="btn-ghost" id="lib-add-file">📄 파일 업로드 (.pdf / .txt / .md / 이미지)</button>
         <button class="btn-ghost" id="lib-add-notion">🔗 노션·웹 페이지 연동</button>
-        <input type="file" id="lib-file-input" accept=".txt,.md,.markdown,.pdf,text/plain,application/pdf" multiple hidden>
+        <input type="file" id="lib-file-input" accept=".txt,.md,.markdown,.pdf,.png,.jpg,.jpeg,.webp,.gif,text/plain,application/pdf,image/*" multiple hidden>
       </div>
       <div id="lib-usage" class="lib-usage"></div>
+      <div id="lib-cat-chips" class="lib-cat-chips"></div>
       <div id="lib-list" class="lib-list"></div>
     </section>
   </main>
@@ -661,7 +662,7 @@
 <div id="notion-modal" class="modal-backdrop hidden">
   <div class="modal">
     <h2>🔗 노션·웹 페이지 연동</h2>
-    <p class="modal-desc">노션 페이지 주소를 붙여넣으면 <b>그 안의 하위 페이지·표(데이터베이스) 안의 글까지 쪽수 제한 없이 통째로</b> 읽어 자료실에 저장해요. 노션에서 <b>[공유] → [웹에 게시]</b>를 먼저 켜주세요 (링크 복사만으로는 안 돼요). 블로그·웹 문서 주소도 돼요.</p>
+    <p class="modal-desc">노션 페이지 주소를 붙여넣으면 <b>그 안의 하위 페이지·표(데이터베이스)·이미지 속 글자까지 쪽수 제한 없이 통째로</b> 읽어 자료실에 저장해요 (이미지 분석은 AI 연결 시). 노션에서 <b>[공유] → [웹에 게시]</b>를 먼저 켜주세요 (링크 복사만으로는 안 돼요). 블로그·웹 문서 주소도 돼요.</p>
     <label class="field"><span>페이지 주소</span><input type="url" id="nm-url" placeholder="https://내이름.notion.site/페이지주소"></label>
     <div id="nm-status" class="modal-note"></div>
     <div class="modal-actions">
