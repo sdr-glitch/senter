@@ -591,18 +591,24 @@
 
     <section class="card">
       <h3>📡 체험단 모집 레이더</h3>
-      <p class="card-desc">최근 <b>1개월 안의 인스타그램 + 블로그(네이버·티스토리·카페) 체험단 모집 글</b>을 공개 검색 경로로 우회 수집해요. 링크마다 <b>[가구·인테리어] [생활용품·주방] [육아·키즈] 같은 분야 이름이 자동으로 붙고</b>, 어떤 체험단인지 간단 설명 + 출처(인스타/블로그)도 함께 보여요. 마음에 드는 모집글은 [🔖]로 아래 링크함에! 사무실에 "체험단 모집 수집해줘"라고 지시해도 실행돼요.</p>
+      <p class="card-desc">최근 <b>1개월 안의 체험단·앰버서더·서포터즈·무료나눔·댓글이벤트(추첨) 모집 글</b>을 인스타그램 + 블로그(네이버·티스토리·카페)에서 우회 수집해요. 링크마다 <b>[분야] 이름 + 유형 + 간단 설명 + 출처</b>가 자동으로 붙고, <b>담거나 지운 링크는 다음 수집에서 자동 제외</b>돼 늘 새 게시물만 떠요. 마음에 드는 건 [🔖]로 아래 링크함에!</p>
       <div class="modal-actions" style="justify-content:flex-start">
         <button class="btn-primary" id="sp-run">📡 최근 1개월 수집</button>
         <span id="sp-status" class="saved-note"></span>
       </div>
+      <div id="sp-types" class="lib-cat-chips"></div>
       <div id="sp-cats" class="lib-cat-chips"></div>
       <div id="sp-list" class="lib-list"></div>
     </section>
 
     <section class="card">
       <h3>🔖 체험단 링크함</h3>
-      <p class="card-desc">레이더에서 [🔖 담기]한 모집글이 여기 보관돼요 (수집 목록이 갱신돼도 안 사라져요). <b>✏️를 눌러 이름을 알아보기 쉽게</b> 바꿔둘 수 있어요 — 예: "○○브랜드 주방세제, 7/20 마감".</p>
+      <p class="card-desc">레이더에서 [🔖 담기]한 모집글이 여기 보관돼요 (수집 목록이 갱신돼도 안 사라져요). <b>내가 발견한 링크도 아래에 붙여넣어 직접 추가</b>할 수 있고 (인스타 공유 → 링크 복사), ✏️로 이름을 알아보기 쉽게 바꿔둘 수 있어요.</p>
+      <div class="sb-add-row">
+        <input type="url" id="sb-url" placeholder="🔗 링크 붙여넣기 (인스타·블로그 게시글)">
+        <input type="text" id="sb-name" maxlength="60" placeholder="이름 (선택 — 예: 원목 침대 앰버서더)">
+        <button class="btn-primary btn-small" id="sb-add">➕ 담기</button>
+      </div>
       <div id="sb-cats" class="lib-cat-chips"></div>
       <div id="sb-list" class="lib-list"></div>
     </section>

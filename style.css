@@ -1103,3 +1103,7 @@ body {
 @media (max-width: 720px) {
   #token-bar.token-bar { bottom: 64px; z-index: 55; }
 }
+
+/* 링크함 직접 추가 줄 */
+.sb-add-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.sb-add-row input { flex: 1; min-width: 160px; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font: inherit; font-size: .84rem; background: var(--surface); }

@@ -4041,6 +4041,31 @@ const SP_CATS = [
   { key: "pet", label: "반려동물", emoji: "🐶", re: /반려|강아지|고양이|펫|사료/ },
   { key: "etc", label: "기타", emoji: "📌", re: /$^/ }
 ];
+/* 같은 게시글이 ?igsh= 등 꼬리표만 달라도 하나로 취급 (중복 제거 기준) */
+function normSponsorUrl(u) {
+  try { const x = new URL(u); return (x.origin + x.pathname).replace(/\/$/, "").toLowerCase(); }
+  catch { return String(u).split(/[?#]/)[0].replace(/\/$/, "").toLowerCase(); }
+}
+/* 삭제한 링크는 다시 수집되지 않게 기억 */
+let sponsorHidden = store.get("sponsorHidden", []);
+function hideSponsorUrl(url) {
+  const n = normSponsorUrl(url);
+  if (!sponsorHidden.includes(n)) {
+    sponsorHidden.push(n);
+    sponsorHidden = sponsorHidden.slice(-500);
+    store.set("sponsorHidden", sponsorHidden);
+  }
+}
+/* 모집 유형: 체험단 / 앰버서더 / 서포터즈 / 기자단 / 무료나눔 / 댓글이벤트(추첨) */
+const RECRUIT_TYPES = ["🎁 체험단", "🤝 앰버서더", "📣 서포터즈", "📰 기자단", "🎀 무료나눔", "🍀 댓글이벤트"];
+function recruitType(text) {
+  if (/앰버서더|엠버서더|앰배서더|ambassador/i.test(text)) return "🤝 앰버서더";
+  if (/서포터즈/.test(text)) return "📣 서포터즈";
+  if (/기자단/.test(text)) return "📰 기자단";
+  if (/무료\s*나눔|나눔\s*이벤트/.test(text)) return "🎀 무료나눔";
+  if (/댓글\s*이벤트|추첨|경품|응모/.test(text)) return "🍀 댓글이벤트";
+  return "🎁 체험단";
+}
 /* 링크 출처 표시 (인스타/블로그/카페) */
 function sponsorSrc(url) {
   if (/instagram\.com/.test(url)) return "📸 인스타";
@@ -4094,23 +4119,33 @@ async function collectSponsorFeeds() {
   const t = topicWord();
   const queries = [
     `"체험단 모집" site:instagram.com`, `${t} 체험단 모집 인스타그램`,
-    `"체험단 모집" blog.naver.com`, `${t} 체험단 모집 블로그`
+    `"체험단 모집" blog.naver.com`, `${t} 체험단 모집 블로그`,
+    `"앰버서더 모집" site:instagram.com`, `${t} 앰버서더 모집`,
+    `"서포터즈 모집" 인스타그램`, `무료나눔 이벤트 site:instagram.com`,
+    `"댓글 이벤트" 추첨 site:instagram.com`
   ];
   const found = [];
-  const seen = new Set(sponsorFeeds.map(f => f.url));
-  for (let i = 0; i < queries.length; i++) {
-    if (status) status.textContent = `📡 우회 경로 ${i + 1}/${queries.length}에서 수집 중...`;
-    const text = await fetchSearchText(queries[i]);
+  // 중복 제거: 현재 목록 + 링크함에 담은 것 + 삭제한 것 전부 제외 (꼬리표만 다른 같은 링크 포함)
+  const seen = new Set([
+    ...sponsorFeeds.map(f => normSponsorUrl(f.url)),
+    ...sponsorSaved.map(f => normSponsorUrl(f.url)),
+    ...sponsorHidden
+  ]);
+  if (status) status.textContent = `📡 우회 경로 ${queries.length}곳에서 동시 수집 중... (체험단·앰버서더·서포터즈·무료나눔·댓글이벤트)`;
+  const texts = await Promise.all(queries.map(q => fetchSearchText(q).catch(() => null)));
+  for (const text of texts) {
     if (!text) continue;
     for (const it of parseSponsorResults(text)) {
-      if (seen.has(it.url)) continue;
-      seen.add(it.url);
+      const key = normSponsorUrl(it.url);
+      if (seen.has(key)) continue;
+      seen.add(key);
       const cat = classifySponsor(it.title + " " + (it.snip || ""));
       const label = (SP_CATS.find(c => c.key === cat) || {}).label || "기타";
       const bare = it.title.replace(/^\[[^\]]{1,12}\]\s*/, ""); // 이미 태그가 있으면 중복 방지
-      found.push({ url: it.url, title: `[${label}] ${bare}`.slice(0, 100), snip: it.snip, cat, src: sponsorSrc(it.url), at: Date.now() });
+      found.push({ url: it.url, title: `[${label}] ${bare}`.slice(0, 100), snip: it.snip, cat, src: sponsorSrc(it.url), type: recruitType(it.title + " " + (it.snip || "")), at: Date.now() });
+      if (found.length >= 60) break;
     }
-    if (found.length >= 40) break;
+    if (found.length >= 60) break;
   }
   if (btn) btn.disabled = false;
   if (!found.length && !sponsorFeeds.length) {
@@ -4119,7 +4154,7 @@ async function collectSponsorFeeds() {
   }
   sponsorFeeds = [...found, ...sponsorFeeds].slice(0, 120);
   store.set("sponsorFeeds", sponsorFeeds);
-  if (status) status.textContent = found.length ? `✅ 새 모집글 ${found.length}건 수집! (최근 1개월)` : "새로운 글은 없었어요 — 기존 목록 유지";
+  if (status) status.textContent = found.length ? `✅ 새 모집글 ${found.length}건 수집! (최근 1개월 · 담거나 지운 링크는 자동 제외)` : "새로운 글은 없었어요 — 담거나 지운 링크는 자동 제외돼요";
   renderSponsorFeeds();
   return found.length;
 }
@@ -4128,8 +4163,8 @@ async function collectSponsorFeeds() {
 let sponsorSaved = store.get("sponsorSaved", []); // [{id,url,title,snip,cat,at}]
 
 function saveToLinkbox(f) {
-  if (sponsorSaved.some(x => x.url === f.url)) { toast("이미 링크함에 있어요!"); return; }
-  sponsorSaved.unshift({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), url: f.url, title: f.title, snip: f.snip || "", cat: f.cat, src: f.src || sponsorSrc(f.url), at: Date.now() });
+  if (sponsorSaved.some(x => normSponsorUrl(x.url) === normSponsorUrl(f.url))) { toast("이미 링크함에 있어요!"); return; }
+  sponsorSaved.unshift({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), url: f.url, title: f.title, snip: f.snip || "", cat: f.cat, src: f.src || sponsorSrc(f.url), type: f.type || recruitType(f.title + " " + (f.snip || "")), at: Date.now() });
   sponsorSaved = sponsorSaved.slice(0, 200);
   store.set("sponsorSaved", sponsorSaved);
   // 수집 목록에서 링크함으로 "이동" (중복 표시 방지)
@@ -4137,6 +4172,28 @@ function saveToLinkbox(f) {
   store.set("sponsorFeeds", sponsorFeeds);
   renderSponsorFeeds(); renderSponsorBox();
   toast("🔖 링크함에 담았어요! ✏️로 이름을 바꿔둘 수 있어요.");
+}
+
+/* 내가 발견한 링크 직접 추가 (붙여넣기·공유) */
+function addManualLink() {
+  const urlEl = $("#sb-url"), nameEl = $("#sb-name");
+  const url = (urlEl.value || "").trim();
+  if (!/^https?:\/\//.test(url)) { toast("⚠️ 링크를 확인해 주세요 — 인스타 게시글에서 [공유] → [링크 복사] 후 붙여넣으면 돼요."); urlEl.focus(); return; }
+  if (sponsorSaved.some(x => normSponsorUrl(x.url) === normSponsorUrl(url))) { toast("이미 링크함에 있어요!"); return; }
+  const name = (nameEl.value || "").trim();
+  const cat = classifySponsor(name || url);
+  const label = (SP_CATS.find(c => c.key === cat) || {}).label || "기타";
+  let host = ""; try { host = new URL(url).hostname.replace(/^www\./, ""); } catch {}
+  const title = name ? `[${label}] ${name}` : `[${label}] 직접 추가한 링크 (${host})`;
+  // 직접 추가한 링크는 숨김 목록에서도 해제 (사용자가 다시 원한 것)
+  sponsorHidden = sponsorHidden.filter(n => n !== normSponsorUrl(url));
+  store.set("sponsorHidden", sponsorHidden);
+  sponsorSaved.unshift({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), url, title: title.slice(0, 100), snip: "", cat, src: sponsorSrc(url), type: recruitType(name), at: Date.now() });
+  sponsorSaved = sponsorSaved.slice(0, 200);
+  store.set("sponsorSaved", sponsorSaved);
+  urlEl.value = ""; nameEl.value = "";
+  renderSponsorBox();
+  toast("🔖 링크함에 담았어요! ✏️로 이름을 다듬을 수 있어요.");
 }
 
 let sbCat = "";
@@ -4188,10 +4245,13 @@ function renderSponsorBox() {
     const open = document.createElement("button");
     open.textContent = "🔗"; open.title = "원본 게시글 열기";
     open.addEventListener("click", () => window.open(f.url, "_blank", "noopener"));
+    const typeBadge = document.createElement("span");
+    typeBadge.className = "lib-cat";
+    typeBadge.textContent = f.type || recruitType(f.title + " " + (f.snip || ""));
     const del = document.createElement("button");
-    del.textContent = "🗑️"; del.title = "링크함에서 지우기";
-    del.addEventListener("click", () => { sponsorSaved = sponsorSaved.filter(x => x.id !== f.id); store.set("sponsorSaved", sponsorSaved); renderSponsorBox(); });
-    row.append(title, badge, srcBadge, renameBtn, open, del);
+    del.textContent = "🗑️"; del.title = "링크함에서 지우기 (다음 수집에서도 제외)";
+    del.addEventListener("click", () => { hideSponsorUrl(f.url); sponsorSaved = sponsorSaved.filter(x => x.id !== f.id); store.set("sponsorSaved", sponsorSaved); renderSponsorBox(); });
+    row.append(title, typeBadge, badge, srcBadge, renameBtn, open, del);
 
     // 이름 수정 폼 (철칙 7: prompt() 금지 — 인라인 입력)
     const form = document.createElement("div");
@@ -4225,6 +4285,7 @@ function renderSponsorBox() {
 }
 
 let spCat = "";
+let spType = ""; // 유형 필터 (체험단/앰버서더/무료나눔/댓글이벤트...)
 function renderSponsorFeeds() {
   const list = $("#sp-list");
   if (!list) return;
@@ -4243,8 +4304,25 @@ function renderSponsorFeeds() {
       chipWrap.appendChild(chip);
     });
   }
+  // 유형 칩 (체험단/앰버서더/서포터즈/무료나눔/댓글이벤트) — 있는 유형만 표시
+  const typeWrap = $("#sp-types");
+  if (typeWrap) {
+    typeWrap.innerHTML = "";
+    const typeOf = f => f.type || recruitType(f.title + " " + (f.snip || ""));
+    const presentTypes = RECRUIT_TYPES.filter(tp => sponsorFeeds.some(f => typeOf(f) === tp));
+    if (presentTypes.length >= 2) {
+      ["", ...presentTypes].forEach(tp => {
+        const chip = document.createElement("button");
+        chip.className = "lib-cat-chip" + ((spType || "") === tp ? " on" : "");
+        chip.textContent = tp === "" ? "🗂 유형 전체" : `${tp} ${sponsorFeeds.filter(f => typeOf(f) === tp).length}`;
+        chip.addEventListener("click", () => { spType = tp; renderSponsorFeeds(); });
+        typeWrap.appendChild(chip);
+      });
+    } else spType = "";
+  }
   list.innerHTML = "";
-  const shown = sponsorFeeds.filter(f => !spCat || f.cat === spCat);
+  const typeOf2 = f => f.type || recruitType(f.title + " " + (f.snip || ""));
+  const shown = sponsorFeeds.filter(f => (!spCat || f.cat === spCat) && (!spType || typeOf2(f) === spType));
   if (!shown.length) {
     list.innerHTML = `<div class="lib-empty">아직 수집된 모집글이 없어요.<br>[📡 최근 1개월 수집]을 누르거나, 사무실에 "체험단 모집 수집해줘"라고 지시해 보세요!</div>`;
     return;
@@ -4270,10 +4348,13 @@ function renderSponsorFeeds() {
     const open = document.createElement("button");
     open.textContent = "🔗"; open.title = "원본 게시글 열기";
     open.addEventListener("click", () => window.open(f.url, "_blank", "noopener"));
+    const typeBadge = document.createElement("span");
+    typeBadge.className = "lib-cat";
+    typeBadge.textContent = f.type || recruitType(f.title + " " + (f.snip || ""));
     const del = document.createElement("button");
-    del.textContent = "🗑️"; del.title = "목록에서 지우기";
-    del.addEventListener("click", () => { sponsorFeeds = sponsorFeeds.filter(x => x.url !== f.url); store.set("sponsorFeeds", sponsorFeeds); renderSponsorFeeds(); });
-    row.append(title, badge, srcBadge, keep, open, del);
+    del.textContent = "🗑️"; del.title = "지우기 (다음 수집에서 자동 제외)";
+    del.addEventListener("click", () => { hideSponsorUrl(f.url); sponsorFeeds = sponsorFeeds.filter(x => x.url !== f.url); store.set("sponsorFeeds", sponsorFeeds); renderSponsorFeeds(); });
+    row.append(title, typeBadge, badge, srcBadge, keep, open, del);
     item.appendChild(row);
     if (f.snip) {
       const snip = document.createElement("div");
@@ -6044,7 +6125,7 @@ function exportBackup() {
     exportedAt: new Date().toISOString(),
     settings: { ...settings, apiKey: "" }, // 보안을 위해 키는 제외
     docs, chats, roadmapDone, missions, tasks, activity, meetings, customStaff, teamChat,
-    todos, events, notes, focusLog, usage, reports, sponsorFeeds, sponsorSaved
+    todos, events, notes, focusLog, usage, reports, sponsorFeeds, sponsorSaved, sponsorHidden
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
@@ -6075,6 +6156,7 @@ function importBackup(file) {
       reports = data.reports || [];
       sponsorFeeds = data.sponsorFeeds || [];
       sponsorSaved = data.sponsorSaved || [];
+      sponsorHidden = data.sponsorHidden || [];
       todos = data.todos || [];
       events = data.events || [];
       notes = data.notes || [];
@@ -6089,6 +6171,7 @@ function importBackup(file) {
       store.set("reports", reports);
       store.set("sponsorFeeds", sponsorFeeds);
       store.set("sponsorSaved", sponsorSaved);
+      store.set("sponsorHidden", sponsorHidden);
       saveDocs();
       store.set("chats", chats);
       store.set("roadmapDone", roadmapDone);
@@ -6339,6 +6422,9 @@ function bindEvents() {
   // 분석실 (경쟁사 분석 + 체험단 레이더)
   $("#ca-run")?.addEventListener("click", () => runCompetitorAnalysis(($("#ca-links").value || "").split(/\n+/)));
   $("#sp-run")?.addEventListener("click", () => collectSponsorFeeds());
+  $("#sb-add")?.addEventListener("click", addManualLink);
+  $("#sb-url")?.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addManualLink(); } });
+  $("#sb-name")?.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addManualLink(); } });
   $("#lib-add-notion").addEventListener("click", () => {
     $("#nm-url").value = "";
     $("#nm-status").textContent = "";
@@ -7164,6 +7250,17 @@ function init() {
   }
   // 자료실·큰 기록을 IndexedDB로 (localStorage 5MB 한계 우회) + 영구 보관 요청(청소 대상 제외)
   initDocsStore().then(() => { setTimeout(() => autoSyncLinkedDocs(), 4000); }); // 시작 후 여유를 두고 연동 자료 자동 새로고침
+  // 공유로 열기(share target)·링크 파라미터: ?url= 또는 ?text= 속 링크를 링크함 입력창에 자동 채움
+  try {
+    const sp = new URLSearchParams(location.search);
+    const shared = sp.get("url") || ((sp.get("text") || "").match(/https?:\/\/\S+/) || [])[0];
+    if (shared && $("#sb-url")) {
+      switchTab("archive");
+      $("#sb-url").value = shared;
+      toast("🔗 공유받은 링크예요 — 이름을 적고 [➕ 담기]를 누르면 링크함에 저장돼요!", 6000);
+      history.replaceState(null, "", location.pathname);
+    }
+  } catch {}
   initBigStore().then(() => {
     if (settings) { renderAll(); resumePendingFinals(); } // IDB의 진짜 기록으로 다시 그린 뒤 끊긴 업무 재개
   });
@@ -7188,5 +7285,6 @@ window.__senter = {
   classifyDoc, autoDocTitle, isGenericName,
   getReports: () => reports, archiveReport, reworkFromReport, renderArchive,
   runCompetitorAnalysis, collectSponsorFeeds, parseSponsorResults, classifySponsor,
-  getSponsorFeeds: () => sponsorFeeds, getSponsorSaved: () => sponsorSaved, saveToLinkbox, renderSponsorBox
+  getSponsorFeeds: () => sponsorFeeds, getSponsorSaved: () => sponsorSaved, saveToLinkbox, renderSponsorBox,
+  normSponsorUrl, recruitType, getSponsorHidden: () => sponsorHidden, addManualLink
 };
