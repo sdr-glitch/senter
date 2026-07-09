@@ -3139,6 +3139,62 @@ function templateDraft(task) {
   if (/북극성|지표 설계/.test(title)) return northStarDraft(head, t, goal);
   if (/회고/.test(title)) return retroDraft(head);
 
+  if (/미디어킷|단가표|광고 단가/.test(title)) {
+    return head("미디어킷 + 광고 단가표 초안 (협찬 제안 대비)") + `${acctLine()}
+
+## 1. 계정 한 줄 소개 (미디어킷 첫 장)
+"${t}을(를) 기록하는 실사용 후기형 계정 — 저장 중심 실용 콘텐츠로 광고 효과가 오래갑니다."
+
+## 2. 제공 가능한 협찬 콘텐츠 메뉴
+| 상품 | 구성 | 제작 기간 |
+|---|---|---|
+| 피드 1건 | 사진 5~10장 + 캡션 + 해시태그 | 3일 |
+| 릴스 1건 | 15~30초 실사용 영상 + 커버 | 5일 |
+| 피드+릴스 패키지 | 위 2종 + 스토리 1회 | 7일 |
+| 공동구매 | 사전 체험 + 판매 기간 운영 | 협의 |
+
+## 3. 단가 산정 공식 (업계 통용 기준 — 내 수치로 계산)
+- 기본 공식: **팔로워 수 × 30~50원** = 피드 1건 기준선 (릴스는 1.5배)
+- 보정: 평균 저장수가 팔로워의 3% 이상이면 +20%, 체험단 이력 있으면 +10%
+- 초기(팔로워 <1천): 현물 협찬 + 소정 원고료(3~5만)부터 시작해 이력을 쌓는 전략 추천
+
+## 4. 협찬 문의 응대 절차 (템플릿)
+1) 감사 인사 + 미디어킷 전달 → 2) 제품·일정·가이드 확인 → 3) 단가·조건 회신 → 4) 계약(대금·2차 사용권 명시) → 5) 발행 후 성과 리포트 전달
+답장 템플릿: "안녕하세요! 제안 감사합니다 😊 계정 소개와 진행 가능 옵션을 정리한 미디어킷을 보내드려요. 원하시는 형태(피드/릴스)와 일정 알려주시면 견적과 함께 회신드리겠습니다."
+
+## 5. 지금 준비할 것
+□ 인사이트 스크린샷 3장(도달·저장·팔로워) □ 대표 콘텐츠 3개 링크 □ 연락용 이메일 프로필에 표기
+
+**대표 결정 요청: 단가 기준(30원/40원/50원) 중 선택 — 선택하시면 미디어킷 문서로 정리해 드립니다.**${qualityNote()}` + snippetSection();
+  }
+
+  if (/업무 가이드|용어집|온보딩/.test(title)) {
+    return head("우리 회사 업무 가이드 & 용어집") + `${acctLine()}
+
+## 1. 우리 회사가 일하는 방식 (결재선)
+사장님 지시(또는 아이디어 던지기) → 담당 팀원 초안 → 팀장 검토·팀 회의 → 과장 최종 보고서 → **사장님 승인/보완**. 사장님이 하실 일은 승인 버튼 하나예요.
+
+## 2. 부서별 담당 (누구에게 시키면 되나)
+| 부서 | 이런 일 | 대표 지시 예 |
+|---|---|---|
+| 🎬 콘텐츠 제작부 | 기획·캡션·릴스·편집 | "릴스 대본 만들어줘" |
+| 📈 성장 분석부 | 벤치마킹·페르소나·수치 | "경쟁 계정 분석해줘" |
+| 💰 수익화·제휴부 | 체험단·협찬·단가표 | "협찬 답장 템플릿 만들어줘" |
+| 🎨 크리에이티브 스튜디오부 | 이모티콘·굿즈·시안 | "이모티콘 기획해줘" |
+| 📚 내부 교육부 | 자료 소화·요약·가이드 | "이 강의 요약해줘" |
+
+## 3. 초보 사장님 용어집 (5개만 먼저)
+- **도달**: 내 게시물을 본 사람 수 — 새 손님이 얼마나 왔나
+- **저장수**: 나중에 보려고 저장한 수 — 알고리즘이 가장 좋아하는 신호
+- **CTA**: 행동 유도 문구 — "저장해두세요" 같은 마지막 한 줄
+- **후킹**: 첫 3초/첫 줄에 시선을 잡는 장치
+- **미디어킷**: 협찬사에 보내는 우리 계정 소개서
+
+## 4. 하루 10분 운영 루틴
+아침: 검토 대기 승인(3분) → 점심: 댓글 답장(4분) → 저녁: 내일 소재 한 줄 아이디어 던지기(3분)` + snippetSection();
+  }
+
+
   if (/이모티콘|스티커/.test(title)) {
     return /라인|OGQ|밴드|플랫폼/.test(title) ? emoticonMultiDraft(head) : emoticonKakaoDraft(head, t);
   }
@@ -3388,6 +3444,8 @@ const INITIATIVES = [
   { key: "bench", title: "벤치마킹 보고서 — 인기 계정 분석과 내 계정 적용 전략", assignee: "analyst", when: () => true },
   { key: "emoKakao", title: "카카오톡 이모티콘 시장 분석 + 우리 캐릭터 기획안", assignee: "emoti", when: () => true },
   { key: "emoMulti", title: "라인·OGQ·밴드 플랫폼별 이모티콘 기획안", assignee: "emoti", when: () => !!getAutoState().done.emoKakao },
+  { key: "mediaKit", title: "미디어킷 + 광고 단가표 초안 (협찬 제안 대비)", assignee: "jr-partner", when: () => !!getAutoState().done.review },
+  { key: "guide", title: "우리 회사 업무 가이드 & 용어집 (온보딩)", assignee: "jr-onboard", when: () => !!getAutoState().done.caption },
   { key: "personas", title: "타깃 페르소나 3인 정의 (user-personas 스킬)", assignee: "analyst", when: () => !!getAutoState().done.bench },
   { key: "positioning", title: "계정 포지셔닝 선언문 (positioning 스킬)", assignee: "brand", when: () => !!getAutoState().done.personas },
   { key: "northstar", title: "북극성 지표 설계 (north-star 스킬)", assignee: "planner", when: () => !!getAutoState().done.positioning }
@@ -3732,6 +3790,7 @@ function renderBoard() {
           renderBoard(); updateOfficeStatuses();
           promoteQueue(t.assignee);
           handoffToStudio(t);
+          schedulePublishTodo(t);
         });
         addBtn("↩ 보완 요청", "btn-small", () => {
           const form = card.querySelector(".task-form");
@@ -4792,6 +4851,19 @@ function renderStudio() {
 
 /* 이모티콘 기획 승인 → 스튜디오에 프로젝트 자동 생성 (탭 간 연결)
    스튜디오가 로드될 때 senter:studioInbox를 읽어 자기 저장소 형식으로 가져간다 */
+/* 마케팅 루프 닫기: 콘텐츠성 업무 승인 → "발행 + 성과 기록" 할 일 자동 생성 (만들기→발행→측정→개선) */
+function schedulePublishTodo(t) {
+  if (!/릴스|캡션|대본|게시물|아이디어|콘텐츠|컨셉|소개글/.test(t.title)) return;
+  const short = t.title.slice(0, 24);
+  const text = `📤 「${short}」 발행 → 이틀 뒤 저장수·댓글 기록하기`;
+  if (todos.some(d => d.text === text)) return; // 중복 방지
+  const due = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
+  todos.unshift({ id: Date.now() + "-pub", text, due, done: false });
+  store.set("todos", todos);
+  if (typeof renderTools === "function") renderTools();
+  toast("🗓️ 생산성 탭에 발행·성과 기록 할 일을 추가했어요 (D+2) — 기록이 쌓이면 벤치마킹이 더 똑똑해져요.");
+}
+
 function handoffToStudio(t) {
   // 크리에이티브 스튜디오부 업무 전부(이모티콘·디자인·굿즈) + 다른 직원에게 지명된 '이모티콘/캐릭터 기획'
   const isCreativeDept = teamOf(t.assignee).id === "creative";
