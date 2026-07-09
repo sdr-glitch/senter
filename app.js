@@ -1030,13 +1030,44 @@ function extractPuterText(resp) {
   return resp.text || String(resp);
 }
 
+/* 무료 AI 잔액 소진 대응: Puter가 "Low Balance" 결제 유도 창을 띄우며 실패하면
+   6시간 동안 무료 AI 호출을 쉬고 오프라인 초안 모드로 자동 전환 (창이 반복해서 뜨지 않게) */
+function freeAiCoolingDown() {
+  return Date.now() < (store.get("freeAiCooldownUntil", 0) || 0);
+}
+let lowBalanceToastShown = false;
+function enterFreeAiCooldown() {
+  store.set("freeAiCooldownUntil", Date.now() + 6 * 3600000);
+  if (!lowBalanceToastShown) {
+    lowBalanceToastShown = true;
+    toast("🔋 무료 AI의 오늘 사용량을 다 썼어요. 6시간 동안 오프라인 초안 모드로 계속 일할게요 — 설정 탭에서 내 API 키를 넣으면 바로 AI 모드로 돌아가요. (업그레이드 결제는 필요 없어요!)", 9000);
+  }
+}
+/* Puter가 끼워 넣는 "Low Balance / Upgrade Now" 창을 자동으로 닫음 */
+function watchPuterDialogs() {
+  try {
+    new MutationObserver(muts => {
+      for (const mu of muts) {
+        for (const n of mu.addedNodes) {
+          if (!(n instanceof HTMLElement)) continue;
+          const t = n.innerText || "";
+          if (/low balance|not enough funding|upgrade to continue/i.test(t)) {
+            n.remove();
+            enterFreeAiCooldown();
+          }
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: false });
+  } catch {}
+}
+
 /* AI 호출 통합 경로: ① 내 API 키(Anthropic) → ② 무료 AI(Puter) */
 async function aiChat(system, messages, onDelta = () => {}, modelOverride) {
   if ((settings && settings.apiKey || "").trim()) {
     return callClaudeSystem(system, messages, onDelta, modelOverride);
   }
   // 무료 AI 경로는 직급별 모델 구분 없음 (modelOverride 무시)
-  if (freeAiBroken) {
+  if (freeAiBroken || freeAiCoolingDown()) {
     const err = new Error("NO_AI");
     throw err;
   }
@@ -1060,13 +1091,19 @@ async function aiChat(system, messages, onDelta = () => {}, modelOverride) {
     return text;
   } catch (e) {
     const msg = String(e && (e.message || e.error && e.error.message) || e);
+    if (/insufficient|funds|balance|usage.?limit|credit|402/i.test(msg)) {
+      enterFreeAiCooldown(); // 잔액 소진 → 당분간 무료 AI 호출 중단 (결제창 반복 방지)
+      throw new Error("NO_AI");
+    }
     const err = new Error(/auth|login|sign/i.test(msg) ? "FREE_AI_AUTH" : "무료 AI 응답 실패: " + msg.slice(0, 80));
     throw err;
   }
 }
 
 function friendlyApiError(e) {
-  if (e.message === "NO_AI") return "지금은 무료 AI에 연결할 수 없어요. 인터넷을 확인하고 다시 시도하거나, 설정에서 내 API 키를 연결해주세요. (지시서 복사 → 무료 챗봇 붙여넣기는 항상 작동해요)";
+  if (e.message === "NO_AI") return freeAiCoolingDown()
+    ? "무료 AI 사용량을 다 써서 잠시 쉬는 중이에요 (몇 시간 뒤 자동 재시도). 그동안 오프라인 초안으로 일하고, 설정 탭에서 내 API 키를 넣으면 바로 AI 모드가 돼요."
+    : "지금은 무료 AI에 연결할 수 없어요. 인터넷을 확인하고 다시 시도하거나, 설정에서 내 API 키를 연결해주세요. (지시서 복사 → 무료 챗봇 붙여넣기는 항상 작동해요)";
   if (e.message === "FREE_AI_AUTH") return "무료 AI를 쓰려면 뜨는 창에서 Puter 무료 계정으로 로그인 해주세요 (한 번만 하면 돼요). 창이 안 떴다면 팝업 차단을 확인해주세요.";
   if (e.message === "NO_KEY") return "API 키가 아직 없어요. 설정 탭에서 키를 등록해주세요. (발급 방법 안내 버튼이 있어요)";
   if (e.status === 401) return "API 키가 올바르지 않아요. 설정 탭에서 키를 다시 확인해주세요.";
@@ -5112,7 +5149,7 @@ async function fetchViaJina(url) {
 const VISION_PROMPT = "이 이미지는 강의·자료의 한 장면이야. ① 이미지 속 글자를 빠짐없이 그대로 옮겨 적어줘 (표는 마크다운 표로, 목록은 목록으로). ② 글자가 없는 도표·그래프·화면 구성은 무엇을 보여주는지 설명해줘. ③ 마지막 줄에 '[맥락] '으로 시작하는 핵심 한 줄 요약을 붙여줘. 한국어로만, 인사 없이 내용만.";
 
 function visionAvailable() {
-  return !!((settings && settings.apiKey || "").trim()) || !freeAiBroken;
+  return !!((settings && settings.apiKey || "").trim()) || (!freeAiBroken && !freeAiCoolingDown());
 }
 
 /* 큰 이미지는 AI 전송 전에 축소 (비용·전송량 절약, 1568px이면 비전 인식에 충분) */
@@ -5164,9 +5201,14 @@ async function anthropicVision(dataUrl, prompt) {
 async function imageToText(dataUrl) {
   const small = await shrinkImage(dataUrl);
   if ((settings && settings.apiKey || "").trim()) return anthropicVision(small, VISION_PROMPT);
-  if (freeAiBroken) throw new Error("NO_AI");
+  if (freeAiBroken || freeAiCoolingDown()) throw new Error("NO_AI");
   const puter = await loadPuter().catch(() => { throw new Error("NO_AI"); });
-  const resp = await puter.ai.chat(VISION_PROMPT, small); // Puter 비전: (프롬프트, 이미지 dataURL)
+  let resp;
+  try { resp = await puter.ai.chat(VISION_PROMPT, small); } // Puter 비전: (프롬프트, 이미지 dataURL)
+  catch (e) {
+    if (/insufficient|funds|balance|usage.?limit|credit|402/i.test(String(e && e.message || e))) enterFreeAiCooldown();
+    throw new Error("NO_AI");
+  }
   const text = extractPuterText(resp).trim();
   if (!text) throw new Error("빈 응답");
   recordUsage("free", 1600, estTokens(text), true);
@@ -6329,6 +6371,8 @@ function bindEvents() {
     const savedKey = settings.apiKey;
     try {
       freeAiBroken = false; // 재시도 허용
+      store.set("freeAiCooldownUntil", 0); // 직접 테스트하면 휴식 모드도 해제하고 재시도
+      lowBalanceToastShown = false;
       settings.apiKey = ""; // 무료 경로 강제 테스트
       const r = await aiChat("한 문장으로만 답해.", [{ role: "user", content: "안녕! 연결 확인이야." }]);
       out.textContent = "✅ 무료 AI 작동! — " + r.slice(0, 40);
@@ -7295,6 +7339,7 @@ function init() {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
   // 자료실·큰 기록을 IndexedDB로 (localStorage 5MB 한계 우회) + 영구 보관 요청(청소 대상 제외)
+  watchPuterDialogs(); // 무료 AI의 결제 유도 창 자동 닫기
   initDocsStore().then(() => { setTimeout(() => autoSyncLinkedDocs(), 4000); }); // 시작 후 여유를 두고 연동 자료 자동 새로고침
   // 공유로 열기(share target)·링크 파라미터: ?url= 또는 ?text= 속 링크를 링크함 입력창에 자동 채움
   try {
@@ -7332,5 +7377,6 @@ window.__senter = {
   getReports: () => reports, archiveReport, reworkFromReport, renderArchive,
   runCompetitorAnalysis, collectSponsorFeeds, parseSponsorResults, classifySponsor,
   getSponsorFeeds: () => sponsorFeeds, getSponsorSaved: () => sponsorSaved, saveToLinkbox, renderSponsorBox,
-  normSponsorUrl, recruitType, getSponsorHidden: () => sponsorHidden, addManualLink, parseAdLibrary
+  normSponsorUrl, recruitType, getSponsorHidden: () => sponsorHidden, addManualLink, parseAdLibrary,
+  aiChat, freeAiCoolingDown, enterFreeAiCooldown
 };

@@ -8,7 +8,7 @@
 2. **렌더링을 막는 외부 리소스 금지**: 외부 CSS/폰트는 반드시 비차단 로드(`media="print" onload`). *교훈: 구글 폰트가 head를 막아 흰 화면 사고 발생.*
 3. **한국어 UI, 초보자 눈높이**: 전문 용어는 즉시 쉬운 말로 풀기. 에러 메시지는 "무엇을 하면 되는지"까지 안내.
 4. **localStorage + IndexedDB가 DB**: 작은 상태는 localStorage(접두사 `senter:`), **큰 기록은 IndexedDB**(`senter-db`/kv) — docs는 `saveDocs()`, `BIG_KEYS`(tasks·meetings·chats·teamChat·activity·reports)는 `store.set()`이 자동 라우팅(마이그레이션 후 `bigInIdb`). 시작 시 `initDocsStore()`+`initBigStore()`가 메모리 로드+레거시 이전, **`resumePendingFinals()`·`renderAll()`은 initBigStore 완료 후 실행**. cap: 채팅 400/페르소나(AI 전송은 최근 20), 팀채팅 500, 활동 300, 회의록 100(표시 30), 완료 업무 200. 전체 초기화는 IndexedDB(`senter-db`)도 삭제해야 함.
-5. **AI 3단계 안전망**: `aiChat()` = ① 사용자 API 키(Anthropic 직접 호출) → ② 무료 AI(Puter.js) → ③ 실패 시 오프라인 템플릿 + "지시서 복사" 수동 흐름. **AI가 없어도 앱이 죽지 않아야 함.**
+5. **AI 3단계 안전망**: `aiChat()` = ① 사용자 API 키(Anthropic 직접 호출) → ② 무료 AI(Puter.js) → ③ 실패 시 오프라인 템플릿 + "지시서 복사" 수동 흐름. **AI가 없어도 앱이 죽지 않아야 함.** 무료 AI 잔액 소진("Low Balance" 결제창) 감지 시 `enterFreeAiCooldown()`이 6시간 휴식(`senter:freeAiCooldownUntil`) + `watchPuterDialogs()`가 결제창 자동 닫기 — 설정의 연결 테스트 버튼만 쿨다운 해제.
 6. **3D CSS 변환 금지**: 아이소메트릭 rotateX/Z는 환경에 따라 납작하게 뭉개짐(실제 사고). 사무실은 평면 탑다운 도트게임 스타일 유지.
 7. **`window.prompt()` 금지**: 긴 텍스트 입력은 전용 모달(`#doc-modal` 패턴) 사용.
 
