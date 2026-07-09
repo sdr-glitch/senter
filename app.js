@@ -4043,7 +4043,12 @@ const SP_CATS = [
 ];
 /* 같은 게시글이 ?igsh= 등 꼬리표만 달라도 하나로 취급 (중복 제거 기준) */
 function normSponsorUrl(u) {
-  try { const x = new URL(u); return (x.origin + x.pathname).replace(/\/$/, "").toLowerCase(); }
+  try {
+    const x = new URL(u);
+    // 광고 라이브러리는 ?id= 가 게시물 식별자라 보존 (다른 링크는 꼬리표 전부 제거)
+    const adId = x.pathname.includes("/ads/library") ? x.searchParams.get("id") : null;
+    return (x.origin + x.pathname + (adId ? `?id=${adId}` : "")).replace(/\/(\?)/, "$1").replace(/\/$/, "").toLowerCase();
+  }
   catch { return String(u).split(/[?#]/)[0].replace(/\/$/, "").toLowerCase(); }
 }
 /* 삭제한 링크는 다시 수집되지 않게 기억 */
@@ -4057,17 +4062,19 @@ function hideSponsorUrl(url) {
   }
 }
 /* 모집 유형: 체험단 / 앰버서더 / 서포터즈 / 기자단 / 무료나눔 / 댓글이벤트(추첨) */
-const RECRUIT_TYPES = ["🎁 체험단", "🤝 앰버서더", "📣 서포터즈", "📰 기자단", "🎀 무료나눔", "🍀 댓글이벤트"];
+const RECRUIT_TYPES = ["🎁 체험단", "🤝 앰버서더", "📣 서포터즈", "📰 기자단", "🎀 무료나눔", "🍀 댓글이벤트", "❤️ 팔로우이벤트"];
 function recruitType(text) {
   if (/앰버서더|엠버서더|앰배서더|ambassador/i.test(text)) return "🤝 앰버서더";
   if (/서포터즈/.test(text)) return "📣 서포터즈";
   if (/기자단/.test(text)) return "📰 기자단";
+  if (/팔로우\s*(이벤트|추첨|미션)/.test(text)) return "❤️ 팔로우이벤트";
   if (/무료\s*나눔|나눔\s*이벤트/.test(text)) return "🎀 무료나눔";
   if (/댓글\s*이벤트|추첨|경품|응모/.test(text)) return "🍀 댓글이벤트";
   return "🎁 체험단";
 }
 /* 링크 출처 표시 (인스타/블로그/카페) */
 function sponsorSrc(url) {
+  if (/facebook\.com\/ads\/library/.test(url)) return "📢 광고";
   if (/instagram\.com/.test(url)) return "📸 인스타";
   if (/cafe\.naver\.com/.test(url)) return "☕ 카페";
   if (/blog\.naver\.com|tistory\.com|brunch\.co\.kr/.test(url)) return "✍️ 블로그";
@@ -4076,6 +4083,30 @@ function sponsorSrc(url) {
 const SPONSOR_URL_RE = /instagram\.com|blog\.naver\.com|cafe\.naver\.com|tistory\.com|brunch\.co\.kr/;
 function classifySponsor(text) {
   return (SP_CATS.find(c => c.re.test(text)) || SP_CATS[SP_CATS.length - 1]).key;
+}
+
+/* 인스타·페북에 지금 돌고 있는 "광고" 게시물 수집 — 메타 광고 라이브러리(모든 광고를 공개하는 공식 저장소) 경유 */
+function parseAdLibrary(md) {
+  const items = [];
+  const seenIds = new Set();
+  let m;
+  const idRe = /(?:library\/?\?id=|Library ID[:\s]*)(\d{8,})/gi;
+  while ((m = idRe.exec(md))) {
+    const id = m[1];
+    if (seenIds.has(id)) continue;
+    seenIds.add(id);
+    // ID 주변 문장에서 광고 문구 추출 (제목·설명으로 사용)
+    const ctx = md.slice(Math.max(0, m.index - 150), m.index + 400).replace(/\s+/g, " ");
+    const sent = (ctx.match(/[가-힣][^|\[\]{}<>*_#]{10,120}/g) || []).sort((a, b) => b.length - a.length)[0] || "";
+    items.push({ url: `https://www.facebook.com/ads/library/?id=${id}`, title: sent.trim().slice(0, 90) || `광고 게시물 ${id}`, snip: sent.trim().slice(0, 140) });
+  }
+  return items.slice(0, 20);
+}
+
+async function fetchAdLibrary(q) {
+  const url = `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=KR&q=${encodeURIComponent(q)}&search_type=keyword_unordered&media_type=all`;
+  const md = await fetchViaJina(url);
+  return md ? parseAdLibrary(md) : [];
 }
 
 async function fetchSearchText(q) {
@@ -4122,8 +4153,9 @@ async function collectSponsorFeeds() {
     `"체험단 모집" blog.naver.com`, `${t} 체험단 모집 블로그`,
     `"앰버서더 모집" site:instagram.com`, `${t} 앰버서더 모집`,
     `"서포터즈 모집" 인스타그램`, `무료나눔 이벤트 site:instagram.com`,
-    `"댓글 이벤트" 추첨 site:instagram.com`
+    `"댓글 이벤트" 추첨 site:instagram.com`, `"팔로우 이벤트" site:instagram.com`
   ];
+  const adQueries = [`체험단 모집`, `${t} 체험단`, `팔로우 이벤트`]; // 광고 라이브러리용
   const found = [];
   // 중복 제거: 현재 목록 + 링크함에 담은 것 + 삭제한 것 전부 제외 (꼬리표만 다른 같은 링크 포함)
   const seen = new Set([
@@ -4131,8 +4163,22 @@ async function collectSponsorFeeds() {
     ...sponsorSaved.map(f => normSponsorUrl(f.url)),
     ...sponsorHidden
   ]);
-  if (status) status.textContent = `📡 우회 경로 ${queries.length}곳에서 동시 수집 중... (체험단·앰버서더·서포터즈·무료나눔·댓글이벤트)`;
-  const texts = await Promise.all(queries.map(q => fetchSearchText(q).catch(() => null)));
+  if (status) status.textContent = `📡 우회 경로 ${queries.length + adQueries.length}곳에서 동시 수집 중... (체험단·앰버서더·나눔·이벤트 + 인스타 광고)`;
+  const [texts, adLists] = await Promise.all([
+    Promise.all(queries.map(q => fetchSearchText(q).catch(() => null))),
+    Promise.all(adQueries.map(q => fetchAdLibrary(q).catch(() => [])))
+  ]);
+  // 광고 게시물 (메타 광고 라이브러리) 먼저 합류
+  for (const arr of adLists) {
+    for (const it of arr) {
+      const key = normSponsorUrl(it.url);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const cat = classifySponsor(it.title + " " + (it.snip || ""));
+      const label = (SP_CATS.find(c => c.key === cat) || {}).label || "기타";
+      found.push({ url: it.url, title: `[${label}] ${it.title}`.slice(0, 100), snip: it.snip, cat, src: "📢 광고", type: recruitType(it.title + " " + (it.snip || "")), at: Date.now() });
+    }
+  }
   for (const text of texts) {
     if (!text) continue;
     for (const it of parseSponsorResults(text)) {
@@ -7286,5 +7332,5 @@ window.__senter = {
   getReports: () => reports, archiveReport, reworkFromReport, renderArchive,
   runCompetitorAnalysis, collectSponsorFeeds, parseSponsorResults, classifySponsor,
   getSponsorFeeds: () => sponsorFeeds, getSponsorSaved: () => sponsorSaved, saveToLinkbox, renderSponsorBox,
-  normSponsorUrl, recruitType, getSponsorHidden: () => sponsorHidden, addManualLink
+  normSponsorUrl, recruitType, getSponsorHidden: () => sponsorHidden, addManualLink, parseAdLibrary
 };
