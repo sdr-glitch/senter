@@ -4384,7 +4384,9 @@ async function fetchViaJina(url) {
   return text.length > 50 && !/^error/i.test(text) ? text : null;
 }
 
-const LINKED_MAX_PAGES = 40; // 하위 페이지·표 행 포함 최대 읽기 쪽수 (허브 페이지 대응)
+// 쪽수 상한 없음 — 중복 방문 차단(seen)과 글자 상한(PDF_MAX_CHARS=100만 자)이 안전장치.
+// LINKED_HARD_STOP은 비정상 상황(순환 링크 등)만 막는 넉넉한 백스톱.
+const LINKED_HARD_STOP = 500;
 
 /* 페이지 속 데이터베이스(표)의 행 페이지 id들 — 노션 워크북(1일차·2일차…)이 표 행으로 들어있는 경우 대응 */
 async function notionTableRowIds(blocks) {
@@ -4396,7 +4398,7 @@ async function notionTableRowIds(blocks) {
       const res = await fetch(`https://notion-api.splitbee.io/v1/table/${key.replace(/-/g, "")}`);
       if (!res.ok) continue;
       const rows = await res.json();
-      for (const row of (Array.isArray(rows) ? rows : []).slice(0, LINKED_MAX_PAGES)) {
+      for (const row of (Array.isArray(rows) ? rows : [])) {
         const rid = String(row.id || "").replace(/-/g, "");
         if (rid) ids.push(rid);
       }
@@ -4408,28 +4410,29 @@ async function notionTableRowIds(blocks) {
 /* 링크 하나로 페이지 + 하위 페이지 전체를 읽음. onProgress(문구)로 진행 상황 보고 */
 async function fetchLinkedPage(url, onProgress) {
   const id = notionPageId(url);
-  // ① 노션 전용 리더 — 하위 페이지를 너비 우선으로 재귀 수집 (허브 페이지도 알맹이까지 전부)
+  // ① 노션 전용 리더 — 하위 페이지·표 행을 쪽수 제한 없이 재귀 수집 (5쪽씩 병렬로 빠르게)
   if (id) {
     try {
       const seen = new Set([id]);
-      const queue = [{ id, depth: 0 }];
+      let queue = [id];
       const out = [];
       let pages = 0;
-      while (queue.length && pages < LINKED_MAX_PAGES) {
-        const cur = queue.shift();
-        let blocks;
-        try { blocks = await fetchNotionPageBlocks(cur.id); } catch { continue; }
-        const text = notionBlocksToText(blocks, cur.id);
-        if (text.trim()) out.push(text.trim());
-        pages++;
-        if (onProgress) onProgress(`📖 ${pages}쪽째 읽는 중... (하위 페이지 포함, 대기열 ${queue.length})`);
-        if (cur.depth < 3) {
-          const kids = notionChildIds(blocks, cur.id).concat(await notionTableRowIds(blocks));
+      let chars = 0;
+      while (queue.length && pages < LINKED_HARD_STOP && chars < PDF_MAX_CHARS) {
+        const batch = queue.splice(0, 5);
+        const fetched = await Promise.all(batch.map(async pid => {
+          try { return { pid, blocks: await fetchNotionPageBlocks(pid) }; } catch { return null; }
+        }));
+        for (const f of fetched.filter(Boolean)) {
+          const text = notionBlocksToText(f.blocks, f.pid);
+          if (text.trim()) { out.push(text.trim()); chars += text.length; }
+          pages++;
+          const kids = notionChildIds(f.blocks, f.pid).concat(await notionTableRowIds(f.blocks));
           for (const cid of kids) {
-            if (!seen.has(cid)) { seen.add(cid); queue.push({ id: cid, depth: cur.depth + 1 }); }
+            if (!seen.has(cid)) { seen.add(cid); queue.push(cid); }
           }
         }
-        if (out.join("").length > PDF_MAX_CHARS) break;
+        if (onProgress) onProgress(`📖 ${pages}쪽 읽음 · 남은 하위 페이지 ${queue.length}개... (${(chars / 1000).toFixed(0)}천 자)`);
       }
       const joined = out.join("\n\n──────────\n\n");
       if (joined.trim().length > 20) return joined.slice(0, PDF_MAX_CHARS);
@@ -4441,7 +4444,7 @@ async function fetchLinkedPage(url, onProgress) {
     if (rootMd) {
       let all = rootMd;
       const childIds = [...new Set((rootMd.match(/notion\.(?:site|so)\/[^\s)"'\]]+/g) || [])
-        .map(u => notionPageId(u)).filter(Boolean))].filter(x => x !== id).slice(0, 15);
+        .map(u => notionPageId(u)).filter(Boolean))].filter(x => x !== id);
       for (let i = 0; i < childIds.length; i++) {
         if (onProgress) onProgress(`📖 하위 페이지 ${i + 1}/${childIds.length} 읽는 중...`);
         try {
