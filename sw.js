@@ -4,7 +4,7 @@
      오프라인일 때만 캐시 폴백 → 구 HTML + 신 JS 조합(흰 화면 사고)이 생기지 않음.
    - vendor·아이콘은 "캐시 우선"(내용이 사실상 불변).
    - 외부 요청(RSS·AI)은 건드리지 않음. */
-const CACHE = "senter-v2";
+const CACHE = "senter-v3";
 const CORE = ["./", "./index.html", "./app.js", "./style.css", "./studio.html", "./manifest.json"];
 const STATIC = [
   "./vendor/pdf.min.js", "./vendor/pdf.worker.min.js", "./vendor/jszip.min.js",

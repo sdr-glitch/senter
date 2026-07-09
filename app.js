@@ -891,7 +891,7 @@ function renderMarkdown(text) {
 /* ---------- 시스템 프롬프트 구성 ---------- */
 const KNOWLEDGE_CHAR_BUDGET = 60000; // 자료 주입 상한 (약 2~3만 토큰)
 
-function buildSystemPrompt(persona) {
+function buildSystemPrompt(persona, query = "") {
   const s = settings || {};
   let prompt = persona.system;
 
@@ -908,18 +908,13 @@ function buildSystemPrompt(persona) {
 - 답변은 읽기 쉽게: 짧은 문단, 목록 활용. 너무 길지 않게 핵심 위주로.
 - 사용자를 이름으로 다정하게 부르되 과하지 않게.`;
 
-  const enabled = docs.filter(d => d.enabled);
-  if (enabled.length) {
-    let budget = KNOWLEDGE_CHAR_BUDGET;
-    const parts = [];
-    for (const d of enabled) {
-      if (budget <= 0) break;
-      const slice = d.content.slice(0, budget);
-      parts.push(`===== 자료: ${d.title} =====\n${slice}`);
-      budget -= slice.length;
-    }
-    prompt += `\n\n[참고 자료 — 사용자가 학습시킨 강의/전자책 내용]\n${parts.join("\n\n")}`;
-    if (budget <= 0) prompt += `\n\n(참고: 자료가 많아 일부만 포함되었습니다.)`;
+  // 자료 주입: 질문과 관련된 구간을 골라 발췌 + 전 자료 배분·순환 (pickDocRefs — 아래 자료 참조 엔진)
+  const refs = typeof pickDocRefs === "function" ? pickDocRefs(query, KNOWLEDGE_CHAR_BUDGET) : [];
+  if (refs.length) {
+    prompt += `\n\n[참고 자료 — 사용자가 학습시킨 강의/전자책에서, 이번 질문과 관련된 구간 위주로 발췌]\n` +
+      refs.map(r => `===== 자료: ${r.title}${r.hit ? " (관련 구간)" : ""} =====\n${r.text}`).join("\n\n");
+    const enabledSize = docs.filter(d => d.enabled).reduce((s, d) => s + d.content.length, 0);
+    if (enabledSize > KNOWLEDGE_CHAR_BUDGET) prompt += `\n\n(자료가 많아 관련 구간 위주로 발췌했습니다. 다음 질문에는 다른 구간이 순환 참고됩니다.)`;
   }
 
   return prompt;
@@ -928,7 +923,8 @@ function buildSystemPrompt(persona) {
 /* ---------- Claude API 호출 (스트리밍) ---------- */
 async function callClaude(personaId, messages, onDelta) {
   const persona = PERSONAS.find(p => p.id === personaId);
-  return aiChat(buildSystemPrompt(persona), messages, onDelta);
+  const lastUser = [...messages].reverse().find(m => m.role === "user");
+  return aiChat(buildSystemPrompt(persona, lastUser ? String(lastUser.content).slice(0, 500) : ""), messages, onDelta);
 }
 
 async function callClaudeSystem(system, messages, onDelta, modelOverride) {
@@ -2390,14 +2386,19 @@ async function studyMeeting(docId, opts = {}) {
 
   // 핵심 요약: AI 가능하면 진짜 요약, 아니면 자료 발췌 (심화 회차는 다른 관점·다른 구간)
   let summary = "";
+  // 회차마다 자료의 다른 구간을 읽어 큰 자료도 전체가 커버되게 (1회차=앞, 2회차=중간, ...)
+  const winSize = 20000;
+  const winStart = doc.content.length > winSize
+    ? Math.min((deep - 1) * Math.floor(winSize * 0.8), Math.max(0, doc.content.length - winSize))
+    : 0;
   try {
     summary = await aiChat(
-      `너는 강의 자료를 소화시키는 코치다. ${deep > 1 ? `이번은 ${deep}회차 심화 회의다. 앞선 회의에서 다룬 뻔한 요약은 피하고, 남들이 놓치는 디테일·반례·적용 심화 포인트를 새로 뽑아라. ` : ""}아래 자료의 핵심을 3줄로 요약하고, 이 팀(SNS 계정 운영)이 바로 실행할 액션 3가지를 제안하라. 형식: "핵심: ..." 3줄, "실행: ..." 3줄. 한국어 간결하게.\n\n${staffContext()}`,
-      [{ role: "user", content: doc.content.slice(0, 20000) }], () => {});
+      `너는 강의 자료를 소화시키는 코치다. ${deep > 1 ? `이번은 ${deep}회차 심화 회의다. 앞선 회의에서 다룬 뻔한 요약은 피하고, 남들이 놓치는 디테일·반례·적용 심화 포인트를 새로 뽑아라. ` : ""}아래 자료${winStart > 0 ? `(전체 중 ${Math.round(winStart / doc.content.length * 100)}% 지점부터 발췌 — 이번 회차 학습 구간)` : ""}의 핵심을 3줄로 요약하고, 이 팀(SNS 계정 운영)이 바로 실행할 액션 3가지를 제안하라. 형식: "핵심: ..." 3줄, "실행: ..." 3줄. 한국어 간결하게.\n\n${staffContext()}`,
+      [{ role: "user", content: doc.content.slice(winStart, winStart + winSize) }], () => {});
   } catch {
     // 회차마다 다른 구간을 발췌해 반복 회의가 새 내용을 다루게
     const clean = doc.content.replace(/\s+/g, " ");
-    const start = Math.min(clean.length - 1, (deep - 1) * 150);
+    const start = Math.min(Math.max(0, clean.length - 150), (deep - 1) * Math.max(400, Math.floor(clean.length / 4)));
     const bits = clean.slice(start, start + 150);
     summary = deep > 1
       ? `핵심(${deep}회차): "${bits}..." — 이 구간을 더 파고들면 실행 디테일이 나옵니다. (AI 연결 시 심화 요약이 자동)`
@@ -2601,25 +2602,110 @@ function reviewersFor(assignee) {
   return [others[0], others[1] || others[0]];
 }
 
-/* 자료실의 강의 자료를 직원 업무에 반영 (발췌) */
-function staffKnowledge(limit = 6000) {
-  const enabled = docs.filter(d => d.enabled);
-  if (!enabled.length) return "";
-  let budget = limit;
-  const parts = [];
-  for (const d of enabled) {
-    if (budget <= 0) break;
-    const slice = d.content.slice(0, Math.min(budget, 2500));
-    parts.push(`▸ ${d.title}\n${slice}`);
-    budget -= slice.length;
+/* ---------- 자료 참조 엔진 ----------
+   원칙: 켜진 자료 전체를 빠짐없이 활용한다.
+   ① 관련성 — 업무·회의·질문의 키워드와 맞는 자료/구간을 우선 발췌
+   ② 순환 — 관련 구간이 없으면 쓸 때마다 다른 자료·다른 구간을 발췌 (여러 업무에 걸쳐 전체 커버)
+   ③ 배분 — 한 번의 호출 예산을 앞 자료가 독식하지 않고 전 자료에 나눠 씀
+   AI 호출당 컨텍스트는 유한하므로, "제한 없음"은 이 순환 커버로 달성한다. */
+let docUse = store.get("docUse", {}); // { docId: { n: 사용 횟수, pos: 다음 발췌 위치 }, __snip: 문장 순환 카운터 }
+
+function refTokens(query) {
+  return [...new Set(String(query || "").toLowerCase()
+    .split(/[^0-9a-z가-힣]+/).filter(w => w.length >= 2 && !/^(만들어|해줘|주세요|대한|위한|관련|버전|개선안)/.test(w)))].slice(0, 12);
+}
+
+function countOcc(hay, needle) {
+  let n = 0, i = 0;
+  while ((i = hay.indexOf(needle, i)) !== -1 && n < 20) { n++; i += needle.length; }
+  return n;
+}
+
+function scoreText(text, tokens) {
+  if (!tokens.length) return 0;
+  const low = text.toLowerCase();
+  let score = 0;
+  for (const tok of tokens) {
+    let c = countOcc(low, tok);
+    if (!c && tok.length >= 3) c = countOcc(low, tok.slice(0, -1)) * 0.7; // 조사 붙은 단어 대응 (예: "대본을"→"대본")
+    score += Math.min(c, 6) * tok.length;
   }
-  return `\n\n[참고 자료 — 사장님이 학습시킨 강의/노트 발췌. 업무에 적극 활용할 것]\n${parts.join("\n\n")}`;
+  return score;
+}
+
+/* 큰 자료는 앞·중간·끝 표본으로 관련도만 빠르게 판단 */
+function sampleScore(text, tokens) {
+  if (text.length <= 4500) return scoreText(text, tokens);
+  const mid = Math.floor(text.length / 2);
+  return scoreText(text.slice(0, 1500) + text.slice(mid, mid + 1500) + text.slice(-1500), tokens);
+}
+
+/* 자료 안에서 질의와 가장 관련 있는 구간을 발췌. 관련 구간이 없으면 쓸 때마다 다음 구간으로 순환 */
+function pickChunk(doc, tokens, size) {
+  const text = doc.content;
+  if (text.length <= size) return { text, hit: scoreText(text, tokens) > 0 };
+  if (tokens.length) {
+    const step = Math.max(Math.floor(size / 2), Math.ceil(text.length / 300));
+    let best = -1, bestScore = 0;
+    for (let i = 0; i < text.length; i += step) {
+      const s = scoreText(text.slice(i, i + size), tokens);
+      if (s > bestScore) { bestScore = s; best = i; }
+    }
+    if (best >= 0 && bestScore > 0) return { text: text.slice(best, best + size), hit: true };
+  }
+  const u = docUse[doc.id] = docUse[doc.id] || { n: 0, pos: 0 };
+  const start = u.pos >= text.length ? 0 : u.pos;
+  u.pos = start + size >= text.length ? 0 : start + size;
+  return { text: text.slice(start, start + size), hit: false };
+}
+
+/* 켜진 자료 전체에서 발췌 목록을 만든다: 관련 자료는 두텁게, 나머지도 덜 쓴 순으로 고르게 */
+function pickDocRefs(query, budget = 6000) {
+  const enabled = docs.filter(d => d.enabled);
+  if (!enabled.length) return [];
+  const tokens = refTokens(query);
+  const scored = enabled.map(d => ({
+    d,
+    s: scoreText(d.title, tokens) * 4 + sampleScore(d.content, tokens),
+    used: (docUse[d.id] && docUse[d.id].n) || 0,
+    r: Math.random()
+  }));
+  // 관련도 → 덜 쓴 자료 → 무작위 순으로 정렬해 매번 같은 자료만 보지 않게
+  scored.sort((a, b) => (b.s - a.s) || (a.used - b.used) || (a.r - b.r));
+
+  const relCount = scored.filter(x => x.s > 0).length;
+  const out = [];
+  let left = budget;
+  for (const x of scored) {
+    if (left < 250) break;
+    let quota = x.s > 0
+      ? Math.floor((budget * (relCount === scored.length ? 1 : 0.7)) / relCount)
+      : Math.floor((budget * (relCount ? 0.3 : 1)) / Math.max(1, scored.length - relCount));
+    quota = Math.max(300, Math.min(quota, 2500, left));
+    const chunk = pickChunk(x.d, tokens, quota);
+    if (chunk.text.trim()) {
+      out.push({ title: x.d.title, text: chunk.text.trim(), hit: chunk.hit });
+      left -= chunk.text.length;
+      const u = docUse[x.d.id] = docUse[x.d.id] || { n: 0, pos: 0 };
+      u.n++;
+    }
+  }
+  store.set("docUse", docUse);
+  return out;
+}
+
+/* 자료실의 강의 자료를 직원 업무에 반영 (관련 구간 발췌 + 순환) */
+function staffKnowledge(limit = 6000, query = "") {
+  const refs = pickDocRefs(query, limit);
+  if (!refs.length) return "";
+  return `\n\n[참고 자료 — 사장님이 학습시킨 강의/노트. 지금 업무와 관련된 구간을 골라 발췌함. 적극 활용할 것]\n` +
+    refs.map(r => `▸ ${r.title}${r.hit ? " (관련 구간)" : ""}\n${r.text}`).join("\n\n");
 }
 
 function taskBrief(task) {
   const st = STAFF.find(s => s.id === task.assignee);
   if (!st) return `업무: ${task.title}\n위 업무의 결과물(초안)을 만들어줘.`;
-  return `${staffPrompt(st)}${staffKnowledge()}
+  return `${staffPrompt(st)}${staffKnowledge(6000, task.title + " " + (task.note || ""))}
 
 ──────────────
 [오늘의 업무 지시]
@@ -2633,7 +2719,7 @@ function verifyBrief(task) {
   return `너는 SNS 마케팅 팀의 검증 패널이다. ${r1.name}(${r1.role})와 ${r2.name}(${r2.role}) 두 전문가의 관점을 모두 갖고 있다.
 ${skillBlock(r1.id)}${skillBlock(r2.id)}
 
-${staffContext()}${staffKnowledge(3000)}
+${staffContext()}${staffKnowledge(3000, task.title)}
 
 아래는 「${task.title}」 업무의 초안이다. 다음 3단계를 순서대로 수행하라:
 1단계 (1차 교차검증): 두 전문가 관점에서 각각 오류, 빠진 것, 보완할 점을 찾는다.
@@ -2768,7 +2854,7 @@ async function autoWork(task) {
     if (isQuickMode()) {
       task.stage = "draft"; renderBoard();
       speak(task.assignee, "작업 시작합니다... 🔨", 2500);
-      task.result = await aiChat(cleanPrompt(st) + staffKnowledge(),
+      task.result = await aiChat(cleanPrompt(st) + staffKnowledge(6000, task.title + " " + (task.note || "")),
         [{ role: "user", content: `인사나 질문 없이, 이 업무의 결과물을 바로 쓸 수 있는 완성된 형태로 만들어줘:\n${task.title}${task.note ? `\n(보완 요청: ${task.note})` : ""}` }], () => {});
       task.status = "review";
       task.stage = "";
@@ -2785,7 +2871,7 @@ async function autoWork(task) {
     if (!task.draft || task.stage === "draft") {
       task.stage = "draft"; renderBoard();
       speak(task.assignee, "초안 작업 시작합니다... 🔨", 2500);
-      task.draft = await aiChat(cleanPrompt(st) + staffKnowledge(),
+      task.draft = await aiChat(cleanPrompt(st) + staffKnowledge(6000, task.title + " " + (task.note || "")),
         [{ role: "user", content: `인사나 질문 없이, 이 업무의 결과물 초안을 바로 쓸 수 있는 완성된 형태로 만들어줘:\n${task.title}${task.note ? `\n(보완 요청: ${task.note})` : ""}` }], () => {},
         tierModel(isTeamLead(task.assignee) ? "lead" : "staff"));
     }
@@ -2866,23 +2952,50 @@ function qualityNote() {
   return `\n\n## ✅ 팀 품질 기준 (이 결과물이 통과한 항목)\n- [x] 첫 3초/첫 줄에 후킹(결과·궁금증) 있음\n- [x] 저장·댓글·팔로우 중 하나를 부르는 CTA 있음\n- [x] 바로 촬영/발행 가능한 완성 형태\n- [x] ${topicWord()} 계정 톤·목표와 일치`;
 }
 
-/* 자료실에서 참고할 문장 발췌 (직원들이 모든 자료를 활용) */
-function docSnippets(n = 3) {
+/* 자료실에서 참고할 문장 발췌 — 질의와 관련된 문장 우선, 없으면 자료·문장을 순환 선택 (전 자료 커버) */
+function docSnippets(n = 3, query = "") {
   const enabled = docs.filter(d => d.enabled);
-  const out = [];
+  if (!enabled.length) return [];
+  const tokens = refTokens(query);
+  const pool = [];
   for (const d of enabled) {
-    const sentences = d.content.replace(/\s+/g, " ").split(/(?<=[.!?다요])\s/)
+    let sentences = d.content.replace(/\s+/g, " ").split(/(?<=[.!?다요])\s/)
       .map(s => s.trim()).filter(s => s.length > 15 && s.length < 90);
-    for (const s of sentences.slice(0, 2)) {
-      out.push({ doc: d.title, text: s });
-      if (out.length >= n) return out;
+    if (sentences.length > 120) { // 큰 자료는 전체에서 고르게 표본 추출
+      const stride = Math.ceil(sentences.length / 120);
+      sentences = sentences.filter((_, i) => i % stride === 0);
     }
+    sentences.forEach(s => pool.push({ doc: d.title, id: d.id, text: s, score: scoreText(s, tokens) }));
+  }
+  if (!pool.length) return [];
+
+  // ① 관련 문장 우선 (같은 자료는 최대 2문장 — 여러 자료가 고루 인용되게)
+  const out = [];
+  const perDoc = {};
+  for (const p of pool.filter(x => x.score > 0).sort((a, b) => b.score - a.score)) {
+    if ((perDoc[p.id] || 0) >= 2) continue;
+    out.push(p); perDoc[p.id] = (perDoc[p.id] || 0) + 1;
+    if (out.length >= n) return out;
+  }
+  // ② 부족하면 순환+랜덤: 호출마다 다른 자료의 다른 문장 (계속 같은 발췌만 보지 않게)
+  const rest = pool.filter(p => !out.includes(p));
+  const ids = [...new Set(rest.map(p => p.id))];
+  const tick = docUse.__snip = ((docUse.__snip || 0) + 1) % 100000;
+  store.set("docUse", docUse);
+  for (let k = 0; out.length < n && rest.length && k < ids.length * 2; k++) {
+    const id = ids[(tick + k) % ids.length];
+    const cands = rest.filter(p => p.id === id);
+    if (!cands.length) continue;
+    const pick = cands[(tick * 7 + Math.floor(Math.random() * cands.length)) % cands.length];
+    rest.splice(rest.indexOf(pick), 1);
+    out.push(pick);
   }
   return out;
 }
 
+let refQuery = ""; // templateDraft 진입 시 현재 업무 제목 — snippetSection이 업무와 관련된 문장을 고르게 함
 function snippetSection() {
-  const snips = docSnippets(3);
+  const snips = docSnippets(3, refQuery);
   if (!snips.length) return "";
   return `\n\n## 📚 학습 자료에서 참고한 내용\n` + snips.map(s => `> "${s.text}" — 『${s.doc}』`).join("\n");
 }
@@ -3128,6 +3241,7 @@ ${reworked.length ? `- 보완 요청 ${reworked.length}건: "${(reworked[0].note
 }
 
 function templateDraft(task) {
+  refQuery = task.title + " " + (task.idea || ""); // 발췌가 이 업무 주제와 관련된 자료를 고르게
   const t = topicWord();
   const goal = (settings && settings.goal) || "체험단 협찬";
   const title = task.title;
@@ -3297,7 +3411,7 @@ ${hashtagSet()}
   }
 
   if (/아이디어|주제|기획|게시물|콘텐츠/.test(title)) {
-    const snips = docSnippets(2);
+    const snips = docSnippets(2, refQuery);
     return head("콘텐츠 아이디어 초안 (10개)") + `${acctLine()}
 
 | # | 아이디어 | 형식 | 노리는 것 |
@@ -3535,7 +3649,10 @@ async function autoPilotTick(force = false) {
   const enabledDocs = docs.filter(d => d.enabled && !d.title.startsWith("📑") && !d.title.startsWith("🇰🇷"));
   if (enabledDocs.length) {
     auto.deepCount = auto.deepCount || {};
-    const target = enabledDocs.slice().sort((a, b) => (auto.deepCount[a.id] || 0) - (auto.deepCount[b.id] || 0))[0];
+    // 가장 덜 판 자료들 중에서 무작위로 골라 매번 같은 자료만 파지 않게
+    const minRounds = Math.min(...enabledDocs.map(d => auto.deepCount[d.id] || 0));
+    const cands = enabledDocs.filter(d => (auto.deepCount[d.id] || 0) === minRounds);
+    const target = cands[Math.floor(Math.random() * cands.length)];
     const rounds = auto.deepCount[target.id] || 0;
     if (rounds < 3) {
       if (chatterBusy) return; // 연출 겹침 방지 — 다음 틱 재시도
@@ -4032,7 +4149,7 @@ function renderChat() {
 
   const enabled = docs.filter(d => d.enabled).length;
   $("#chat-kb-note").textContent = enabled
-    ? `📚 자료실의 자료 ${enabled}개를 참고해서 대답해요`
+    ? `📚 자료실의 자료 ${enabled}개를 전부 참고해요 — 질문과 관련된 부분을 골라 읽어요`
     : (currentPersona === "knowledge" ? "📚 자료실에 자료를 추가하면 그 내용을 바탕으로 대답해요" : "");
 
   box.scrollTop = box.scrollHeight;
@@ -4082,8 +4199,8 @@ async function sendChat(presetText) {
     store.set("chats", chats);
   } catch (e) {
     liveEl.remove();
-    // 오프라인 대체 답변: 자료실 발췌 + 우회 방법 안내
-    const snips = docSnippets(2);
+    // 오프라인 대체 답변: 질문과 관련된 자료 발췌 + 우회 방법 안내
+    const snips = docSnippets(2, text);
     const fallback = [
       "지금은 AI에 연결할 수 없어서 정식 답변이 어려워요. 대신 도움이 될 만한 것들을 정리했어요:",
       snips.length ? "\n**📚 자료실에서 관련 내용 발췌**\n" + snips.map(s => `> "${s.text}" — 『${s.doc}』`).join("\n") : "",
@@ -4138,7 +4255,14 @@ function renderLibrary() {
 
     const meta = document.createElement("div");
     meta.className = "lib-meta";
-    meta.textContent = `${(d.content.length / 1000).toFixed(1)}천 자`;
+    meta.textContent = `${(d.content.length / 1000).toFixed(1)}천 자` + (d.url ? " · 🔗 연동" : "");
+
+    let syncBtn = null;
+    if (d.url) {
+      syncBtn = document.createElement("button");
+      syncBtn.textContent = "🔄"; syncBtn.title = "연동 페이지에서 최신 내용 다시 읽어오기";
+      syncBtn.addEventListener("click", () => syncLinkedDoc(d));
+    }
 
     const meetBtn = document.createElement("button");
     meetBtn.textContent = "📖"; meetBtn.title = "직원들과 이 자료로 스터디 회의 열기";
@@ -4158,15 +4282,16 @@ function renderLibrary() {
       renderChat();
     });
 
-    item.append(toggle, title, meta, meetBtn, editBtn, delBtn);
+    item.append(toggle, title, meta, ...(syncBtn ? [syncBtn] : []), meetBtn, editBtn, delBtn);
     list.appendChild(item);
   });
 
   const total = docsTotalSize();
   const budget = KNOWLEDGE_CHAR_BUDGET;
-  const enabledSize = docs.filter(d => d.enabled).reduce((s, d) => s + d.content.length, 0);
-  let note = `전체 ${(total / 1000).toFixed(0)}천 자 저장됨`;
-  if (enabledSize > budget) note += ` · ⚠️ 켜진 자료가 많아 한 번에 ${(budget / 1000).toFixed(0)}천 자까지만 참고돼요. 지금 필요한 자료만 켜두는 걸 추천!`;
+  const enabledDocs2 = docs.filter(d => d.enabled);
+  const enabledSize = enabledDocs2.reduce((s, d) => s + d.content.length, 0);
+  let note = `전체 ${(total / 1000).toFixed(0)}천 자 저장 · 켜진 자료 ${enabledDocs2.length}개를 전부 참고해요`;
+  if (enabledSize > budget) note += ` — 자료가 많으면 업무·질문과 관련된 구간을 골라 읽고, 매번 다른 구간을 순환해 전체를 빠짐없이 커버해요. 자료를 계속 추가해도 괜찮아요! 📚`;
   $("#lib-usage").textContent = note;
 }
 
@@ -4206,6 +4331,129 @@ function saveDocModal() {
 
 function addDocByPaste() { openDocModal(null); }
 function editDoc(d) { openDocModal(d); }
+
+/* ---------- 노션·웹 페이지 연동: 공개 링크만 넣으면 내용을 자동으로 읽어 자료실에 저장 ----------
+   ① 노션 공개 페이지 전용 리더 → ② 범용 웹 리더(r.jina.ai) → ③ 프록시+HTML 정리 순으로 시도.
+   전제: 노션에서 [공유] → [웹에 게시]가 켜져 있어야 함 (비공개 페이지는 브라우저만으로는 읽을 수 없음). */
+function notionPageId(url) {
+  const m = String(url).match(/[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+  return m ? m[0].replace(/-/g, "") : null;
+}
+
+/* 노션 리더의 블록 JSON → 읽기 좋은 텍스트 */
+function notionBlocksToText(blocks) {
+  const out = [];
+  for (const key of Object.keys(blocks || {})) {
+    const v = blocks[key] && blocks[key].value;
+    if (!v || !v.properties || !v.properties.title) continue;
+    const text = v.properties.title.map(seg => (Array.isArray(seg) ? seg[0] : "")).join("").trim();
+    if (!text) continue;
+    if (v.type === "page") out.unshift(`# ${text}`);
+    else if (/header/.test(v.type)) out.push(`\n## ${text}`);
+    else if (v.type === "bulleted_list" || v.type === "numbered_list" || v.type === "to_do") out.push(`- ${text}`);
+    else if (v.type === "quote" || v.type === "callout") out.push(`> ${text}`);
+    else out.push(text);
+  }
+  return out.join("\n");
+}
+
+async function fetchLinkedPage(url) {
+  const id = notionPageId(url);
+  // ① 노션 공개 페이지 전용 리더 (제목·목록 구조 유지)
+  if (id) {
+    try {
+      const res = await fetch(`https://notion-api.splitbee.io/v1/page/${id}`);
+      if (res.ok) {
+        const text = notionBlocksToText(await res.json());
+        if (text.trim().length > 20) return text.slice(0, PDF_MAX_CHARS);
+      }
+    } catch {}
+  }
+  // ② 범용 웹 리더 — 노션이 아닌 블로그·문서 링크도 읽을 수 있음
+  try {
+    const res = await fetch(`https://r.jina.ai/${url}`);
+    if (res.ok) {
+      const text = (await res.text()).trim();
+      if (text.length > 50 && !/^error/i.test(text)) return text.slice(0, PDF_MAX_CHARS);
+    }
+  } catch {}
+  // ③ 프록시로 HTML을 받아 태그 제거 (마지막 수단)
+  try {
+    const res = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`);
+    if (res.ok) {
+      const text = (await res.text())
+        .replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s{2,}/g, " ").trim();
+      if (text.length > 200) return text.slice(0, PDF_MAX_CHARS);
+    }
+  } catch {}
+  throw new Error("PAGE_UNREADABLE");
+}
+
+function linkedDocTitle(text, url) {
+  const first = (text.split("\n").map(s => s.replace(/^#+\s*/, "").trim()).find(s => s.length >= 2) || "").slice(0, 40);
+  if (first) return `🔗 ${first}`;
+  try { return `🔗 ${new URL(url).hostname}`; } catch { return "🔗 연동 자료"; }
+}
+
+async function addLinkedDoc(url) {
+  const status = $("#nm-status");
+  const btn = $("#nm-fetch");
+  url = (url || "").trim();
+  if (!/^https?:\/\//.test(url)) { status.textContent = "⚠️ 주소를 확인해 주세요. https:// 로 시작하는 링크를 붙여넣으면 돼요."; return; }
+  btn.disabled = true;
+  status.textContent = "📖 페이지를 읽는 중이에요... (몇 초 걸릴 수 있어요)";
+  try {
+    const text = await fetchLinkedPage(url);
+    const existing = docs.find(d => d.url === url);
+    if (existing) {
+      existing.content = text;
+      existing.syncedAt = Date.now();
+    } else {
+      docs.push({ id: Date.now() + "", title: linkedDocTitle(text, url), content: text, enabled: true, url, syncedAt: Date.now() });
+    }
+    saveDocs();
+    renderLibrary(); renderChat();
+    $("#notion-modal").classList.add("hidden");
+    toast(existing ? "🔗 연동 자료를 최신 내용으로 새로고침했어요!" : "🔗 페이지를 읽어왔어요! 이제 멘토와 직원들이 이 내용을 참고해요.");
+    logActivity(`🔗 연동 자료 ${existing ? "새로고침" : "추가"} — ${(existing || docs[docs.length - 1]).title}`);
+  } catch {
+    status.textContent = "⚠️ 페이지를 읽지 못했어요. 노션이라면 [공유] → [웹에 게시]를 켜야 해요 (링크 공유만으로는 안 돼요). 게시를 켰는데도 안 되면 잠시 후 다시 시도하거나, 내용을 복사해서 [✍️ 붙여넣기로 추가]를 이용해 주세요.";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* 연동 자료 새로고침 (자료실의 🔄 버튼) */
+async function syncLinkedDoc(d) {
+  toast(`🔄 『${d.title}』 최신 내용을 읽는 중...`, 30000);
+  try {
+    d.content = await fetchLinkedPage(d.url);
+    d.syncedAt = Date.now();
+    saveDocs();
+    renderLibrary(); renderChat();
+    toast("🔄 최신 내용으로 새로고침했어요!");
+  } catch {
+    toast("⚠️ 새로고침 실패 — 노션의 [웹에 게시]가 꺼졌거나 인터넷 문제일 수 있어요. 잠시 후 다시 시도해 주세요.", 6000);
+  }
+}
+
+/* 앱 시작 시 오래된 연동 자료를 조용히 자동 새로고침 (6시간 지난 것만) — 복붙 없이 늘 최신 자료로 일하게 */
+async function autoSyncLinkedDocs() {
+  if (!navigator.onLine) return;
+  const stale = docs.filter(d => d.url && Date.now() - (d.syncedAt || 0) > 6 * 3600000);
+  let changed = 0;
+  for (const d of stale.slice(0, 5)) {
+    try {
+      d.content = await fetchLinkedPage(d.url);
+      d.syncedAt = Date.now();
+      saveDocs();
+      changed++;
+      logActivity(`🔄 연동 자료 자동 새로고침 — ${d.title}`);
+    } catch {} // 조용히 넘어감 — 다음 실행 때 재시도
+  }
+  if (changed) { renderLibrary(); renderChat(); }
+}
 
 /* PDF 텍스트 추출 (pdf.js — vendor에 내장, 첫 사용 시에만 로드) */
 let pdfjsLoading = null;
@@ -5266,6 +5514,15 @@ function bindEvents() {
 
   // 자료실
   $("#lib-add-paste").addEventListener("click", addDocByPaste);
+  $("#lib-add-notion").addEventListener("click", () => {
+    $("#nm-url").value = "";
+    $("#nm-status").textContent = "";
+    $("#notion-modal").classList.remove("hidden");
+    $("#nm-url").focus();
+  });
+  $("#nm-cancel").addEventListener("click", () => $("#notion-modal").classList.add("hidden"));
+  $("#nm-fetch").addEventListener("click", () => addLinkedDoc($("#nm-url").value));
+  $("#nm-url").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addLinkedDoc($("#nm-url").value); } });
   $("#lib-add-file").addEventListener("click", () => $("#lib-file-input").click());
   $("#lib-file-input").addEventListener("change", e => {
     if (e.target.files.length) addDocsByFiles(e.target.files);
@@ -6081,7 +6338,7 @@ function init() {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
   // 자료실·큰 기록을 IndexedDB로 (localStorage 5MB 한계 우회) + 영구 보관 요청(청소 대상 제외)
-  initDocsStore();
+  initDocsStore().then(() => { setTimeout(() => autoSyncLinkedDocs(), 4000); }); // 시작 후 여유를 두고 연동 자료 자동 새로고침
   initBigStore().then(() => {
     if (settings) { renderAll(); resumePendingFinals(); } // IDB의 진짜 기록으로 다시 그린 뒤 끊긴 업무 재개
   });
@@ -6098,5 +6355,8 @@ window.__senter = {
   getDocs: () => docs,
   getTasks: () => tasks,
   getMeetings: () => meetings,
-  setTasks: (arr) => { tasks = arr; store.set("tasks", tasks); renderBoard(); updateOfficeStatuses(); }
+  setTasks: (arr) => { tasks = arr; store.set("tasks", tasks); renderBoard(); updateOfficeStatuses(); },
+  setDocs: (arr) => { docs = arr; saveDocs(); renderLibrary(); renderChat(); },
+  staffKnowledge, docSnippets, pickDocRefs, buildSystemPrompt,
+  fetchLinkedPage, notionBlocksToText, addLinkedDoc, autoSyncLinkedDocs
 };
