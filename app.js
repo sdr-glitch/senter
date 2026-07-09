@@ -4340,15 +4340,19 @@ function notionPageId(url) {
   return m ? m[0].replace(/-/g, "") : null;
 }
 
-/* 노션 리더의 블록 JSON → 읽기 좋은 텍스트 */
-function notionBlocksToText(blocks) {
+/* 노션 리더의 블록 JSON → 읽기 좋은 텍스트. rootId를 주면 그 페이지 제목만 #으로, 하위 페이지는 목차 줄로 */
+function notionBlocksToText(blocks, rootId) {
   const out = [];
   for (const key of Object.keys(blocks || {})) {
     const v = blocks[key] && blocks[key].value;
     if (!v || !v.properties || !v.properties.title) continue;
     const text = v.properties.title.map(seg => (Array.isArray(seg) ? seg[0] : "")).join("").trim();
     if (!text) continue;
-    if (v.type === "page") out.unshift(`# ${text}`);
+    if (v.type === "page") {
+      // 이 페이지 자신의 제목은 맨 앞에, 하위 페이지 링크는 목차 줄로 (본문은 따로 재귀 수집)
+      if (!rootId || key.replace(/-/g, "") === rootId) out.unshift(`# ${text}`);
+      else out.push(`▸ 하위 문서: ${text}`);
+    }
     else if (/header/.test(v.type)) out.push(`\n## ${text}`);
     else if (v.type === "bulleted_list" || v.type === "numbered_list" || v.type === "to_do") out.push(`- ${text}`);
     else if (v.type === "quote" || v.type === "callout") out.push(`> ${text}`);
@@ -4357,24 +4361,96 @@ function notionBlocksToText(blocks) {
   return out.join("\n");
 }
 
-async function fetchLinkedPage(url) {
-  const id = notionPageId(url);
-  // ① 노션 공개 페이지 전용 리더 (제목·목록 구조 유지)
-  if (id) {
+/* 노션 블록 맵에서 하위 페이지 id 목록 추출 */
+function notionChildIds(blocks, rootId) {
+  return Object.keys(blocks || {})
+    .filter(k => {
+      const v = blocks[k] && blocks[k].value;
+      return v && v.type === "page" && k.replace(/-/g, "") !== rootId;
+    })
+    .map(k => k.replace(/-/g, ""));
+}
+
+async function fetchNotionPageBlocks(id) {
+  const res = await fetch(`https://notion-api.splitbee.io/v1/page/${id}`);
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
+async function fetchViaJina(url) {
+  const res = await fetch(`https://r.jina.ai/${url}`);
+  if (!res.ok) return null;
+  const text = (await res.text()).trim();
+  return text.length > 50 && !/^error/i.test(text) ? text : null;
+}
+
+const LINKED_MAX_PAGES = 40; // 하위 페이지·표 행 포함 최대 읽기 쪽수 (허브 페이지 대응)
+
+/* 페이지 속 데이터베이스(표)의 행 페이지 id들 — 노션 워크북(1일차·2일차…)이 표 행으로 들어있는 경우 대응 */
+async function notionTableRowIds(blocks) {
+  const ids = [];
+  for (const key of Object.keys(blocks || {})) {
+    const v = blocks[key] && blocks[key].value;
+    if (!v || !/^collection_view/.test(v.type)) continue;
     try {
-      const res = await fetch(`https://notion-api.splitbee.io/v1/page/${id}`);
-      if (res.ok) {
-        const text = notionBlocksToText(await res.json());
-        if (text.trim().length > 20) return text.slice(0, PDF_MAX_CHARS);
+      const res = await fetch(`https://notion-api.splitbee.io/v1/table/${key.replace(/-/g, "")}`);
+      if (!res.ok) continue;
+      const rows = await res.json();
+      for (const row of (Array.isArray(rows) ? rows : []).slice(0, LINKED_MAX_PAGES)) {
+        const rid = String(row.id || "").replace(/-/g, "");
+        if (rid) ids.push(rid);
       }
     } catch {}
   }
-  // ② 범용 웹 리더 — 노션이 아닌 블로그·문서 링크도 읽을 수 있음
+  return ids;
+}
+
+/* 링크 하나로 페이지 + 하위 페이지 전체를 읽음. onProgress(문구)로 진행 상황 보고 */
+async function fetchLinkedPage(url, onProgress) {
+  const id = notionPageId(url);
+  // ① 노션 전용 리더 — 하위 페이지를 너비 우선으로 재귀 수집 (허브 페이지도 알맹이까지 전부)
+  if (id) {
+    try {
+      const seen = new Set([id]);
+      const queue = [{ id, depth: 0 }];
+      const out = [];
+      let pages = 0;
+      while (queue.length && pages < LINKED_MAX_PAGES) {
+        const cur = queue.shift();
+        let blocks;
+        try { blocks = await fetchNotionPageBlocks(cur.id); } catch { continue; }
+        const text = notionBlocksToText(blocks, cur.id);
+        if (text.trim()) out.push(text.trim());
+        pages++;
+        if (onProgress) onProgress(`📖 ${pages}쪽째 읽는 중... (하위 페이지 포함, 대기열 ${queue.length})`);
+        if (cur.depth < 3) {
+          const kids = notionChildIds(blocks, cur.id).concat(await notionTableRowIds(blocks));
+          for (const cid of kids) {
+            if (!seen.has(cid)) { seen.add(cid); queue.push({ id: cid, depth: cur.depth + 1 }); }
+          }
+        }
+        if (out.join("").length > PDF_MAX_CHARS) break;
+      }
+      const joined = out.join("\n\n──────────\n\n");
+      if (joined.trim().length > 20) return joined.slice(0, PDF_MAX_CHARS);
+    } catch {}
+  }
+  // ② 범용 웹 리더 — 블로그·문서도 읽고, 노션이면 본문 속 하위 페이지 링크도 따라가 읽음
   try {
-    const res = await fetch(`https://r.jina.ai/${url}`);
-    if (res.ok) {
-      const text = (await res.text()).trim();
-      if (text.length > 50 && !/^error/i.test(text)) return text.slice(0, PDF_MAX_CHARS);
+    const rootMd = await fetchViaJina(url);
+    if (rootMd) {
+      let all = rootMd;
+      const childIds = [...new Set((rootMd.match(/notion\.(?:site|so)\/[^\s)"'\]]+/g) || [])
+        .map(u => notionPageId(u)).filter(Boolean))].filter(x => x !== id).slice(0, 15);
+      for (let i = 0; i < childIds.length; i++) {
+        if (onProgress) onProgress(`📖 하위 페이지 ${i + 1}/${childIds.length} 읽는 중...`);
+        try {
+          const sub = await fetchViaJina(`https://www.notion.so/${childIds[i]}`);
+          if (sub) all += `\n\n──────────\n\n${sub}`;
+        } catch {}
+        if (all.length > PDF_MAX_CHARS) break;
+      }
+      return all.slice(0, PDF_MAX_CHARS);
     }
   } catch {}
   // ③ 프록시로 HTML을 받아 태그 제거 (마지막 수단)
@@ -4402,9 +4478,9 @@ async function addLinkedDoc(url) {
   url = (url || "").trim();
   if (!/^https?:\/\//.test(url)) { status.textContent = "⚠️ 주소를 확인해 주세요. https:// 로 시작하는 링크를 붙여넣으면 돼요."; return; }
   btn.disabled = true;
-  status.textContent = "📖 페이지를 읽는 중이에요... (몇 초 걸릴 수 있어요)";
+  status.textContent = "📖 페이지를 읽는 중이에요... (하위 페이지까지 읽어서 몇십 초 걸릴 수 있어요)";
   try {
-    const text = await fetchLinkedPage(url);
+    const text = await fetchLinkedPage(url, msg => { status.textContent = msg; });
     const existing = docs.find(d => d.url === url);
     if (existing) {
       existing.content = text;
@@ -4415,10 +4491,13 @@ async function addLinkedDoc(url) {
     saveDocs();
     renderLibrary(); renderChat();
     $("#notion-modal").classList.add("hidden");
-    toast(existing ? "🔗 연동 자료를 최신 내용으로 새로고침했어요!" : "🔗 페이지를 읽어왔어요! 이제 멘토와 직원들이 이 내용을 참고해요.");
+    const kilo = (text.length / 1000).toFixed(1);
+    toast(existing ? `🔗 최신 내용으로 새로고침했어요! (${kilo}천 자)` : `🔗 하위 페이지까지 ${kilo}천 자를 읽어왔어요! 이제 멘토와 직원들이 이 내용을 참고해요.`);
     logActivity(`🔗 연동 자료 ${existing ? "새로고침" : "추가"} — ${(existing || docs[docs.length - 1]).title}`);
   } catch {
-    status.textContent = "⚠️ 페이지를 읽지 못했어요. 노션이라면 [공유] → [웹에 게시]를 켜야 해요 (링크 공유만으로는 안 돼요). 게시를 켰는데도 안 되면 잠시 후 다시 시도하거나, 내용을 복사해서 [✍️ 붙여넣기로 추가]를 이용해 주세요.";
+    status.textContent = /app\.notion\.com|notion\.so/.test(url)
+      ? "⚠️ 이 주소는 노션 개인용 링크 같아요. 노션에서 [공유] → [웹에 게시]를 켠 뒤, 거기서 나오는 ○○○.notion.site 주소를 붙여넣어 주세요. 그래도 안 되면 내용을 복사해 [✍️ 붙여넣기로 추가]를 이용해 주세요."
+      : "⚠️ 페이지를 읽지 못했어요. 노션이라면 [공유] → [웹에 게시]를 켜야 해요 (링크 공유만으로는 안 돼요). 게시를 켰는데도 안 되면 잠시 후 다시 시도하거나, 내용을 복사해서 [✍️ 붙여넣기로 추가]를 이용해 주세요.";
   } finally {
     btn.disabled = false;
   }
