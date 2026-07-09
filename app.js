@@ -4053,16 +4053,27 @@ async function fetchSearchText(q) {
 function parseSponsorResults(text) {
   const items = [];
   let m;
-  const aRe = /<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g; // 덕덕고 HTML
-  while ((m = aRe.exec(text))) {
+  // 덕덕고 HTML: 제목 + 설명(스니펫)을 짝으로 추출
+  const blockRe = /<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>(?:[\s\S]{0,600}?class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>)?/g;
+  while ((m = blockRe.exec(text))) {
     let url = m[1];
     const uddg = url.match(/uddg=([^&]+)/);
     if (uddg) { try { url = decodeURIComponent(uddg[1]); } catch {} }
-    items.push({ url, title: m[2].replace(/<[^>]+>/g, "").trim() });
+    items.push({ url, title: (m[2] || "").replace(/<[^>]+>/g, "").trim(), snip: (m[3] || "").replace(/<[^>]+>/g, "").trim() });
   }
-  const mdRe = /\[([^\]]{4,120})\]\((https?:\/\/[^)\s]+)\)/g; // 웹 리더 마크다운
-  while ((m = mdRe.exec(text))) items.push({ url: m[2], title: m[1].trim() });
-  return items.filter(it => /instagram\.com/.test(it.url) && it.title.length >= 4);
+  // 웹 리더 마크다운: [제목](주소) + 뒤따르는 설명 줄
+  const mdRe = /\[([^\]]{4,120})\]\((https?:\/\/[^)\s]+)\)([^[]{0,200})/g;
+  while ((m = mdRe.exec(text))) items.push({ url: m[2], title: m[1].trim(), snip: (m[3] || "").replace(/\s+/g, " ").trim() });
+  return items
+    .filter(it => /instagram\.com/.test(it.url))
+    .map(it => {
+      const snip = (it.snip || "").replace(/\s+/g, " ").trim().slice(0, 140);
+      let title = (it.title || "").replace(/\s+/g, " ").trim();
+      // 제목이 "Instagram"뿐이거나 너무 짧으면 설명에서 제목을 만들어 뭐가 뭔지 보이게
+      if (/^(instagram|인스타그램)\b/i.test(title) || title.length < 8) title = snip.slice(0, 60) || title;
+      return { url: it.url, title: title.slice(0, 90), snip };
+    })
+    .filter(it => it.title.length >= 4);
 }
 
 async function collectSponsorFeeds() {
@@ -4080,7 +4091,7 @@ async function collectSponsorFeeds() {
     for (const it of parseSponsorResults(text)) {
       if (seen.has(it.url)) continue;
       seen.add(it.url);
-      found.push({ url: it.url, title: it.title.slice(0, 90), cat: classifySponsor(it.title), at: Date.now() });
+      found.push({ url: it.url, title: it.title, snip: it.snip, cat: classifySponsor(it.title + " " + (it.snip || "")), at: Date.now() });
     }
     if (found.length >= 40) break;
   }
@@ -4094,6 +4105,99 @@ async function collectSponsorFeeds() {
   if (status) status.textContent = found.length ? `✅ 새 모집글 ${found.length}건 수집! (최근 1개월)` : "새로운 글은 없었어요 — 기존 목록 유지";
   renderSponsorFeeds();
   return found.length;
+}
+
+/* 체험단 링크함: 수집 목록에서 [🔖 담기]로 이동 보관, 이름 수정 가능 */
+let sponsorSaved = store.get("sponsorSaved", []); // [{id,url,title,snip,cat,at}]
+
+function saveToLinkbox(f) {
+  if (sponsorSaved.some(x => x.url === f.url)) { toast("이미 링크함에 있어요!"); return; }
+  sponsorSaved.unshift({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), url: f.url, title: f.title, snip: f.snip || "", cat: f.cat, at: Date.now() });
+  sponsorSaved = sponsorSaved.slice(0, 200);
+  store.set("sponsorSaved", sponsorSaved);
+  // 수집 목록에서 링크함으로 "이동" (중복 표시 방지)
+  sponsorFeeds = sponsorFeeds.filter(x => x.url !== f.url);
+  store.set("sponsorFeeds", sponsorFeeds);
+  renderSponsorFeeds(); renderSponsorBox();
+  toast("🔖 링크함에 담았어요! ✏️로 이름을 바꿔둘 수 있어요.");
+}
+
+let sbCat = "";
+function renderSponsorBox() {
+  const list = $("#sb-list");
+  if (!list) return;
+  const chipWrap = $("#sb-cats");
+  chipWrap.innerHTML = "";
+  if (sponsorSaved.length) {
+    const present = SP_CATS.filter(c => sponsorSaved.some(f => f.cat === c.key));
+    if (present.length >= 2) {
+      [{ key: "", label: "전체", emoji: "🔖" }, ...present].forEach(c => {
+        const chip = document.createElement("button");
+        chip.className = "lib-cat-chip" + ((sbCat || "") === c.key ? " on" : "");
+        chip.textContent = `${c.emoji} ${c.label} ${c.key ? sponsorSaved.filter(f => f.cat === c.key).length : sponsorSaved.length}`;
+        chip.addEventListener("click", () => { sbCat = c.key; renderSponsorBox(); });
+        chipWrap.appendChild(chip);
+      });
+    } else sbCat = "";
+  }
+  list.innerHTML = "";
+  const shown = sponsorSaved.filter(f => !sbCat || f.cat === sbCat);
+  if (!shown.length) {
+    list.innerHTML = `<div class="lib-empty">아직 담아둔 링크가 없어요.<br>위 레이더에서 마음에 드는 모집글에 [🔖]를 눌러 보관하세요!</div>`;
+    return;
+  }
+  shown.forEach(f => {
+    const item = document.createElement("div");
+    item.className = "lib-item sp-item";
+    const cat = SP_CATS.find(c => c.key === f.cat) || SP_CATS[SP_CATS.length - 1];
+
+    const row = document.createElement("div");
+    row.className = "arch-row";
+    const title = document.createElement("div");
+    title.className = "lib-title";
+    title.textContent = f.title;
+    const badge = document.createElement("span");
+    badge.className = "lib-cat";
+    badge.textContent = `${cat.emoji} ${cat.label}`;
+    const renameBtn = document.createElement("button");
+    renameBtn.textContent = "✏️"; renameBtn.title = "이름 바꾸기";
+    const open = document.createElement("button");
+    open.textContent = "🔗"; open.title = "인스타그램에서 열기";
+    open.addEventListener("click", () => window.open(f.url, "_blank", "noopener"));
+    const del = document.createElement("button");
+    del.textContent = "🗑️"; del.title = "링크함에서 지우기";
+    del.addEventListener("click", () => { sponsorSaved = sponsorSaved.filter(x => x.id !== f.id); store.set("sponsorSaved", sponsorSaved); renderSponsorBox(); });
+    row.append(title, badge, renameBtn, open, del);
+
+    // 이름 수정 폼 (철칙 7: prompt() 금지 — 인라인 입력)
+    const form = document.createElement("div");
+    form.className = "task-form hidden";
+    const input = document.createElement("input");
+    input.type = "text"; input.maxLength = 90; input.value = f.title;
+    input.placeholder = "알아보기 쉬운 이름 (예: ○○브랜드 주방세제 체험단, 7/20 마감)";
+    const saveBtn = document.createElement("button");
+    saveBtn.className = "btn-small"; saveBtn.textContent = "저장";
+    const doSave = () => {
+      const v = input.value.trim();
+      if (!v) { input.focus(); return; }
+      f.title = v;
+      store.set("sponsorSaved", sponsorSaved);
+      renderSponsorBox();
+      toast("✏️ 이름을 바꿨어요!");
+    };
+    saveBtn.addEventListener("click", doSave);
+    input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); doSave(); } });
+    form.append(input, saveBtn);
+    renameBtn.addEventListener("click", () => { form.classList.toggle("hidden"); input.focus(); input.select(); });
+
+    if (f.snip) {
+      const snip = document.createElement("div");
+      snip.className = "sp-snip";
+      snip.textContent = f.snip;
+      item.append(row, snip, form);
+    } else item.append(row, form);
+    list.appendChild(item);
+  });
 }
 
 let spCat = "";
@@ -4120,40 +4224,37 @@ function renderSponsorFeeds() {
   }
   shown.slice(0, 60).forEach(f => {
     const item = document.createElement("div");
-    item.className = "lib-item";
+    item.className = "lib-item sp-item";
     const cat = SP_CATS.find(c => c.key === f.cat) || SP_CATS[SP_CATS.length - 1];
+    const row = document.createElement("div");
+    row.className = "arch-row";
     const title = document.createElement("div");
     title.className = "lib-title";
     title.textContent = f.title;
     const badge = document.createElement("span");
     badge.className = "lib-cat";
     badge.textContent = `${cat.emoji} ${cat.label}`;
+    const keep = document.createElement("button");
+    keep.textContent = "🔖"; keep.title = "체험단 링크함에 담기 (보관)";
+    keep.addEventListener("click", () => saveToLinkbox(f));
     const open = document.createElement("button");
     open.textContent = "🔗"; open.title = "인스타그램에서 열기";
     open.addEventListener("click", () => window.open(f.url, "_blank", "noopener"));
     const del = document.createElement("button");
     del.textContent = "🗑️"; del.title = "목록에서 지우기";
     del.addEventListener("click", () => { sponsorFeeds = sponsorFeeds.filter(x => x.url !== f.url); store.set("sponsorFeeds", sponsorFeeds); renderSponsorFeeds(); });
-    item.append(title, badge, open, del);
+    row.append(title, badge, keep, open, del);
+    item.appendChild(row);
+    if (f.snip) {
+      const snip = document.createElement("div");
+      snip.className = "sp-snip";
+      snip.textContent = f.snip; // 어떤 체험단을 구하는지 간단 설명
+      item.appendChild(snip);
+    }
     list.appendChild(item);
   });
 }
 
-function saveSponsorDigest() {
-  if (!sponsorFeeds.length) { toast("⚠️ 먼저 수집을 실행해 주세요!"); return; }
-  const byCat = {};
-  sponsorFeeds.forEach(f => (byCat[f.cat] = byCat[f.cat] || []).push(f));
-  const body = SP_CATS.filter(c => byCat[c.key]).map(c =>
-    `## ${c.emoji} ${c.label} (${byCat[c.key].length}건)\n` + byCat[c.key].map(f => `- ${f.title}\n  ${f.url}`).join("\n")
-  ).join("\n\n");
-  const title = `체험단 모집 수집 (${todayStr()})`;
-  const ex = docs.find(d => d.title === title);
-  if (ex) ex.content = body;
-  else docs.push({ id: Date.now() + "", title, content: body, enabled: true, cat: "money" });
-  saveDocs();
-  renderLibrary();
-  toast("📚 자료실에 저장됐어요! 직원들이 체험단 지원 전략에 참고해요.");
-}
 
 let boardQuery = "";
 let boardDept = "all"; // 부서 필터 (all | TEAMS[].id)
@@ -5913,7 +6014,7 @@ function exportBackup() {
     exportedAt: new Date().toISOString(),
     settings: { ...settings, apiKey: "" }, // 보안을 위해 키는 제외
     docs, chats, roadmapDone, missions, tasks, activity, meetings, customStaff, teamChat,
-    todos, events, notes, focusLog, usage, reports
+    todos, events, notes, focusLog, usage, reports, sponsorFeeds, sponsorSaved
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
@@ -5942,6 +6043,8 @@ function importBackup(file) {
       customStaff = data.customStaff || [];
       teamChat = data.teamChat || [];
       reports = data.reports || [];
+      sponsorFeeds = data.sponsorFeeds || [];
+      sponsorSaved = data.sponsorSaved || [];
       todos = data.todos || [];
       events = data.events || [];
       notes = data.notes || [];
@@ -5954,6 +6057,8 @@ function importBackup(file) {
       store.set("focusLog", focusLog);
       store.set("settings", settings);
       store.set("reports", reports);
+      store.set("sponsorFeeds", sponsorFeeds);
+      store.set("sponsorSaved", sponsorSaved);
       saveDocs();
       store.set("chats", chats);
       store.set("roadmapDone", roadmapDone);
@@ -6008,6 +6113,7 @@ function renderAll() {
   renderTokenBar();
   renderArchive();
   renderSponsorFeeds();
+  renderSponsorBox();
 }
 
 /* ---------- 이벤트 바인딩 ---------- */
@@ -6203,7 +6309,6 @@ function bindEvents() {
   // 분석실 (경쟁사 분석 + 체험단 레이더)
   $("#ca-run")?.addEventListener("click", () => runCompetitorAnalysis(($("#ca-links").value || "").split(/\n+/)));
   $("#sp-run")?.addEventListener("click", () => collectSponsorFeeds());
-  $("#sp-save")?.addEventListener("click", saveSponsorDigest);
   $("#lib-add-notion").addEventListener("click", () => {
     $("#nm-url").value = "";
     $("#nm-status").textContent = "";
@@ -7053,5 +7158,5 @@ window.__senter = {
   classifyDoc, autoDocTitle, isGenericName,
   getReports: () => reports, archiveReport, reworkFromReport, renderArchive,
   runCompetitorAnalysis, collectSponsorFeeds, parseSponsorResults, classifySponsor,
-  getSponsorFeeds: () => sponsorFeeds
+  getSponsorFeeds: () => sponsorFeeds, getSponsorSaved: () => sponsorSaved, saveToLinkbox, renderSponsorBox
 };

@@ -591,14 +591,20 @@
 
     <section class="card">
       <h3>📡 체험단 모집 레이더</h3>
-      <p class="card-desc">최근 <b>1개월 안의 인스타그램 체험단 모집 글</b>을 공개 검색 경로로 우회 수집해 분야별로 분류해요. 인스타그램은 로그인 없이 직접 못 들어가서, 검색엔진에 남은 공개 기록을 여러 경로로 읽는 방식이에요. 사무실에 "체험단 모집 수집해줘"라고 지시해도 실행돼요.</p>
+      <p class="card-desc">최근 <b>1개월 안의 인스타그램 체험단 모집 글</b>을 공개 검색 경로로 우회 수집해, <b>어떤 체험단인지 간단 설명과 함께</b> 분야별로 분류해요. 마음에 드는 모집글은 [🔖]로 아래 링크함에 담아두세요. 사무실에 "체험단 모집 수집해줘"라고 지시해도 실행돼요.</p>
       <div class="modal-actions" style="justify-content:flex-start">
         <button class="btn-primary" id="sp-run">📡 최근 1개월 수집</button>
-        <button class="btn-ghost" id="sp-save">📚 결과를 자료실에 저장</button>
         <span id="sp-status" class="saved-note"></span>
       </div>
       <div id="sp-cats" class="lib-cat-chips"></div>
       <div id="sp-list" class="lib-list"></div>
+    </section>
+
+    <section class="card">
+      <h3>🔖 체험단 링크함</h3>
+      <p class="card-desc">레이더에서 [🔖 담기]한 모집글이 여기 보관돼요 (수집 목록이 갱신돼도 안 사라져요). <b>✏️를 눌러 이름을 알아보기 쉽게</b> 바꿔둘 수 있어요 — 예: "○○브랜드 주방세제, 7/20 마감".</p>
+      <div id="sb-cats" class="lib-cat-chips"></div>
+      <div id="sb-list" class="lib-list"></div>
     </section>
   </main>
 
