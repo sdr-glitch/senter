@@ -103,6 +103,7 @@
     <button class="tab" data-tab="tools">✅ 생산성</button>
     <button class="tab" data-tab="reels">🎬 릴스</button>
     <button class="tab" data-tab="trend">📈 트렌드</button>
+    <button class="tab" data-tab="archive">📑 분석실</button>
     <button class="tab" data-tab="studio">🎨 스튜디오</button>
     <button class="tab" data-tab="library">📚 자료실</button>
     <button class="tab" data-tab="settings">⚙️ 설정</button>
@@ -569,6 +570,38 @@
     </section>
   </main>
 
+  <!-- ===== 분석실 탭 (보고서함 + 경쟁사 분석 + 체험단 레이더) ===== -->
+  <main id="tab-archive" class="tab-panel hidden">
+    <section class="card">
+      <h3>📑 보고서함</h3>
+      <p class="card-desc">직원들이 만든 <b>모든 기획서·보고서가 자동으로 여기 저장</b>돼요 (따로 저장 안 해도 됨). 분야 탭으로 골라 보고, [🖨 PDF]로 인쇄·다운로드하고, [↩ 보완 재요청]으로 직원에게 수정을 시켜 업데이트할 수 있어요.</p>
+      <div id="arch-cats" class="lib-cat-chips"></div>
+      <div id="arch-list" class="lib-list"></div>
+    </section>
+
+    <section class="card">
+      <h3>🔍 경쟁사 분석 → 내 계정 기획서</h3>
+      <p class="card-desc">잘되는 계정·게시물·블로그 <b>링크를 붙여넣으면</b> (한 줄에 하나씩, 최대 5개) 성장 분석부가 내용을 수집해 <b>왜 잘됐는지 분석하고 내 계정에 적용할 기획서</b>를 만들어 검토 대기에 올려요. 사무실 지시창에 링크와 함께 "경쟁사 분석해줘"라고 해도 돼요.</p>
+      <textarea id="ca-links" rows="3" placeholder="https://www.instagram.com/잘되는계정/&#10;https://blog.naver.com/...&#10;https://ten-cough-6a0.notion.site/... (공개 페이지)"></textarea>
+      <div class="modal-actions" style="justify-content:flex-start; margin-top:8px">
+        <button class="btn-primary" id="ca-run">🔍 수집하고 분석 시작</button>
+        <span id="ca-status" class="saved-note"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>📡 체험단 모집 레이더</h3>
+      <p class="card-desc">최근 <b>1개월 안의 인스타그램 체험단 모집 글</b>을 공개 검색 경로로 우회 수집해 분야별로 분류해요. 인스타그램은 로그인 없이 직접 못 들어가서, 검색엔진에 남은 공개 기록을 여러 경로로 읽는 방식이에요. 사무실에 "체험단 모집 수집해줘"라고 지시해도 실행돼요.</p>
+      <div class="modal-actions" style="justify-content:flex-start">
+        <button class="btn-primary" id="sp-run">📡 최근 1개월 수집</button>
+        <button class="btn-ghost" id="sp-save">📚 결과를 자료실에 저장</button>
+        <span id="sp-status" class="saved-note"></span>
+      </div>
+      <div id="sp-cats" class="lib-cat-chips"></div>
+      <div id="sp-list" class="lib-list"></div>
+    </section>
+  </main>
+
   <!-- ===== 설정 탭 ===== -->
   <main id="tab-settings" class="tab-panel hidden">
     <section class="card">
@@ -738,6 +771,7 @@
   <button data-tab="staff">🧑‍💼 AI직원</button>
   <button data-tab="reels">🎬 릴스</button>
   <button data-tab="trend">📈 트렌드</button>
+  <button data-tab="archive">📑 분석실</button>
   <button data-tab="studio">🎨 스튜디오</button>
   <button data-tab="library">📚 자료실</button>
   <button data-tab="settings">⚙️ 설정</button>

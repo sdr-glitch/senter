@@ -4,7 +4,7 @@
 /* ---------- 저장소 ----------
    큰 기록(BIG_KEYS)은 마이그레이션 후 IndexedDB로 저장돼 localStorage 5MB 한계를 우회한다.
    store.set이 자동으로 경로를 고르므로 호출부는 그대로 사용. */
-const BIG_KEYS = ["tasks", "meetings", "chats", "teamChat", "activity"];
+const BIG_KEYS = ["tasks", "meetings", "chats", "teamChat", "activity", "reports"];
 let bigInIdb = false; // initBigStore() 마이그레이션 완료 후 true
 
 const store = {
@@ -122,6 +122,7 @@ async function initBigStore() {
     chats = await load("chats", chats);
     teamChat = await load("teamChat", teamChat);
     activity = await load("activity", activity);
+    reports = await load("reports", reports);
     bigInIdb = true;
   } catch { /* IDB 불가 → localStorage 유지 */ }
 }
@@ -1611,6 +1612,7 @@ function renderStaff() {
 let tasks = store.get("tasks", []);
 let activity = store.get("activity", []);
 let meetings = store.get("meetings", []);
+let reports = store.get("reports", []); // 보고서함: 모든 기획서·보고서 자동 보관 (검토 대기 도달 시 archiveReport)
 
 // 예전 데이터 마이그레이션: 검증 단계(stage)가 없는 진행 중 업무에 부여
 tasks.forEach(t => {
@@ -2558,6 +2560,30 @@ async function handleDirective() {
     text = body; // 못 찾으면 일반 배정으로
   }
 
+  // 분석실 기능도 사무실 지시로 실행 (탭 이동 없이 한 곳에서 전부 해결)
+  const urlsInText = text.match(/https?:\/\/[^\s]+/g) || [];
+  if (/체험단/.test(text) && /수집|찾아|긁어|모아|레이더/.test(text)) {
+    btn.disabled = false;
+    toast("📡 체험단 레이더를 실행합니다! (분석실 탭에서 결과 확인)");
+    postChat("pm", "체험단 모집 레이더 가동합니다 📡 최근 1개월 공고를 우회 수집할게요.");
+    const n = await collectSponsorFeeds();
+    if (n || sponsorFeeds.length) {
+      const top = sponsorFeeds.slice(0, 20).map(f => `- [${(SP_CATS.find(c => c.key === f.cat) || {}).label || "기타"}] ${f.title} (${f.url})`).join("\n");
+      const st2 = createTask(`체험단 모집 공고 분석 — 지원 우선순위 제안 (${todayStr()})`, "jr-partner");
+      st2.material = top;
+      store.set("tasks", tasks);
+      renderBoard(); updateOfficeStatuses();
+      dispatchWork(st2);
+    }
+    return;
+  }
+  if (urlsInText.length && /경쟁|벤치|분석/.test(text)) {
+    btn.disabled = false;
+    postChat("pm", "링크 수집 → 경쟁사 분석 → 적용 기획서, 성장 분석부에 배정합니다 🔍");
+    runCompetitorAnalysis(urlsInText);
+    return;
+  }
+
   let assignments = null;
   if ((settings.apiKey || "").trim()) {
     try {
@@ -2705,7 +2731,7 @@ function staffKnowledge(limit = 6000, query = "") {
 function taskBrief(task) {
   const st = STAFF.find(s => s.id === task.assignee);
   if (!st) return `업무: ${task.title}\n위 업무의 결과물(초안)을 만들어줘.`;
-  return `${staffPrompt(st)}${staffKnowledge(6000, task.title + " " + (task.note || ""))}
+  return `${staffPrompt(st)}${staffKnowledge(6000, task.title + " " + (task.note || ""))}${task.material ? `\n\n[수집 자료 — 이번 업무를 위해 모아온 실제 자료. 반드시 근거로 인용해 분석할 것]\n${task.material.slice(0, 12000)}` : ""}
 
 ──────────────
 [오늘의 업무 지시]
@@ -2775,6 +2801,7 @@ function submitDraft(t, text) {
     t.status = "review";
     t.stage = "";
     store.set("tasks", tasks);
+    archiveReport(t); // 보고서함 자동 보관
     logActivity(`${staffEmoji(t.assignee)} ${staffName(t.assignee)}: 「${t.title}」 결과물 제출 → 검토 대기 (빠른 모드)`);
     postChat(t.assignee, `「${t.title}」 결과물 올렸습니다. 검토 부탁드려요 👀`);
     speak(t.assignee, "결과물 올렸습니다! 검토 부탁드려요 👀");
@@ -2818,6 +2845,7 @@ function finalReview(t) {
     t.status = "review";
     t.stage = "";
     store.set("tasks", tasks);
+    archiveReport(t); // 보고서함 자동 보관
     logActivity(`🧑‍💼 매니저: 「${t.title}」 3차 검토 통과 → 사장님 보고`);
     postChat("pm", `「${t.title}」 3차 검토 통과! 사장님께 보고 올립니다 📋`);
     speak("pm", "3차 검토 통과! 보고 올립니다 📋");
@@ -2854,12 +2882,13 @@ async function autoWork(task) {
     if (isQuickMode()) {
       task.stage = "draft"; renderBoard();
       speak(task.assignee, "작업 시작합니다... 🔨", 2500);
-      task.result = await aiChat(cleanPrompt(st) + staffKnowledge(6000, task.title + " " + (task.note || "")),
+      task.result = await aiChat(cleanPrompt(st) + staffKnowledge(6000, task.title + " " + (task.note || "")) + (task.material ? `\n\n[수집 자료 — 반드시 근거로 인용할 것]\n${task.material.slice(0, 12000)}` : ""),
         [{ role: "user", content: `인사나 질문 없이, 이 업무의 결과물을 바로 쓸 수 있는 완성된 형태로 만들어줘:\n${task.title}${task.note ? `\n(보완 요청: ${task.note})` : ""}` }], () => {});
       task.status = "review";
       task.stage = "";
       task.autoWorking = false;
       store.set("tasks", tasks);
+      archiveReport(task); // 보고서함 자동 보관
       logActivity(`${staffEmoji(task.assignee)} ${staffName(task.assignee)}: 「${task.title}」 결과물 제출 → 검토 대기 (빠른 모드)`);
       postChat(task.assignee, `「${task.title}」 결과물 올렸습니다. 검토 부탁드려요 👀`);
       speak(task.assignee, "결과물 올렸습니다! 검토 부탁드려요 👀");
@@ -2871,7 +2900,7 @@ async function autoWork(task) {
     if (!task.draft || task.stage === "draft") {
       task.stage = "draft"; renderBoard();
       speak(task.assignee, "초안 작업 시작합니다... 🔨", 2500);
-      task.draft = await aiChat(cleanPrompt(st) + staffKnowledge(6000, task.title + " " + (task.note || "")),
+      task.draft = await aiChat(cleanPrompt(st) + staffKnowledge(6000, task.title + " " + (task.note || "")) + (task.material ? `\n\n[수집 자료 — 반드시 근거로 인용할 것]\n${task.material.slice(0, 12000)}` : ""),
         [{ role: "user", content: `인사나 질문 없이, 이 업무의 결과물 초안을 바로 쓸 수 있는 완성된 형태로 만들어줘:\n${task.title}${task.note ? `\n(보완 요청: ${task.note})` : ""}` }], () => {},
         tierModel(isTeamLead(task.assignee) ? "lead" : "staff"));
     }
@@ -2912,6 +2941,7 @@ async function autoWork(task) {
     task.stage = "";
     task.autoWorking = false;
     store.set("tasks", tasks);
+    archiveReport(task); // 보고서함 자동 보관
     logActivity(`🧑‍💼 과장: 「${task.title}」 최종 보고서 완성 → 사장님 보고`);
     postChat("pm", `「${task.title}」 최종 보고서 올렸습니다! 사장님 승인 부탁드려요 📋`);
     speak("pm", "최종 보고서 올렸습니다! 📋");
@@ -2998,6 +3028,65 @@ function snippetSection() {
   const snips = docSnippets(3, refQuery);
   if (!snips.length) return "";
   return `\n\n## 📚 학습 자료에서 참고한 내용\n` + snips.map(s => `> "${s.text}" — 『${s.doc}』`).join("\n");
+}
+
+/* ── 경쟁사 분석 기획서 엔진: 수집한 링크 자료 → 잘된 이유 → 내 계정 적용 ── */
+function competitorDraft(head, t, goal, material) {
+  const links = material.split(/\[링크 \d+\]/).map(s => s.trim()).filter(Boolean);
+  const obs = links.slice(0, 5).map((chunk, i) => {
+    const url = (chunk.match(/^https?:\/\/\S+/) || [""])[0];
+    const body = chunk.replace(/^https?:\/\/\S+/, "").replace(/\s+/g, " ").trim();
+    const quote = body.slice(0, 110) || "(내용 수집 실패 — 캡션을 자료실에 붙여넣으면 분석에 반영돼요)";
+    return `| ${i + 1} | ${url ? url.slice(0, 46) : "-"} | ${quote}${body.length > 110 ? "…" : ""} |`;
+  }).join("\n");
+  return head(`경쟁사 분석 기획서 (${todayStr()})`) + `${acctLine()}
+
+## 1. 수집 자료 관찰 (실제 수집 내용 기반)
+| # | 출처 | 관찰된 내용 발췌 |
+|---|---|---|
+${obs || "| - | - | 수집된 자료 없음 — 분석실에서 링크를 다시 넣어주세요 |"}
+
+## 2. 잘된 이유 분석 (4각도 공식)
+| 각도 | 이들이 잘한 것 | 확인 포인트 |
+|---|---|---|
+| 🎣 후킹 | 첫 화면/첫 줄에서 결과·궁금증을 먼저 보여줌 | 수집 자료의 도입부가 질문·숫자·비포애프터인지 |
+| 📐 포맷 | 저장을 부르는 반복 포맷(순서공개·체크리스트) 보유 | 같은 틀이 반복되는지 — 반복이 곧 브랜딩 |
+| 💬 CTA | 저장·댓글을 직접 요청 ("저장해두세요", "OO라고 남겨요") | 마지막 줄 행동 유도 문구 |
+| 🗓️ 일관성 | 주제·톤 통일 + 꾸준한 업로드 | 프로필 첫 9칸의 통일감 |
+
+## 3. 내 ${t} 계정 적용 기획서 (바로 실행 3안)
+| 안 | 무엇을 | 이들에게서 가져올 것 | 첫 실행 |
+|---|---|---|---|
+| A | 반복 포맷 1개 확정 | 위 자료의 저장형 포맷 구조 | 이번 주 같은 틀로 2개 발행 |
+| B | 후킹 규칙 도입 | 첫 3초/첫 줄 공식 | 다음 게시물 첫 줄을 질문·숫자로 교체 |
+| C | CTA 고정 문구 | 마무리 행동 유도 말투 | 캡션 끝에 저장 유도 한 줄 고정 |
+
+## 4. 이번 주 체크리스트
+□ 위 3안 중 1개 선택 □ 선택한 포맷으로 콘텐츠 1개 제작(지시 한 줄이면 됩니다) □ 발행 이틀 뒤 저장수 비교 기록
+
+**대표 결정 요청: A/B/C 중 우선 적용안 선택 — 선택하시면 해당 포맷의 대본·캡션 제작 업무를 이어서 진행합니다.**${qualityNote()}` + snippetSection();
+}
+
+/* ── 체험단 공고 분석 엔진: 레이더 수집 목록 → 지원 우선순위 제안 ── */
+function sponsorPlanDraft(head, t, goal, material) {
+  const lines = material.split("\n").filter(s => s.trim().startsWith("-")).slice(0, 20);
+  return head(`체험단 모집 공고 분석 — 지원 우선순위 (${todayStr()})`) + `${acctLine()}
+
+## 1. 수집된 모집 공고 (최근 1개월, 레이더 수집분)
+${lines.length ? lines.join("\n") : "- (수집 목록 없음 — 분석실 [📡 최근 1개월 수집]을 먼저 실행해 주세요)"}
+
+## 2. 지원 우선순위 기준 (내 계정 기준)
+1. **주제 일치**: ${t} 관련 공고 최우선 — 심사자가 계정 결을 봄
+2. **후기 자산화**: 받은 제품이 콘텐츠 소재로 재사용 가능한가
+3. **문턱**: 팔로워 조건이 낮거나 없는 공고부터 (이력 쌓기)
+
+## 3. 지원 멘트 템플릿
+"안녕하세요! ${t} 콘텐츠를 올리는 계정입니다. 실사용 후기를 저장형 콘텐츠(비포애프터·꿀팁 정리)로 제작해 도달을 만들어 드려요. 대표 콘텐츠: (링크 3개)"
+
+## 4. 이번 주 실행
+□ 위 목록에서 주제 일치 공고 3개 선정 □ 프로필·하이라이트 점검 □ 지원 멘트 보내고 결과 기록
+
+**대표 결정 요청: 지원할 공고 3개 선택 (번호로) — 선택하시면 맞춤 지원 멘트를 개별 작성해 드립니다.**${qualityNote()}` + snippetSection();
 }
 
 /* ── 아이디어 기획 보고서 엔진: 사장님이 던진 아이디어 → 회의 → 실행안 ── */
@@ -3247,6 +3336,8 @@ function templateDraft(task) {
   const title = task.title;
   const head = (label) => `# ${label}\n(직원 회의로 작성한 초안 — AI를 연결하면 더 정교해져요)\n`;
 
+  if (/^경쟁사 분석/.test(title)) return competitorDraft(head, t, goal, task.material || "");
+  if (/^체험단 모집 공고 분석/.test(title)) return sponsorPlanDraft(head, t, goal, task.material || "");
   if (/^아이디어 기획/.test(title)) return ideaPlanDraft(head, t, task.idea || title.replace(/^아이디어 기획 — /, "").replace(/^"|"$/g, ""));
   if (/페르소나|타깃 정의/.test(title)) return personasDraft(head, t, goal);
   if (/포지셔닝|차별화 선언/.test(title)) return positioningDraft(head, t, goal);
@@ -3530,6 +3621,7 @@ async function templateWork(task) {
   task.stage = "";
   task.autoWorking = false;
   store.set("tasks", tasks);
+  archiveReport(task); // 보고서함 자동 보관
   logActivity(`🧑‍💼 매니저: 「${task.title}」 3차 검토 통과 → 사장님 보고`);
   postChat("pm", `「${task.title}」 검토 완료! 사장님께 보고 올립니다 📋`);
   speak("pm", "검토 통과! 보고 올립니다 📋");
@@ -3767,6 +3859,302 @@ function printReportDoc() {
   }, 150);
 }
 
+/* ---------- 보고서함: 모든 기획서·보고서 자동 보관 ----------
+   업무가 검토 대기(review)에 도달할 때마다 자동 저장 — 사장님이 따로 저장할 필요 없음.
+   보완 재요청으로 새 버전이 오면 같은 항목이 v2, v3...로 업데이트됨. */
+const REPORT_CATS = [
+  { key: "analysis", label: "분석 리포트", emoji: "🔍", re: /분석|벤치마킹|회고|경쟁사|리포트|레이더|주간/ }, // 기획서보다 먼저 — "경쟁사 분석 기획서"는 분석으로
+  { key: "plan", label: "기획서", emoji: "🗂️", re: /기획|아이디어|컨셉|캘린더|전략|포지셔닝|페르소나|북극성|로드맵/ },
+  { key: "content", label: "콘텐츠", emoji: "🎬", re: /릴스|캡션|대본|해시태그|소개글|콘텐츠|게시물|프로필/ },
+  { key: "money", label: "수익화", emoji: "💰", re: /미디어킷|단가|협찬|체험단|수익|공동구매/ },
+  { key: "edu", label: "교육·가이드", emoji: "📚", re: /가이드|용어집|온보딩|교육|스터디|체크리스트/ },
+  { key: "etc", label: "기타", emoji: "📄", re: /$^/ }
+];
+function classifyReport(title) {
+  return (REPORT_CATS.find(c => c.re.test(title)) || REPORT_CATS[REPORT_CATS.length - 1]).key;
+}
+
+function archiveReport(t) {
+  if (!t || !t.result) return;
+  const now = Date.now();
+  const ex = reports.find(r => r.taskId === t.id);
+  if (ex) {
+    ex.body = t.result;
+    ex.status = "review";
+    ex.version = (ex.version || 1) + 1;
+    ex.updatedAt = now;
+  } else {
+    reports.unshift({
+      id: now + "-" + Math.random().toString(36).slice(2, 6),
+      taskId: t.id, title: t.title, assignee: t.assignee,
+      cat: classifyReport(t.title), body: t.result,
+      status: "review", version: 1, createdAt: now, updatedAt: now
+    });
+    reports = reports.slice(0, 200); // 보관 상한 (IndexedDB라 여유)
+  }
+  store.set("reports", reports);
+  renderArchive();
+}
+
+function markReportDone(t) {
+  const r = reports.find(x => x.taskId === t.id);
+  if (r) { r.status = "done"; r.updatedAt = Date.now(); store.set("reports", reports); renderArchive(); }
+}
+
+/* 보고서함에서 보완 재요청 → 원 업무 재작업 (업무가 정리됐으면 이전 보고서를 참고자료로 새 업무 생성) */
+function reworkFromReport(r, note) {
+  const t = tasks.find(x => x.id === r.taskId);
+  if (t && (t.status === "review" || t.status === "done")) {
+    t.note = note;
+    t.status = "doing"; t.stage = "draft";
+    t.draft = ""; t.result = ""; t.critique = ""; // 비워야 재작업이 처음부터 (templateWork 이어가기 방지)
+    store.set("tasks", tasks);
+    logActivity(`↩ 보고서함에서 「${t.title}」 보완 재요청 → ${staffName(t.assignee)} 재작업`);
+    postChat("boss", `「${t.title}」 보완 부탁해요: ${note.slice(0, 40)}`);
+    renderBoard(); updateOfficeStatuses();
+    dispatchWork(t);
+  } else {
+    const nt = createTask(r.title, r.assignee);
+    nt.note = note;
+    nt.material = `[이전 버전 보고서 — 이 내용을 바탕으로 보완할 것]\n${r.body.slice(0, 8000)}`;
+    nt.reportId = r.id;
+    store.set("tasks", tasks);
+    renderBoard(); updateOfficeStatuses();
+    dispatchWork(nt);
+  }
+  toast("↩ 보완 요청을 보냈어요! 직원이 다시 작업하면 이 보고서가 새 버전으로 업데이트돼요.", 5000);
+}
+
+let archCat = "";
+function renderArchive() {
+  const list = $("#arch-list");
+  if (!list) return;
+  const chipWrap = $("#arch-cats");
+  chipWrap.innerHTML = "";
+  const present = REPORT_CATS.filter(c => reports.some(r => r.cat === c.key));
+  (reports.length ? [{ key: "", label: "전체", emoji: "📑" }, ...present] : []).forEach(c => {
+    const chip = document.createElement("button");
+    chip.className = "lib-cat-chip" + ((archCat || "") === c.key ? " on" : "");
+    chip.textContent = `${c.emoji} ${c.label}` + (c.key ? ` ${reports.filter(r => r.cat === c.key).length}` : ` ${reports.length}`);
+    chip.addEventListener("click", () => { archCat = c.key; renderArchive(); });
+    chipWrap.appendChild(chip);
+  });
+
+  list.innerHTML = "";
+  const shown = reports.filter(r => !archCat || r.cat === archCat);
+  if (!shown.length) {
+    list.innerHTML = `<div class="lib-empty">아직 보고서가 없어요.<br>사무실에서 지시를 내리면 완성된 기획서·보고서가 자동으로 여기 쌓여요! 📑</div>`;
+    return;
+  }
+  shown.forEach(r => {
+    const item = document.createElement("div");
+    item.className = "lib-item arch-item";
+    const cat = REPORT_CATS.find(c => c.key === r.cat) || REPORT_CATS[REPORT_CATS.length - 1];
+
+    const title = document.createElement("div");
+    title.className = "lib-title";
+    title.textContent = r.title;
+
+    const badge = document.createElement("span");
+    badge.className = "lib-cat";
+    badge.textContent = `${cat.emoji} ${cat.label}`;
+
+    const meta = document.createElement("div");
+    meta.className = "lib-meta";
+    meta.textContent = `${staffName(r.assignee)} · ${new Date(r.updatedAt).toLocaleDateString("ko-KR")}` +
+      (r.version > 1 ? ` · v${r.version}` : "") + (r.status === "done" ? " · ✅승인" : " · 🕐검토중");
+
+    const asTask = () => ({ title: r.title, assignee: r.assignee, result: r.body, status: r.status, doneAt: r.updatedAt });
+    const viewBtn = document.createElement("button");
+    viewBtn.textContent = "📄"; viewBtn.title = "문서로 보기";
+    viewBtn.addEventListener("click", () => openReportModal(asTask()));
+    const pdfBtn = document.createElement("button");
+    pdfBtn.textContent = "🖨"; pdfBtn.title = "인쇄 / PDF로 저장 (다운로드)";
+    pdfBtn.addEventListener("click", () => { reportModalTask = asTask(); printReportDoc(); });
+    const reworkBtn = document.createElement("button");
+    reworkBtn.textContent = "↩"; reworkBtn.title = "직원에게 보완 재요청 (보고서 업데이트)";
+    reworkBtn.addEventListener("click", () => { form.classList.toggle("hidden"); form.querySelector("textarea").focus(); });
+
+    // 보완 요청 폼 (철칙 7: prompt() 금지)
+    const form = document.createElement("div");
+    form.className = "task-form hidden";
+    form.style.width = "100%";
+    const ta = document.createElement("textarea");
+    ta.rows = 2; ta.placeholder = "어떤 부분을 어떻게 고칠까요? (예: 단가표를 더 자세히, 예시를 리빙으로)";
+    const send = document.createElement("button");
+    send.className = "btn-small"; send.textContent = "↩ 보완 요청 보내기";
+    send.addEventListener("click", () => {
+      const note = ta.value.trim();
+      if (!note) { ta.focus(); return; }
+      form.classList.add("hidden"); ta.value = "";
+      reworkFromReport(r, note);
+    });
+    form.append(ta, send);
+
+    const row = document.createElement("div");
+    row.className = "arch-row";
+    row.append(title, badge, meta, viewBtn, pdfBtn, reworkBtn);
+    item.append(row, form);
+    list.appendChild(item);
+  });
+}
+
+/* ---------- 경쟁사 분석: 링크 수집 → 잘된 이유 분석 → 내 계정 적용 기획서 ---------- */
+async function runCompetitorAnalysis(urls) {
+  urls = (urls || []).map(u => String(u).trim()).filter(u => /^https?:\/\//.test(u)).slice(0, 5);
+  const status = $("#ca-status");
+  if (!urls.length) { toast("⚠️ 링크를 한 줄에 하나씩 붙여넣어 주세요 (https://로 시작)"); return; }
+  const parts = [];
+  for (let i = 0; i < urls.length; i++) {
+    if (status) status.textContent = `📥 링크 ${i + 1}/${urls.length} 수집 중...`;
+    try {
+      const text = await fetchLinkedPage(urls[i]);
+      parts.push(`[링크 ${i + 1}] ${urls[i]}\n${text.slice(0, 4000)}`);
+    } catch {
+      parts.push(`[링크 ${i + 1}] ${urls[i]}\n(내용 수집 실패 — 로그인이 필요한 페이지예요. 게시물 캡션을 복사해 자료실에 넣으면 함께 분석돼요)`);
+    }
+  }
+  if (status) status.textContent = "🔍 성장 분석부에 분석 배정!";
+  const t = createTask(`경쟁사 분석 기획서 — 링크 ${urls.length}개 (잘된 이유 → 내 계정 적용)`, "analyst");
+  t.material = parts.join("\n\n").slice(0, 15000);
+  store.set("tasks", tasks);
+  renderBoard(); updateOfficeStatuses();
+  dispatchWork(t);
+  toast("🔍 경쟁사 분석을 시작했어요! 완성되면 검토 대기와 보고서함에 기획서가 올라와요.", 5000);
+  if ($("#ca-links")) $("#ca-links").value = "";
+  setTimeout(() => { if (status) status.textContent = ""; }, 5000);
+}
+
+/* ---------- 체험단 모집 레이더 ----------
+   인스타그램은 로그인 없이 직접 못 읽으므로(비공개 API), 검색엔진에 남은 공개 기록을 우회 수집:
+   ① 프록시 경유 덕덕고(최근 1개월 필터) ② 웹 리더 경유 덕덕고 ③ 웹 리더 경유 구글(최근 1개월) */
+let sponsorFeeds = store.get("sponsorFeeds", []); // [{url,title,cat,at}] — 작은 상태라 localStorage
+const SP_CATS = [
+  { key: "beauty", label: "뷰티", emoji: "💄", re: /뷰티|화장품|스킨|코스메|헤어|네일|메이크/ },
+  { key: "food", label: "식품·맛집", emoji: "🍽️", re: /식품|맛집|음식|간식|음료|카페|디저트|식당|베이커리/ },
+  { key: "living", label: "리빙·생활", emoji: "🏠", re: /리빙|인테리어|주방|수납|생활|가전|청소|홈/ },
+  { key: "kids", label: "육아·키즈", emoji: "👶", re: /육아|아기|키즈|유아|장난감|맘/ },
+  { key: "fashion", label: "패션", emoji: "👗", re: /패션|의류|옷|가방|신발|주얼리|악세/ },
+  { key: "travel", label: "여행·숙박", emoji: "✈️", re: /여행|호텔|펜션|숙박|리조트|글램핑/ },
+  { key: "etc", label: "기타", emoji: "📌", re: /$^/ }
+];
+function classifySponsor(text) {
+  return (SP_CATS.find(c => c.re.test(text)) || SP_CATS[SP_CATS.length - 1]).key;
+}
+
+async function fetchSearchText(q) {
+  const ddg = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}&df=m`; // df=m = 최근 1개월
+  try { const r = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(ddg)}`); if (r.ok) { const t = await r.text(); if (t.length > 500) return t; } } catch {}
+  try { const t = await fetchViaJina(ddg); if (t) return t; } catch {}
+  try { const t = await fetchViaJina(`https://www.google.com/search?q=${encodeURIComponent(q)}&tbs=qdr:m`); if (t) return t; } catch {}
+  return null;
+}
+
+function parseSponsorResults(text) {
+  const items = [];
+  let m;
+  const aRe = /<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g; // 덕덕고 HTML
+  while ((m = aRe.exec(text))) {
+    let url = m[1];
+    const uddg = url.match(/uddg=([^&]+)/);
+    if (uddg) { try { url = decodeURIComponent(uddg[1]); } catch {} }
+    items.push({ url, title: m[2].replace(/<[^>]+>/g, "").trim() });
+  }
+  const mdRe = /\[([^\]]{4,120})\]\((https?:\/\/[^)\s]+)\)/g; // 웹 리더 마크다운
+  while ((m = mdRe.exec(text))) items.push({ url: m[2], title: m[1].trim() });
+  return items.filter(it => /instagram\.com/.test(it.url) && it.title.length >= 4);
+}
+
+async function collectSponsorFeeds() {
+  const status = $("#sp-status");
+  const btn = $("#sp-run");
+  if (btn) btn.disabled = true;
+  const t = topicWord();
+  const queries = [`"체험단 모집" site:instagram.com`, `${t} 체험단 모집 인스타그램`, `체험단 모집 인스타 피드`];
+  const found = [];
+  const seen = new Set(sponsorFeeds.map(f => f.url));
+  for (let i = 0; i < queries.length; i++) {
+    if (status) status.textContent = `📡 우회 경로 ${i + 1}/${queries.length}에서 수집 중...`;
+    const text = await fetchSearchText(queries[i]);
+    if (!text) continue;
+    for (const it of parseSponsorResults(text)) {
+      if (seen.has(it.url)) continue;
+      seen.add(it.url);
+      found.push({ url: it.url, title: it.title.slice(0, 90), cat: classifySponsor(it.title), at: Date.now() });
+    }
+    if (found.length >= 40) break;
+  }
+  if (btn) btn.disabled = false;
+  if (!found.length && !sponsorFeeds.length) {
+    if (status) status.textContent = "⚠️ 지금은 수집 경로가 모두 막혀 있어요 — 몇 분 뒤 다시 눌러주세요 (경로 3개를 번갈아 시도해요)";
+    return 0;
+  }
+  sponsorFeeds = [...found, ...sponsorFeeds].slice(0, 120);
+  store.set("sponsorFeeds", sponsorFeeds);
+  if (status) status.textContent = found.length ? `✅ 새 모집글 ${found.length}건 수집! (최근 1개월)` : "새로운 글은 없었어요 — 기존 목록 유지";
+  renderSponsorFeeds();
+  return found.length;
+}
+
+let spCat = "";
+function renderSponsorFeeds() {
+  const list = $("#sp-list");
+  if (!list) return;
+  const chipWrap = $("#sp-cats");
+  chipWrap.innerHTML = "";
+  if (sponsorFeeds.length) {
+    const present = SP_CATS.filter(c => sponsorFeeds.some(f => f.cat === c.key));
+    [{ key: "", label: "전체", emoji: "📡" }, ...present].forEach(c => {
+      const chip = document.createElement("button");
+      chip.className = "lib-cat-chip" + ((spCat || "") === c.key ? " on" : "");
+      chip.textContent = `${c.emoji} ${c.label} ${c.key ? sponsorFeeds.filter(f => f.cat === c.key).length : sponsorFeeds.length}`;
+      chip.addEventListener("click", () => { spCat = c.key; renderSponsorFeeds(); });
+      chipWrap.appendChild(chip);
+    });
+  }
+  list.innerHTML = "";
+  const shown = sponsorFeeds.filter(f => !spCat || f.cat === spCat);
+  if (!shown.length) {
+    list.innerHTML = `<div class="lib-empty">아직 수집된 모집글이 없어요.<br>[📡 최근 1개월 수집]을 누르거나, 사무실에 "체험단 모집 수집해줘"라고 지시해 보세요!</div>`;
+    return;
+  }
+  shown.slice(0, 60).forEach(f => {
+    const item = document.createElement("div");
+    item.className = "lib-item";
+    const cat = SP_CATS.find(c => c.key === f.cat) || SP_CATS[SP_CATS.length - 1];
+    const title = document.createElement("div");
+    title.className = "lib-title";
+    title.textContent = f.title;
+    const badge = document.createElement("span");
+    badge.className = "lib-cat";
+    badge.textContent = `${cat.emoji} ${cat.label}`;
+    const open = document.createElement("button");
+    open.textContent = "🔗"; open.title = "인스타그램에서 열기";
+    open.addEventListener("click", () => window.open(f.url, "_blank", "noopener"));
+    const del = document.createElement("button");
+    del.textContent = "🗑️"; del.title = "목록에서 지우기";
+    del.addEventListener("click", () => { sponsorFeeds = sponsorFeeds.filter(x => x.url !== f.url); store.set("sponsorFeeds", sponsorFeeds); renderSponsorFeeds(); });
+    item.append(title, badge, open, del);
+    list.appendChild(item);
+  });
+}
+
+function saveSponsorDigest() {
+  if (!sponsorFeeds.length) { toast("⚠️ 먼저 수집을 실행해 주세요!"); return; }
+  const byCat = {};
+  sponsorFeeds.forEach(f => (byCat[f.cat] = byCat[f.cat] || []).push(f));
+  const body = SP_CATS.filter(c => byCat[c.key]).map(c =>
+    `## ${c.emoji} ${c.label} (${byCat[c.key].length}건)\n` + byCat[c.key].map(f => `- ${f.title}\n  ${f.url}`).join("\n")
+  ).join("\n\n");
+  const title = `체험단 모집 수집 (${todayStr()})`;
+  const ex = docs.find(d => d.title === title);
+  if (ex) ex.content = body;
+  else docs.push({ id: Date.now() + "", title, content: body, enabled: true, cat: "money" });
+  saveDocs();
+  renderLibrary();
+  toast("📚 자료실에 저장됐어요! 직원들이 체험단 지원 전략에 참고해요.");
+}
+
 let boardQuery = "";
 let boardDept = "all"; // 부서 필터 (all | TEAMS[].id)
 
@@ -3908,6 +4296,7 @@ function renderBoard() {
           promoteQueue(t.assignee);
           handoffToStudio(t);
           schedulePublishTodo(t);
+          markReportDone(t); // 보고서함 상태도 ✅승인으로
         });
         addBtn("↩ 보완 요청", "btn-small", () => {
           const form = card.querySelector(".task-form");
@@ -5524,7 +5913,7 @@ function exportBackup() {
     exportedAt: new Date().toISOString(),
     settings: { ...settings, apiKey: "" }, // 보안을 위해 키는 제외
     docs, chats, roadmapDone, missions, tasks, activity, meetings, customStaff, teamChat,
-    todos, events, notes, focusLog, usage
+    todos, events, notes, focusLog, usage, reports
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
@@ -5552,6 +5941,7 @@ function importBackup(file) {
       meetings = data.meetings || [];
       customStaff = data.customStaff || [];
       teamChat = data.teamChat || [];
+      reports = data.reports || [];
       todos = data.todos || [];
       events = data.events || [];
       notes = data.notes || [];
@@ -5563,6 +5953,7 @@ function importBackup(file) {
       store.set("notes", notes);
       store.set("focusLog", focusLog);
       store.set("settings", settings);
+      store.set("reports", reports);
       saveDocs();
       store.set("chats", chats);
       store.set("roadmapDone", roadmapDone);
@@ -5615,6 +6006,8 @@ function renderAll() {
   renderSettings();
   renderTools();
   renderTokenBar();
+  renderArchive();
+  renderSponsorFeeds();
 }
 
 /* ---------- 이벤트 바인딩 ---------- */
@@ -5806,6 +6199,11 @@ function bindEvents() {
 
   // 자료실
   $("#lib-add-paste").addEventListener("click", addDocByPaste);
+
+  // 분석실 (경쟁사 분석 + 체험단 레이더)
+  $("#ca-run")?.addEventListener("click", () => runCompetitorAnalysis(($("#ca-links").value || "").split(/\n+/)));
+  $("#sp-run")?.addEventListener("click", () => collectSponsorFeeds());
+  $("#sp-save")?.addEventListener("click", saveSponsorDigest);
   $("#lib-add-notion").addEventListener("click", () => {
     $("#nm-url").value = "";
     $("#nm-status").textContent = "";
@@ -6652,5 +7050,8 @@ window.__senter = {
   staffKnowledge, docSnippets, pickDocRefs, buildSystemPrompt,
   fetchLinkedPage, notionBlocksToText, addLinkedDoc, autoSyncLinkedDocs,
   imageToText, visionAvailable, fetchImageAsDataUrl,
-  classifyDoc, autoDocTitle, isGenericName
+  classifyDoc, autoDocTitle, isGenericName,
+  getReports: () => reports, archiveReport, reworkFromReport, renderArchive,
+  runCompetitorAnalysis, collectSponsorFeeds, parseSponsorResults, classifySponsor,
+  getSponsorFeeds: () => sponsorFeeds
 };

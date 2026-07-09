@@ -344,6 +344,13 @@ body {
   border-radius: 999px; padding: 2px 8px; white-space: nowrap;
 }
 .lib-list { display: flex; flex-direction: column; gap: 10px; }
+
+/* ===== 분석실 (보고서함·경쟁사 분석·체험단 레이더) ===== */
+.arch-item { flex-direction: column; align-items: stretch; gap: 8px; }
+.arch-row { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; }
+.arch-item .task-form { display: flex; gap: 8px; align-items: flex-start; }
+.arch-item .task-form textarea { flex: 1; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font: inherit; font-size: .84rem; background: var(--surface); resize: vertical; }
+#ca-links { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font: inherit; font-size: .86rem; background: var(--surface); resize: vertical; }
 .lib-item {
   display: flex; align-items: center; gap: 12px; padding: 13px 15px;
   border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
