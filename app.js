@@ -1043,21 +1043,31 @@ function enterFreeAiCooldown() {
     toast("🔋 무료 AI의 오늘 사용량을 다 썼어요. 6시간 동안 오프라인 초안 모드로 계속 일할게요 — 설정 탭에서 내 API 키를 넣으면 바로 AI 모드로 돌아가요. (업그레이드 결제는 필요 없어요!)", 9000);
   }
 }
-/* Puter가 끼워 넣는 "Low Balance / Upgrade Now" 창을 자동으로 닫음 */
+/* Puter가 끼워 넣는 "Low Balance / Upgrade Now" 창을 어떤 형태로 그려도 지움:
+   ① 글자 매칭 (일반 요소) ② puter.com iframe (내용을 못 읽는 형태) ③ 중첩 삽입 대비 전체 감시 + 1.5초 주기 청소 */
+function sweepPuterDialogs() {
+  let found = false;
+  try {
+    // ① 화면을 덮는 요소 중 결제 유도 문구가 있는 것
+    for (const el of document.querySelectorAll("body > *:not(script):not(style)")) {
+      if (el.id === "app" || el.closest("#app")) continue;
+      const t = el.innerText || "";
+      if (/low balance|not enough funding|upgrade to continue|upgrade now/i.test(t)) { el.remove(); found = true; }
+    }
+    // ② puter가 띄우는 iframe·전용 클래스 요소 (앱 바깥에 붙는 것만)
+    for (const el of document.querySelectorAll('iframe[src*="puter.com"], [class*="puter-dialog"], [class*="puter_dialog"]')) {
+      if (el.closest("#app")) continue;
+      el.remove(); found = true;
+    }
+  } catch {}
+  if (found) enterFreeAiCooldown();
+  return found;
+}
 function watchPuterDialogs() {
   try {
-    new MutationObserver(muts => {
-      for (const mu of muts) {
-        for (const n of mu.addedNodes) {
-          if (!(n instanceof HTMLElement)) continue;
-          const t = n.innerText || "";
-          if (/low balance|not enough funding|upgrade to continue/i.test(t)) {
-            n.remove();
-            enterFreeAiCooldown();
-          }
-        }
-      }
-    }).observe(document.body, { childList: true, subtree: false });
+    new MutationObserver(() => sweepPuterDialogs())
+      .observe(document.documentElement, { childList: true, subtree: true });
+    setInterval(sweepPuterDialogs, 1500); // 감시가 놓친 경우 대비 주기 청소
   } catch {}
 }
 
@@ -1090,8 +1100,11 @@ async function aiChat(system, messages, onDelta = () => {}, modelOverride) {
     recordUsage("free", inEst, estTokens(text), true);
     return text;
   } catch (e) {
-    const msg = String(e && (e.message || e.error && e.error.message) || e);
-    if (/insufficient|funds|balance|usage.?limit|credit|402/i.test(msg)) {
+    let raw = ""; try { raw = JSON.stringify(e); } catch {}
+    const msg = String(e && (e.message || e.error && e.error.message) || e) + " " + raw;
+    setTimeout(sweepPuterDialogs, 50); // 실패하며 띄운 창이 있으면 바로 청소
+    setTimeout(sweepPuterDialogs, 800);
+    if (/insufficient|funds|balance|usage.?limit|credit|402|payment|upgrade/i.test(msg)) {
       enterFreeAiCooldown(); // 잔액 소진 → 당분간 무료 AI 호출 중단 (결제창 반복 방지)
       throw new Error("NO_AI");
     }
@@ -5206,7 +5219,9 @@ async function imageToText(dataUrl) {
   let resp;
   try { resp = await puter.ai.chat(VISION_PROMPT, small); } // Puter 비전: (프롬프트, 이미지 dataURL)
   catch (e) {
-    if (/insufficient|funds|balance|usage.?limit|credit|402/i.test(String(e && e.message || e))) enterFreeAiCooldown();
+    let raw = ""; try { raw = JSON.stringify(e); } catch {}
+    setTimeout(sweepPuterDialogs, 50);
+    if (/insufficient|funds|balance|usage.?limit|credit|402|payment|upgrade/i.test(String(e && e.message || e) + raw)) enterFreeAiCooldown();
     throw new Error("NO_AI");
   }
   const text = extractPuterText(resp).trim();
@@ -7378,5 +7393,5 @@ window.__senter = {
   runCompetitorAnalysis, collectSponsorFeeds, parseSponsorResults, classifySponsor,
   getSponsorFeeds: () => sponsorFeeds, getSponsorSaved: () => sponsorSaved, saveToLinkbox, renderSponsorBox,
   normSponsorUrl, recruitType, getSponsorHidden: () => sponsorHidden, addManualLink, parseAdLibrary,
-  aiChat, freeAiCoolingDown, enterFreeAiCooldown
+  aiChat, freeAiCoolingDown, enterFreeAiCooldown, sweepPuterDialogs
 };

@@ -1107,3 +1107,6 @@ body {
 /* 링크함 직접 추가 줄 */
 .sb-add-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .sb-add-row input { flex: 1; min-width: 160px; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font: inherit; font-size: .84rem; background: var(--surface); }
+
+/* 무료 AI(Puter)가 끼워 넣는 결제 유도 창 차단 — 앱 화면(#app) 바깥의 puter 프레임·다이얼로그 */
+body > iframe[src*="puter.com"], [class*="puter-dialog"], [class*="puter_dialog"] { display: none !important; }
