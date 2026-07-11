@@ -1045,19 +1045,29 @@ function enterFreeAiCooldown() {
 }
 /* Puter가 끼워 넣는 "Low Balance / Upgrade Now" 창을 어떤 형태로 그려도 지움:
    ① 글자 매칭 (일반 요소) ② puter.com iframe (내용을 못 읽는 형태) ③ 중첩 삽입 대비 전체 감시 + 1.5초 주기 청소 */
+const PUTER_DIALOG_RE = /low balance|not enough funding|upgrade to continue|upgrade now|please upgrade/i;
+/* 그림자 DOM 안까지 훑어 결제 문구가 든 곳을 찾음 (닫힌 그림자 DOM은 못 봄) */
+function textIncludingShadow(el, depth) {
+  if (depth > 6 || !el) return "";
+  let t = "";
+  try { t += el.textContent || ""; } catch {}
+  try { if (el.shadowRoot) t += el.shadowRoot.textContent || ""; } catch {}
+  return t;
+}
 function sweepPuterDialogs() {
   let found = false;
   try {
-    // ① 화면을 덮는 요소 중 결제 유도 문구가 있는 것
-    for (const el of document.querySelectorAll("body > *:not(script):not(style)")) {
-      if (el.id === "app" || el.closest("#app")) continue;
-      const t = el.innerText || "";
-      if (/low balance|not enough funding|upgrade to continue|upgrade now/i.test(t)) { el.remove(); found = true; }
-    }
-    // ② puter가 띄우는 iframe·전용 클래스 요소 (앱 바깥에 붙는 것만)
-    for (const el of document.querySelectorAll('iframe[src*="puter.com"], [class*="puter-dialog"], [class*="puter_dialog"]')) {
-      if (el.closest("#app")) continue;
-      el.remove(); found = true;
+    // body 직속 요소를 훑어, 앱/토스트가 아닌데 결제 문구·puter 프레임이면 통째로 제거
+    for (const el of Array.from(document.body.children)) {
+      if (el.id === "app" || el.id === "toast" || el.tagName === "SCRIPT" || el.tagName === "STYLE") continue;
+      if (el.closest && el.closest("#app")) continue;
+      if (el.tagName === "IFRAME") {
+        const src = el.getAttribute("src") || "";
+        if (/puter/i.test(src) || src === "" || src === "about:blank") { el.remove(); found = true; continue; }
+      }
+      const cls = (el.className && el.className.toString ? el.className.toString() : "") || "";
+      if (/puter/i.test(el.id || "") || /puter/i.test(cls)) { el.remove(); found = true; continue; }
+      if (PUTER_DIALOG_RE.test(textIncludingShadow(el, 0))) { el.remove(); found = true; }
     }
   } catch {}
   if (found) enterFreeAiCooldown();
@@ -1067,7 +1077,7 @@ function watchPuterDialogs() {
   try {
     new MutationObserver(() => sweepPuterDialogs())
       .observe(document.documentElement, { childList: true, subtree: true });
-    setInterval(sweepPuterDialogs, 1500); // 감시가 놓친 경우 대비 주기 청소
+    setInterval(sweepPuterDialogs, 500); // 감시가 놓친 경우 대비 자주 청소
   } catch {}
 }
 
@@ -1082,6 +1092,7 @@ async function aiChat(system, messages, onDelta = () => {}, modelOverride) {
     throw err;
   }
   const puter = await loadPuter().catch(() => { const err = new Error("NO_AI"); throw err; });
+  if (freeAiCoolingDown()) throw new Error("NO_AI"); // loadPuter 대기 중 다른 호출이 쿨다운을 걸었으면 즉시 중단
   const msgs = [{ role: "system", content: system }, ...messages.map(m => ({ role: m.role, content: m.content }))];
   try {
     const wanted = (settings && settings.freeModel || "").trim();
