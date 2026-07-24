@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>센터 펫 · 도트 강아지</title>
+<meta name="theme-color" content="#f1f8f3" />
+<style>
+  /* ===== 센터 펫 — 화면 위에서 사는 도트 강아지 =====
+     철칙 준수: 외부 라이브러리·이미지 파일 없음. 강아지는 전부 캔버스로 그림.
+     디자인 토큰은 센터 오로라 그린과 맞춤. */
+  :root{
+    --bg:#f1f8f3;
+    --bg-grad:linear-gradient(160deg,#f3fbf3 0%,#edf7f0 45%,#eaf4f6 100%);
+    --surface:rgba(255,255,255,.82);
+    --line:#ddeee4;
+    --text:#33493d;
+    --text-soft:#82a191;
+    --accent:#57b98c;
+    --accent-strong:#368a63;
+    --pink:#ef8fb0;
+    --shadow:0 2px 10px rgba(87,185,140,.10),0 10px 30px rgba(140,205,170,.16);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;overflow:hidden;}
+  body{
+    font-family:"Pretendard","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;
+    background:var(--bg);
+    background-image:var(--bg-grad);
+    color:var(--text);
+    -webkit-font-smoothing:antialiased;
+    -webkit-user-select:none;user-select:none;
+    touch-action:none;
+  }
+  /* 투명 배경 모드 (미니 창에서 강아지만 보이게) */
+  body.bare{background:transparent;background-image:none;}
+
+  /* 강아지가 뛰노는 무대 */
+  #stage{position:fixed;inset:0;}
+  #pet{
+    position:absolute;left:0;top:0;
+    image-rendering:pixelated;image-rendering:crisp-edges;
+    cursor:grab;transform-origin:center bottom;
+    filter:drop-shadow(0 0 0 transparent);
+  }
+  #pet.grabbing{cursor:grabbing;}
+
+  /* 말풍선 */
+  #bubble{
+    position:absolute;left:0;top:0;
+    background:var(--surface);border:1px solid var(--line);
+    backdrop-filter:blur(6px);
+    padding:7px 12px;border-radius:14px;border-bottom-left-radius:4px;
+    font-size:.82rem;font-weight:600;color:var(--text);
+    box-shadow:var(--shadow);white-space:nowrap;
+    opacity:0;transform:translateY(4px) scale(.96);
+    transition:opacity .2s,transform .2s;pointer-events:none;
+  }
+  #bubble.show{opacity:1;transform:translateY(0) scale(1);}
+
+  /* 안내 인트로 */
+  #intro{
+    position:fixed;left:50%;top:22px;transform:translateX(-50%);
+    background:var(--surface);border:1px solid var(--line);backdrop-filter:blur(8px);
+    padding:10px 16px;border-radius:999px;font-size:.82rem;color:var(--text-soft);
+    box-shadow:var(--shadow);z-index:5;transition:opacity .5s;
+  }
+  #intro b{color:var(--accent-strong);}
+
+  /* 하단 컨트롤 바 */
+  #dock{
+    position:fixed;left:50%;bottom:16px;transform:translateX(-50%);
+    display:flex;gap:6px;align-items:center;
+    background:var(--surface);border:1px solid var(--line);backdrop-filter:blur(10px);
+    padding:7px 9px;border-radius:999px;box-shadow:var(--shadow);z-index:10;
+    transition:opacity .3s,transform .3s;
+  }
+  #dock.hidden{opacity:0;transform:translateX(-50%) translateY(120%);pointer-events:none;}
+  .dbtn{
+    border:none;background:transparent;cursor:pointer;font-family:inherit;
+    color:var(--text-soft);font-weight:700;font-size:.8rem;
+    padding:8px 12px;border-radius:999px;display:flex;align-items:center;gap:5px;
+    transition:background .15s,color .15s;white-space:nowrap;
+  }
+  .dbtn:hover{background:#e3f4ea;color:var(--accent-strong);}
+  .dbtn.on{background:var(--accent);color:#fff;}
+  .dbtn .ico{font-size:1rem;line-height:1;}
+  .dsep{width:1px;height:22px;background:var(--line);margin:0 2px;}
+  .dslider{display:flex;align-items:center;gap:6px;padding:0 8px;color:var(--text-soft);font-size:.74rem;font-weight:700;}
+  .dslider input{width:70px;accent-color:var(--accent);}
+
+  /* 컨트롤 숨김 상태에서 다시 부르는 작은 손잡이 */
+  #peek{
+    position:fixed;left:50%;bottom:6px;transform:translateX(-50%);
+    width:44px;height:6px;border-radius:999px;background:var(--line);
+    z-index:9;cursor:pointer;opacity:0;transition:opacity .3s;
+  }
+  #peek.show{opacity:.7;}
+
+  @media (max-width:520px){
+    .dslider{display:none;}
+    .dbtn{padding:9px 10px;}
+  }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="pet" width="96" height="96"></canvas>
+    <div id="bubble"></div>
+  </div>
+
+  <div id="intro">🐾 <b>초코</b>를 쓰다듬어 보세요 · 끌어서 옮기기 · 더블클릭하면 신나서 달려요</div>
+
+  <div id="peek"></div>
+  <div id="dock">
+    <button class="dbtn" id="btn-follow" title="마우스를 따라다녀요"><span class="ico">🧲</span>따라오기</button>
+    <button class="dbtn" id="btn-sleep" title="재우기 / 깨우기"><span class="ico">💤</span>재우기</button>
+    <button class="dbtn" id="btn-treat" title="간식 주기 — 신나서 달려와요"><span class="ico">🦴</span>간식</button>
+    <div class="dsep"></div>
+    <div class="dslider"><span>크기</span><input id="sl-size" type="range" min="2" max="7" step="1" value="4" /></div>
+    <div class="dslider"><span>속도</span><input id="sl-speed" type="range" min="1" max="10" step="1" value="5" /></div>
+    <div class="dsep"></div>
+    <button class="dbtn" id="btn-mini" title="작은 창으로 띄우기 (화면 구석에 상주)"><span class="ico">🪟</span>미니 창</button>
+    <button class="dbtn" id="btn-hide" title="컨트롤 숨기기"><span class="ico">✕</span></button>
+  </div>
+
+<script>
+"use strict";
+/* =========================================================================
+   센터 펫 — 도트 검은 푸들 "초코"
+   - 강아지 스프라이트는 작은 오프스크린 캔버스에 그린 뒤 확대(픽셀 아트).
+   - 상태 머신: 산책 / 쉼 / 앉기 / 잠 / 달리기 / 신남 / 안김(드래그) / 낙하.
+   - 외부 리소스 0개.
+   ========================================================================= */
+
+// ---- 저장(작은 설정만 localStorage, 접두사 senter:) --------------------
+const LS = {
+  get(k, d){ try{ const v = localStorage.getItem("senter:pet:"+k); return v==null?d:JSON.parse(v); }catch(_){ return d; } },
+  set(k, v){ try{ localStorage.setItem("senter:pet:"+k, JSON.stringify(v)); }catch(_){ } }
+};
+
+// ---- 팔레트 (검은 푸들) --------------------------------------------------
+const C = {
+  outline:"#14161f",
+  d0:"#191b24",   // 가장 진한 털
+  d1:"#23262f",   // 기본 털
+  d2:"#2f333f",   // 밝은 털(컬)
+  d3:"#3b4050",   // 하이라이트 컬
+  eye:"#6b4326",  // 갈색 눈
+  eyeS:"#ffffff", // 눈 반짝임
+  nose:"#0e0f16",
+  noseS:"#3a3d49",
+  tongue:"#ef8fb0",
+  tongueD:"#d96f95",
+  pad:"#c98aa0",  // 발바닥 젤리
+};
+
+// ---- 오프스크린 버퍼 (강아지 논리 해상도 48x48) --------------------------
+const BUFW = 48, BUFH = 48, FLOOR_Y = 45; // 버퍼 안 바닥선
+const buf = document.createElement("canvas");
+buf.width = BUFW; buf.height = BUFH;
+const bx = buf.getContext("2d");
+
+// ---- 씨드 랜덤 (컬 텍스처 고정용) ---------------------------------------
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+const rnd = mulberry32(20260724);
+
+// 몸/머리 위에 뿌릴 곱슬털 하이라이트 점들 (고정 위치 → 반짝임 없음)
+const CURLS = [];
+(function seedCurls(){
+  // 머리 영역
+  for(let i=0;i<26;i++){
+    const a = rnd()*Math.PI*2, r = rnd()*10;
+    CURLS.push({x:24+Math.cos(a)*r, y:15+Math.sin(a)*r*0.9, s:1+Math.round(rnd()*1.2), tone: rnd()<.4?C.d3:C.d2, zone:"head"});
+  }
+  // 몸통 영역
+  for(let i=0;i<30;i++){
+    const a = rnd()*Math.PI*2, r = rnd()*12;
+    CURLS.push({x:24+Math.cos(a)*r, y:31+Math.sin(a)*r*0.8, s:1+Math.round(rnd()*1.4), tone: rnd()<.4?C.d3:C.d2, zone:"body"});
+  }
+})();
+
+// 사각 픽셀 (버퍼는 이미 저해상도라 그냥 fillRect)
+function disc(cx, cy, r, col){
+  bx.fillStyle = col;
+  bx.beginPath();
+  bx.arc(cx, cy, r, 0, Math.PI*2);
+  bx.fill();
+}
+
+// ---- 강아지 그리기 ------------------------------------------------------
+// opt: { walk:0..1위상, moving, bob, tail, ear, expr, blink, earFlap }
+function drawPoodle(opt){
+  bx.clearRect(0,0,BUFW,BUFH);
+  const bob = opt.bob||0;              // 세로 출렁임(음수=위로)
+  const step = opt.moving ? Math.sin(opt.walk) : 0; // 다리 스텝
+  const cy = 0 + bob;                  // 전체 세로 오프셋
+  const expr = opt.expr || "base";
+
+  // --- 그림자는 메인 캔버스에서 그림 ---
+
+  // --- 뒷다리 2개(더 어둡게, 몸 뒤) ---
+  const bpY = FLOOR_Y + cy;
+  bx.fillStyle = C.d0;
+  roundLeg(20, bpY, -step*1.2);
+  roundLeg(28, bpY,  step*1.2);
+
+  // --- 꼬리 뭉치(오른쪽 엉덩이, 살랑) ---
+  const tw = Math.sin(opt.tail)*2.2;
+  disc(39.5+tw*0.4, 30+cy+tw, 3.4, C.outline);
+  disc(39.5+tw*0.4, 30+cy+tw, 2.6, C.d1);
+  disc(38.6+tw*0.4, 29+cy+tw, 1.1, C.d3);
+
+  // --- 앞다리 2개(밝은 기본 털) ---
+  bx.fillStyle = C.d1;
+  const flY = FLOOR_Y + cy;
+  drawPaw(17.5, flY,  step*2.2);
+  drawPaw(30.5, flY, -step*2.2);
+
+  // --- 몸통 실루엣 ---
+  const bodyBlobs = [
+    [24,31,13],[14,31,7.5],[34,31,7.5],[24,37,10],[18,35,5.5],[30,35,5.5]
+  ];
+  silhouette(bodyBlobs, cy);
+  drawCurls("body", cy);
+
+  // --- 머리 실루엣 (귀 포함) ---
+  const earFlap = Math.sin(opt.ear)*1.4;
+  const headBlobs = [
+    [24,15,12],          // 머리 본체
+    [24,6.5,5.2],        // 탑노트(정수리 뭉치)
+    [11.5,18+earFlap,6.4],  // 왼쪽 귀
+    [36.5,18-earFlap,6.4],  // 오른쪽 귀
+    [16,22,5],[32,22,5]     // 볼 뭉치
+  ];
+  silhouette(headBlobs, cy);
+  drawCurls("head", cy);
+
+  // --- 얼굴 ---
+  drawFace(expr, opt.blink, cy);
+
+  // --- 앞다리 발끝(몸 아래로 삐져나온 부분 다시 덮기용 강조) ---
+}
+
+// 실루엣: 외곽선 패스 → 채움 패스 (내부 경계 안 보이게)
+function silhouette(blobs, cy){
+  bx.fillStyle = C.outline;
+  for(const b of blobs) discRaw(b[0], b[1]+cy, b[2]+1.1);
+  // 아래쪽이 진하고 위가 살짝 밝은 채움
+  for(const b of blobs){
+    const g = bx.createRadialGradient(b[0], b[1]+cy-b[2]*0.4, 1, b[0], b[1]+cy, b[2]);
+    g.addColorStop(0, C.d1);
+    g.addColorStop(1, C.d0);
+    bx.fillStyle = g;
+    discRaw(b[0], b[1]+cy, b[2]);
+  }
+}
+function discRaw(cx, cy, r){ bx.beginPath(); bx.arc(cx,cy,r,0,Math.PI*2); bx.fill(); }
+
+function drawCurls(zone, cy){
+  for(const c of CURLS){
+    if(c.zone!==zone) continue;
+    bx.fillStyle = c.tone;
+    discRaw(c.x, c.y+cy, c.s);
+  }
+}
+
+function roundLeg(x, y, dx){ // 뒷다리(간단)
+  discRaw(x+dx, y-3, 3.2);
+  discRaw(x+dx, y, 2.6);
+}
+function drawPaw(x, y, dx){ // 앞다리 + 발
+  const lift = dx>0 ? -Math.abs(dx)*0.5 : 0; // 앞으로 나가는 발을 살짝 듦
+  bx.fillStyle = C.outline; discRaw(x+dx, y-3+lift, 3.6); discRaw(x+dx, y+lift, 3.0);
+  bx.fillStyle = C.d1;      discRaw(x+dx, y-3+lift, 2.9); discRaw(x+dx, y+lift, 2.4);
+  bx.fillStyle = C.d3;      discRaw(x+dx-0.6, y-3.6+lift, 0.9);
+}
+
+// ---- 얼굴/표정 ----------------------------------------------------------
+function drawFace(expr, blink, cy){
+  const lx=19, rx=29, ey=15+cy;   // 두 눈 위치
+  const closed = (expr==="happy"||expr==="sleep"||expr==="run");
+  const eyeOpen = !closed && !blink;
+
+  // 눈
+  if(eyeOpen){
+    for(const ex of [lx,rx]){
+      bx.fillStyle = C.outline; discRaw(ex, ey, 2.4);
+      bx.fillStyle = C.eye;     discRaw(ex, ey, 1.7);
+      bx.fillStyle = "#2a1a0e"; discRaw(ex, ey+0.3, 0.9);
+      bx.fillStyle = C.eyeS;    discRaw(ex-0.7, ey-0.8, 0.8); // 반짝
+    }
+  } else {
+    // 감은 눈 (아래로 볼록한 행복 아치 / 잠은 완만)
+    bx.strokeStyle = C.outline; bx.lineWidth = 1.4; bx.lineCap="round";
+    for(const ex of [lx,rx]){
+      bx.beginPath();
+      if(expr==="sleep"){ bx.moveTo(ex-2, ey); bx.quadraticCurveTo(ex, ey+1.4, ex+2, ey); }
+      else { bx.moveTo(ex-2, ey+0.6); bx.quadraticCurveTo(ex, ey-1.6, ex+2, ey+0.6); } // ^_^
+      bx.stroke();
+    }
+  }
+
+  // 눈썹(궁금할 때 한쪽 올림)
+  if(expr==="curious"){
+    bx.strokeStyle=C.d3; bx.lineWidth=1; bx.beginPath();
+    bx.moveTo(rx-2, ey-3.4); bx.lineTo(rx+2, ey-4.2); bx.stroke();
+  }
+
+  // 코
+  const ny = 20+cy;
+  bx.fillStyle = C.nose; discRaw(24, ny, 2.0);
+  bx.fillStyle = C.noseS; discRaw(23.2, ny-0.7, 0.7);
+
+  // 입 / 혀
+  const tongueOut = (expr==="base"||expr==="excited"||expr==="run"||expr==="happy");
+  if(tongueOut){
+    const wag = (expr==="excited"||expr==="run") ? Math.sin(Date.now()/90)*0.6 : 0;
+    bx.fillStyle = C.tongueD; discRaw(24+wag, ny+3.2, 1.9);
+    bx.fillStyle = C.tongue;  discRaw(24+wag, ny+2.8, 1.6);
+    bx.fillStyle = C.tongueD; bx.fillRect(23.8+wag, ny+2, 0.5, 2.4); // 혀 중앙선
+  } else {
+    bx.strokeStyle=C.outline; bx.lineWidth=1; bx.beginPath();
+    bx.moveTo(22.5, ny+2.4); bx.quadraticCurveTo(24, ny+3.4, 25.5, ny+2.4); bx.stroke();
+  }
+
+  // 볼 홍조 (신남/행복)
+  if(expr==="excited"||expr==="happy"){
+    bx.fillStyle="rgba(239,143,176,.5)";
+    discRaw(15.5, ey+3, 1.8); discRaw(32.5, ey+3, 1.8);
+  }
+}
+
+// =========================================================================
+//  월드 / 상태 머신
+// =========================================================================
+const petCanvas = document.getElementById("pet");
+const pctx = petCanvas.getContext("2d");
+pctx.imageSmoothingEnabled = false;
+
+const bubble = document.getElementById("bubble");
+const stage = document.getElementById("stage");
+
+let SCALE = LS.get("size", 4);          // 확대 배율
+let SPEEDMUL = LS.get("speed", 5)/5;    // 0.2~2.0
+let followMode = false;
+
+// 강아지 상태
+const dog = {
+  x: window.innerWidth/2,   // 발 중심 x (화면 좌표)
+  y: 0,                     // 발바닥 y (바닥). init 아래에서 세팅
+  vy: 0,                    // 낙하 속도
+  dir: 1,                   // 바라보는 방향(1=오른쪽,-1=왼쪽)
+  state: "walk",
+  targetX: window.innerWidth/2,
+  stateT: 0,                // 현재 상태 경과(ms)
+  nextDecide: 1500,
+  squash: 1,                // 착지 스쿼시
+  expr: "base",
+  blink: false,
+  blinkT: 0,
+};
+let floorY = () => window.innerHeight - 8;   // 바닥 라인(화면 하단 여백)
+
+function petHalf(){ return (BUFH*SCALE)/2; }
+function placeCanvas(){
+  petCanvas.style.width = (BUFW*SCALE)+"px";
+  petCanvas.style.height = (BUFH*SCALE)+"px";
+}
+placeCanvas();
+dog.y = floorY();
+// 시작하자마자 어슬렁거리도록 첫 목적지 지정
+pickWanderTarget();
+setState("walk");
+
+// ---- 말풍선 ----
+let bubbleT = 0;
+function say(text, ms=2600){
+  bubble.textContent = text;
+  bubble.classList.add("show");
+  bubbleT = ms;
+}
+const THOUGHTS = [
+  "오늘도 좋은 하루!","뭐 재밌는 거 없나~","산책 가고 싶다 🐾","킁킁… 간식 냄새?",
+  "재아님 화이팅!","릴스 잘 되고 있어요?","심심해요 놀아줘요","꼬리 살랑살랑",
+  "여기 앉을래요","한 바퀴 돌아볼까","졸린데 조금만…","좋아 좋아!"
+];
+let thoughtTimer = 6000 + Math.random()*6000;
+
+// ---- 표정/상태 유틸 ----
+function setState(s){
+  dog.state = s; dog.stateT = 0;
+  if(s==="walk"){ dog.expr="base"; }
+  else if(s==="idle"){ dog.expr="base"; dog.nextDecide = 1400+Math.random()*2200; }
+  else if(s==="sit"){ dog.expr="base"; dog.nextDecide = 2600+Math.random()*3000; }
+  else if(s==="sleep"){ dog.expr="sleep"; }
+  else if(s==="run"){ dog.expr="run"; }
+  else if(s==="excited"){ dog.expr="excited"; dog.nextDecide=1600; }
+}
+function pickWanderTarget(){
+  const m = petHalf();
+  dog.targetX = m + Math.random()*(window.innerWidth - m*2);
+}
+
+// =========================================================================
+//  입력: 쓰다듬기 / 드래그 / 더블클릭
+// =========================================================================
+let dragging=false, dragMoved=false, grabDX=0, grabDY=0, downT=0, lastPX=0, lastVX=0;
+
+function petPointerDown(e){
+  e.preventDefault();
+  const p = evtXY(e);
+  dragging=true; dragMoved=false; downT=Date.now();
+  petCanvas.classList.add("grabbing");
+  grabDX = p.x - dog.x;
+  grabDY = p.y - dog.y;
+  lastPX = p.x; lastVX = 0;
+  wake();
+}
+function petPointerMove(e){
+  if(!dragging) return;
+  const p = evtXY(e);
+  if(Math.abs(p.x-(dog.x+grabDX))>4 || Math.abs(p.y-(dog.y+grabDY))>4) dragMoved=true;
+  if(dragMoved){
+    setState("carry");
+    lastVX = p.x - lastPX; lastPX = p.x;
+    dog.x = clamp(p.x - grabDX, petHalf(), window.innerWidth - petHalf());
+    dog.y = Math.min(p.y - grabDY, floorY());
+    dog.dir = lastVX>0.5?1:(lastVX<-0.5?-1:dog.dir);
+  }
+}
+function petPointerUp(e){
+  if(!dragging) return;
+  dragging=false;
+  petCanvas.classList.remove("grabbing");
+  if(!dragMoved){
+    // 클릭 = 쓰다듬기
+    petThe();
+  } else {
+    // 놓으면 낙하 → 착지
+    dog.vy = 0;
+    dog.state = "fall";
+    dog.expr = "curious";
+  }
+}
+function petThe(){
+  wake();
+  hearts(dog.x, dog.y - BUFH*SCALE*0.7);
+  dog.expr = "happy";
+  say(pick(["헤헤 좋아요!","한 번 더!","기분 좋다~","♥"]), 1600);
+  clearTimeout(dog._petBack);
+  dog._petBack = setTimeout(()=>{ if(dog.state!=="sleep") dog.expr="base"; }, 1400);
+}
+function treat(){
+  wake();
+  // 화면 중앙 근처로 신나게 달려옴
+  dog.targetX = clamp(window.innerWidth/2 + (Math.random()*160-80), petHalf(), window.innerWidth-petHalf());
+  setState("run");
+  say(pick(["간식이다! 🦴","달려갑니다!","와아앙 🐾"]), 1800);
+  hearts(dog.x, dog.y - BUFH*SCALE*0.7, 3);
+}
+function petDblClick(){
+  wake();
+  setState("run");
+  pickWanderTarget();
+  hearts(dog.x, dog.y - BUFH*SCALE*0.7, 4);
+  say("신난다! 🐾", 1500);
+}
+function wake(){
+  if(dog.state==="sleep" || dog.state==="sit"){ setState("idle"); }
+  hideZzz();
+}
+
+petCanvas.addEventListener("pointerdown", petPointerDown);
+window.addEventListener("pointermove", petPointerMove);
+window.addEventListener("pointerup", petPointerUp);
+petCanvas.addEventListener("dblclick", petDblClick);
+
+function evtXY(e){ return { x:e.clientX, y:e.clientY }; }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function pick(a){ return a[(Math.random()*a.length)|0]; }
+
+// =========================================================================
+//  파티클: 하트 / zzz
+// =========================================================================
+const parts = [];
+function hearts(x,y,n=2){
+  for(let i=0;i<n;i++){
+    parts.push({x:x+(Math.random()*24-12), y:y, vy:-0.5-Math.random()*0.5,
+      vx:(Math.random()*0.6-0.3), life:1, kind:"heart", size:10+Math.random()*8, rot:Math.random()*0.4-0.2});
+  }
+}
+let zzzOn=false;
+function showZzz(){ zzzOn=true; }
+function hideZzz(){ zzzOn=false; }
+
+// =========================================================================
+//  메인 루프
+// =========================================================================
+let last = performance.now();
+let animClock = 0;
+
+function frame(now){
+  let dt = now - last; last = now;
+  if(dt>60) dt=60;            // 탭 비활성 복귀 시 튐 방지
+  animClock += dt;
+  update(dt);
+  render();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+function update(dt){
+  const spd = 0.045 * SPEEDMUL;   // 픽셀/ms 기준 스케일
+  dog.stateT += dt;
+  const fY = floorY();
+
+  // 눈 깜빡임
+  dog.blinkT -= dt;
+  if(dog.blinkT<=0){ dog.blink = !dog.blink; dog.blinkT = dog.blink? 120 : (2000+Math.random()*3000); }
+
+  // 말풍선 타이머
+  if(bubbleT>0){ bubbleT-=dt; if(bubbleT<=0) bubble.classList.remove("show"); }
+  // 자발적 혼잣말
+  thoughtTimer -= dt;
+  if(thoughtTimer<=0 && (dog.state==="walk"||dog.state==="idle"||dog.state==="sit") && bubbleT<=0){
+    say(pick(THOUGHTS)); thoughtTimer = 9000 + Math.random()*9000;
+  }
+
+  // 스쿼시 복원
+  dog.squash += (1 - dog.squash) * 0.2;
+
+  // --- 팔로우 모드 우선 ---
+  if(followMode && dog.state!=="carry" && dog.state!=="fall"){
+    dog.targetX = clamp(pointer.x, petHalf(), window.innerWidth-petHalf());
+    if(Math.abs(dog.targetX - dog.x) > 6){
+      if(dog.state!=="run") setState(Math.abs(dog.targetX-dog.x)>220?"run":"walk");
+    }
+  }
+
+  switch(dog.state){
+    case "carry": {
+      // 드래그 중: 위치는 포인터 핸들러가 갱신. 발버둥 표정 유지.
+      dog.expr = "curious";
+      break;
+    }
+    case "fall": {
+      dog.vy += 0.0022*dt*dt*0.5 + 0.02*dt; // 대충 중력
+      dog.y += dog.vy;
+      if(dog.y >= fY){
+        dog.y = fY;
+        if(dog.vy > 2){ dog.squash = 0.72; }   // 착지 뭉개짐
+        dog.vy = 0;
+        setState("idle");
+        dog.expr="base";
+      }
+      break;
+    }
+    case "walk": {
+      const d = dog.targetX - dog.x;
+      dog.dir = d>=0?1:-1;
+      if(Math.abs(d) < 4){
+        // 도착 → 쉼/앉기
+        setState(Math.random()<0.4?"sit":"idle");
+      } else {
+        dog.x += Math.sign(d) * spd * dt;
+      }
+      break;
+    }
+    case "run": {
+      const d = dog.targetX - dog.x;
+      dog.dir = d>=0?1:-1;
+      if(Math.abs(d) < 6){
+        setState("idle"); dog.expr="excited";
+        hearts(dog.x, dog.y-BUFH*SCALE*0.7, 2);
+        setTimeout(()=>{ if(dog.state==="idle") dog.expr="base"; }, 900);
+      } else {
+        dog.x += Math.sign(d) * spd*2.1 * dt;
+      }
+      break;
+    }
+    case "idle": {
+      if(dog.stateT > dog.nextDecide){
+        if(followMode){ setState("walk"); }
+        else {
+          const r = Math.random();
+          if(r<0.5){ pickWanderTarget(); setState("walk"); }
+          else if(r<0.8){ setState("sit"); }
+          else { pickWanderTarget(); setState("walk"); }
+        }
+      }
+      break;
+    }
+    case "sit": {
+      if(dog.stateT > dog.nextDecide){
+        if(followMode){ setState("walk"); }
+        else if(Math.random()<0.45){ setState("sleep"); }
+        else { pickWanderTarget(); setState("walk"); }
+      }
+      break;
+    }
+    case "sleep": {
+      showZzz();
+      // 잠은 흔들면 깸(입력) 또는 오래 자면 스스로 깸
+      if(dog.stateT > 14000){ setState("idle"); hideZzz(); }
+      break;
+    }
+  }
+
+  // 파티클
+  for(let i=parts.length-1;i>=0;i--){
+    const p=parts[i];
+    p.x+=p.vx*dt*0.06; p.y+=p.vy*dt*0.6; p.life-=dt*0.0011;
+    if(p.life<=0) parts.splice(i,1);
+  }
+}
+
+// ---- 렌더 ----
+function render(){
+  // 강아지 애니메이션 파라미터
+  const moving = (dog.state==="walk"||dog.state==="run");
+  const walkSpeed = dog.state==="run"?0.028:0.016;
+  const walk = animClock * walkSpeed;
+  const bob = moving ? -Math.abs(Math.sin(walk))*2.2 : Math.sin(animClock/650)*0.7;
+  const tail = animClock/ (dog.state==="excited"||dog.state==="run" ? 90 : (moving?150:320));
+  const ear = animClock/300 + (moving?walk:0);
+
+  let expr = dog.expr;
+  if(dog.state==="sleep") expr="sleep";
+
+  drawPoodle({ walk, moving, bob, tail, ear, expr, blink: dog.blink && expr==="base" });
+
+  // 메인 캔버스로 블릿(그림자 + 방향 + 스쿼시)
+  pctx.clearRect(0,0,petCanvas.width,petCanvas.height);
+  // 그림자
+  const shW = 30 - (bob<-1?4:0);
+  pctx.save();
+  pctx.fillStyle="rgba(40,70,55,.18)";
+  pctx.beginPath();
+  pctx.ellipse(BUFW/2, FLOOR_Y+1.5, shW/2, 3.2, 0, 0, Math.PI*2);
+  pctx.fill();
+  pctx.restore();
+  // 강아지(스쿼시 적용)
+  pctx.save();
+  pctx.translate(BUFW/2, FLOOR_Y);
+  const sy = dog.squash, sx = 1 + (1-dog.squash)*0.6;
+  pctx.scale(sx, sy);
+  pctx.translate(-BUFW/2, -FLOOR_Y);
+  pctx.drawImage(buf, 0, 0);
+  pctx.restore();
+
+  // 캔버스 위치(발바닥 기준) — 좌우 방향은 CSS로 뒤집기
+  const left = dog.x - (BUFW*SCALE)/2;
+  const top  = dog.y - (FLOOR_Y*SCALE);
+  petCanvas.style.transform = `translate(${left}px,${top}px) scaleX(${dog.dir})`;
+
+  // 말풍선 위치
+  if(bubble.classList.contains("show")){
+    const bw = bubble.offsetWidth;
+    let bl = dog.x - bw/2;
+    bl = clamp(bl, 6, window.innerWidth-bw-6);
+    bubble.style.transform = `translate(${bl}px, ${top - 34}px)`;
+  }
+
+  renderParticles();
+}
+
+// 파티클/zzz는 강아지 캔버스 밖(오버레이 캔버스)에 그려야 하지만
+// 간단히 별도 캔버스 대신 DOM 없이 stage 위 임시 캔버스 사용.
+let fxCanvas = document.getElementById("fx");
+if(!fxCanvas){
+  fxCanvas = document.createElement("canvas");
+  fxCanvas.id="fx";
+  fxCanvas.style.cssText="position:fixed;inset:0;pointer-events:none;z-index:4;";
+  document.body.appendChild(fxCanvas);
+}
+const fx = fxCanvas.getContext("2d");
+function fitFx(){ fxCanvas.width=window.innerWidth; fxCanvas.height=window.innerHeight; }
+fitFx();
+
+function renderParticles(){
+  fx.clearRect(0,0,fxCanvas.width,fxCanvas.height);
+  // 하트
+  for(const p of parts){
+    fx.save();
+    fx.globalAlpha = Math.max(0,Math.min(1,p.life));
+    fx.translate(p.x, p.y);
+    fx.rotate(p.rot);
+    drawHeart(fx, p.size, "#ef8fb0");
+    fx.restore();
+  }
+  // zzz
+  if(zzzOn){
+    const bx0 = dog.x + BUFW*SCALE*0.28*dog.dir;
+    const by0 = dog.y - FLOOR_Y*SCALE - 6;
+    const t = animClock/600;
+    fx.fillStyle="#57b98c"; fx.font="700 16px system-ui"; fx.textBaseline="middle";
+    for(let i=0;i<3;i++){
+      const ph=(t+i*0.6)%1;
+      fx.globalAlpha = 1-ph;
+      const yy = by0 - i*14 - ph*10;
+      const xx = bx0 + i*10 + Math.sin((t+i)*2)*3;
+      fx.font = `700 ${12+i*4}px system-ui`;
+      fx.fillText("Z", xx, yy);
+    }
+    fx.globalAlpha=1;
+  }
+}
+function drawHeart(g, s, col){
+  g.fillStyle=col; g.beginPath();
+  const k=s/16;
+  g.moveTo(0, 4*k);
+  g.bezierCurveTo(-8*k,-4*k,-8*k,-10*k,0,-6*k);
+  g.bezierCurveTo(8*k,-10*k,8*k,-4*k,0,4*k);
+  g.fill();
+}
+
+// =========================================================================
+//  컨트롤
+// =========================================================================
+const pointer = { x:window.innerWidth/2, y:window.innerHeight/2 };
+window.addEventListener("pointermove", e=>{ pointer.x=e.clientX; pointer.y=e.clientY; });
+
+const $ = id=>document.getElementById(id);
+const dock = $("dock"), peek = $("peek"), intro = $("intro");
+
+$("btn-follow").onclick = function(){
+  followMode = !followMode;
+  this.classList.toggle("on", followMode);
+  if(followMode){ wake(); say("따라갈게요! 🧲",1500); }
+};
+$("btn-sleep").onclick = function(){
+  const label = this.childNodes[1]; // "재우기" 텍스트 노드
+  if(dog.state==="sleep"){ setState("idle"); hideZzz(); this.classList.remove("on"); label.textContent="재우기"; }
+  else { setState("sleep"); this.classList.add("on"); label.textContent="깨우기"; say("잘 자요… 💤",1500); }
+};
+$("btn-treat").onclick = treat;
+$("btn-mini").onclick = openMini;
+$("btn-hide").onclick = ()=>{ dock.classList.add("hidden"); peek.classList.add("show"); };
+peek.onclick = ()=>{ dock.classList.remove("hidden"); peek.classList.remove("show"); };
+
+$("sl-size").value = SCALE;
+$("sl-size").oninput = function(){ SCALE=+this.value; placeCanvas(); dog.y=Math.min(dog.y, floorY()); LS.set("size",SCALE); };
+$("sl-speed").value = LS.get("speed",5);
+$("sl-speed").oninput = function(){ SPEEDMUL=(+this.value)/5; LS.set("speed",+this.value); };
+
+// 인트로 자동 숨김
+setTimeout(()=>{ intro.style.opacity="0"; setTimeout(()=>intro.remove(),600); }, 6000);
+
+// 미니 창(팝업)으로 띄우기 — 화면 구석 상주용
+function openMini(){
+  const w=200, h=200;
+  const url = location.href.split("?")[0] + "?bare=1";
+  const win = window.open(url, "senterPet",
+    `width=${w},height=${h},left=${screen.availWidth-w-30},top=${screen.availHeight-h-60},menubar=no,toolbar=no,location=no,status=no,resizable=yes`);
+  if(!win){ say("팝업이 막혔어요 — 브라우저에서 허용해 주세요",3200); }
+  else { say("작은 창에서 만나요! 🪟",2000); }
+}
+
+// bare 모드(미니 창): 배경 투명 + 컨트롤 최소화
+(function initBare(){
+  const params = new URLSearchParams(location.search);
+  if(params.get("bare")==="1"){
+    document.body.classList.add("bare");
+    dock.classList.add("hidden");
+    peek.classList.add("show");
+    intro && intro.remove();
+    SCALE = Math.max(3, LS.get("size",4));
+    placeCanvas();
+  }
+})();
+
+// 리사이즈 대응
+window.addEventListener("resize", ()=>{
+  fitFx();
+  dog.x = clamp(dog.x, petHalf(), window.innerWidth-petHalf());
+  dog.y = Math.min(dog.y, floorY());
+  if(dog.targetX>window.innerWidth-petHalf()) dog.targetX=window.innerWidth-petHalf();
+});
+
+// 시작 인사
+setTimeout(()=>{ say("안녕하세요! 저는 초코예요 🐾", 3000); }, 900);
+
+// 서비스워커 (https에서만) — 오프라인에서도 열리게
+if("serviceWorker" in navigator && location.protocol==="https:"){
+  navigator.serviceWorker.register("./sw.js").catch(()=>{});
+}
+</script>
+</body>
+</html>
