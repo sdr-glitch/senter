@@ -581,6 +581,18 @@
     </section>
 
     <section class="card">
+      <h3>📤 노션으로 정리 — 기획 · 대본 · 제작 가이드</h3>
+      <p class="card-desc">주제 하나만 던지면 <b>① 기획서 ② 릴스/쇼츠 대본 ③ 영상 제작 가이드</b>를 <b>각각 다른 문서</b>로 만들어서 노션에 페이지 3개로 정리해줘요. 설정 탭에 노션 연결을 해두면 자동 저장되고, 안 해두면 <b>복사·파일·PDF</b>로 받을 수 있어요 (노션 [가져오기]로 올리면 페이지가 돼요).</p>
+      <textarea id="np-idea" rows="2" placeholder="만들고 싶은 콘텐츠 주제 (예: 주방 서랍 정리하는 3단계)"></textarea>
+      <div class="modal-actions" style="justify-content:flex-start; margin-top:8px">
+        <button class="btn-primary" id="np-run">📦 3종 문서 만들기</button>
+        <button class="btn-ghost" id="np-example">예시로 채우기</button>
+        <span id="np-status" class="saved-note"></span>
+      </div>
+      <div id="np-output" class="np-output"></div>
+    </section>
+
+    <section class="card">
       <h3>🔍 경쟁사 분석 → 내 계정 기획서</h3>
       <p class="card-desc">잘되는 계정·게시물·블로그 <b>링크를 붙여넣으면</b> (한 줄에 하나씩, 최대 5개) 성장 분석부가 내용을 수집해 <b>왜 잘됐는지 분석하고 내 계정에 적용할 기획서</b>를 만들어 검토 대기에 올려요. 사무실 지시창에 링크와 함께 "경쟁사 분석해줘"라고 해도 돼요.</p>
       <textarea id="ca-links" rows="3" placeholder="https://www.instagram.com/잘되는계정/&#10;https://blog.naver.com/...&#10;https://ten-cough-6a0.notion.site/... (공개 페이지)"></textarea>
@@ -678,6 +690,26 @@
         <span>무료 AI 모델 지정 (고급 — 비워두면 자동)</span>
         <input type="text" id="set-freemodel" placeholder="예: claude-sonnet-4 (모르면 비워두세요)">
       </label>
+    </section>
+
+    <section class="card">
+      <h3>📤 노션 자동 저장 (선택)</h3>
+      <p class="card-desc">연결해두면 기획서·대본·제작 가이드가 <b>노션 페이지로 자동 정리</b>돼요. 안 해도 복사·파일로 쓸 수 있어요.<br>
+        <b>1)</b> <a href="https://www.notion.so/my-integrations" target="_blank" rel="noopener">notion.so/my-integrations</a> → [New integration] 만들고 <b>Internal Integration Secret</b>(ntn_ 로 시작) 복사<br>
+        <b>2)</b> 노션에서 결과물을 모아둘 페이지를 하나 만들고, 그 페이지 <b>⋯ → 연결 → 방금 만든 통합</b>을 추가<br>
+        <b>3)</b> 그 페이지 주소를 아래에 붙여넣기</p>
+      <label class="field">
+        <span>노션 통합 시크릿 (Internal Integration Secret)</span>
+        <input type="password" id="set-notion-token" placeholder="ntn_... (이 브라우저에만 저장돼요)">
+      </label>
+      <label class="field">
+        <span>결과물을 담을 노션 페이지 주소</span>
+        <input type="url" id="set-notion-parent" placeholder="https://www.notion.so/내페이지-abc123...">
+      </label>
+      <div class="modal-actions" style="justify-content:flex-start">
+        <button class="btn-ghost" id="notion-test">🔌 노션 연결 테스트</button>
+        <span id="notion-test-result" class="saved-note"></span>
+      </div>
       <label class="field">
         <span>화면 테마</span>
         <select id="set-theme">

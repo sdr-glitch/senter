@@ -4032,6 +4032,9 @@ function renderArchive() {
     const pdfBtn = document.createElement("button");
     pdfBtn.textContent = "🖨"; pdfBtn.title = "인쇄 / PDF로 저장 (다운로드)";
     pdfBtn.addEventListener("click", () => { reportModalTask = asTask(); printReportDoc(); });
+    const notionBtn = document.createElement("button");
+    notionBtn.textContent = "📤"; notionBtn.title = "노션에 페이지로 저장 (연결 안 됐으면 복사+파일)";
+    notionBtn.addEventListener("click", () => sendToNotion(r.title, r.body, null));
     const reworkBtn = document.createElement("button");
     reworkBtn.textContent = "↩"; reworkBtn.title = "직원에게 보완 재요청 (보고서 업데이트)";
     reworkBtn.addEventListener("click", () => { form.classList.toggle("hidden"); form.querySelector("textarea").focus(); });
@@ -4054,7 +4057,7 @@ function renderArchive() {
 
     const row = document.createElement("div");
     row.className = "arch-row";
-    row.append(title, badge, meta, viewBtn, pdfBtn, reworkBtn);
+    row.append(title, badge, meta, viewBtn, pdfBtn, notionBtn, reworkBtn);
     item.append(row, form);
     list.appendChild(item);
   });
@@ -4473,6 +4476,327 @@ function renderSponsorFeeds() {
   });
 }
 
+
+/* ---------- 노션 내보내기 (결과물을 노션 페이지로 정리) ----------
+   노션 API는 브라우저 직접 호출을 막아둠(CORS) → 3단 안전망:
+   ① 토큰이 있으면 프록시 경유로 실제 페이지 생성 → ② 실패 시 "노션에 붙여넣기" 복사
+   → ③ .md 파일 내려받아 노션 [가져오기]로 올리기 (항상 작동) */
+function notionParentId() {
+  const raw = (settings && settings.notionParent || "").trim();
+  const id = notionPageId(raw);
+  if (!id) return null;
+  return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`;
+}
+
+/* 마크다운 → 노션 블록 (제목·목록·인용·표·구분선 지원) */
+function mdToNotionBlocks(md) {
+  const rt = (t) => [{ type: "text", text: { content: String(t).replace(/\*\*|`/g, "").slice(0, 1900) } }];
+  const blocks = [];
+  const lines = String(md).split("\n");
+  for (let i = 0; i < lines.length && blocks.length < 95; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    if (/^#{1,3}\s/.test(line)) {
+      const lv = (line.match(/^#+/) || ["#"])[0].length;
+      const txt = line.replace(/^#+\s*/, "");
+      blocks.push({ object: "block", type: `heading_${Math.min(lv, 3)}`, [`heading_${Math.min(lv, 3)}`]: { rich_text: rt(txt) } });
+    } else if (/^[-*]\s+\[[ x]\]\s/i.test(line)) {
+      blocks.push({ object: "block", type: "to_do", to_do: { rich_text: rt(line.replace(/^[-*]\s+\[[ x]\]\s*/i, "")), checked: /\[x\]/i.test(line) } });
+    } else if (/^[-*]\s/.test(line) || /^[□▸·]\s?/.test(line)) {
+      blocks.push({ object: "block", type: "bulleted_list_item", bulleted_list_item: { rich_text: rt(line.replace(/^([-*]|[□▸·])\s*/, "")) } });
+    } else if (/^\d+[.)]\s/.test(line)) {
+      blocks.push({ object: "block", type: "numbered_list_item", numbered_list_item: { rich_text: rt(line.replace(/^\d+[.)]\s*/, "")) } });
+    } else if (/^>\s?/.test(line)) {
+      blocks.push({ object: "block", type: "quote", quote: { rich_text: rt(line.replace(/^>\s?/, "")) } });
+    } else if (/^(-{3,}|={3,})$/.test(line)) {
+      blocks.push({ object: "block", type: "divider", divider: {} });
+    } else if (/^\|/.test(line)) {
+      // 표는 구분선 행은 버리고, 각 행을 한 줄 글머리로 (노션 표 블록은 구조가 복잡해 안전하게 변환)
+      if (/^\|[\s|:-]+\|?$/.test(line)) continue;
+      const cells = line.split("|").map(c => c.trim()).filter(Boolean);
+      if (cells.length) blocks.push({ object: "block", type: "bulleted_list_item", bulleted_list_item: { rich_text: rt(cells.join(" · ")) } });
+    } else {
+      blocks.push({ object: "block", type: "paragraph", paragraph: { rich_text: rt(line) } });
+    }
+  }
+  return blocks;
+}
+
+/* 노션 API 호출 — 직접 → 프록시 2종 순서로 시도 (CORS 우회) */
+async function notionApi(path, body) {
+  const token = (settings && settings.notionToken || "").trim();
+  if (!token) throw new Error("NO_TOKEN");
+  const url = "https://api.notion.com/v1" + path;
+  const init = {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "authorization": "Bearer " + token,
+      "notion-version": "2022-06-28"
+    },
+    body: JSON.stringify(body)
+  };
+  const routes = [
+    url,
+    "https://corsproxy.io/?url=" + encodeURIComponent(url),
+    "https://thingproxy.freeboard.io/fetch/" + url
+  ];
+  let lastErr = "";
+  let hardStatus = 0; // 401·404는 토큰·권한 문제라 다른 경로로 재시도해도 같음
+  for (const r of routes) {
+    try {
+      const res = await fetch(r, init);
+      const txt = await res.text();
+      if (res.ok) return JSON.parse(txt || "{}");
+      let msg = `HTTP ${res.status}`;
+      try { msg = JSON.parse(txt || "{}").message || msg; } catch {}
+      lastErr = msg;
+      if (res.status === 401 || res.status === 404) { hardStatus = res.status; break; }
+    } catch (e) {
+      // 프록시·네트워크 오류는 다음 경로로 (앞서 받은 진짜 응답 메시지를 덮지 않게)
+      if (!lastErr) lastErr = String(e && e.message || e);
+    }
+  }
+  const err = new Error(lastErr || "노션 연결 실패");
+  if (hardStatus) err.status = hardStatus;
+  throw err;
+}
+
+/* 노션에 페이지 1개 생성 */
+async function createNotionPage(title, md) {
+  const parent = notionParentId();
+  if (!parent) throw new Error("NO_PARENT");
+  const res = await notionApi("/pages", {
+    parent: { page_id: parent },
+    properties: { title: { title: [{ text: { content: title.slice(0, 100) } }] } },
+    children: mdToNotionBlocks(md)
+  });
+  return res.url || "";
+}
+
+function downloadMd(name, md) {
+  const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name.replace(/[\\/:*?"<>|]/g, "_").slice(0, 60) + ".md";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/* 결과물 1건을 노션으로 — 실패하면 복사·파일 안내 (항상 손에 뭔가 남게) */
+async function sendToNotion(title, md, statusEl) {
+  const set = (t) => { if (statusEl) statusEl.textContent = t; };
+  if (!(settings && settings.notionToken || "").trim() || !notionParentId()) {
+    try { await navigator.clipboard.writeText(`# ${title}\n\n${md}`); } catch {}
+    downloadMd(title, `# ${title}\n\n${md}`);
+    toast("📋 노션 자동 연결이 아직 설정 안 됐어요 — 내용을 복사하고 파일도 내려받았어요. 노션에 붙여넣거나 [가져오기]하면 돼요. (설정 탭에서 노션 토큰을 넣으면 자동 저장돼요)", 9000);
+    set("복사+파일 저장 완료");
+    return { ok: false, fallback: true };
+  }
+  set("📤 노션에 올리는 중...");
+  try {
+    const url = await createNotionPage(title, md);
+    set("✅ 노션에 저장됐어요!");
+    toast(`📤 노션에 「${title.slice(0, 20)}」 페이지를 만들었어요!`, 6000);
+    logActivity(`📤 노션 저장 — ${title}`);
+    if (url) window.open(url, "_blank", "noopener");
+    return { ok: true, url };
+  } catch (e) {
+    const m = String(e.message || e);
+    try { await navigator.clipboard.writeText(`# ${title}\n\n${md}`); } catch {}
+    downloadMd(title, `# ${title}\n\n${md}`);
+    set("⚠️ 자동 저장 실패 — 복사+파일로 대체");
+    toast(m === "NO_TOKEN" ? "노션 토큰을 설정 탭에 넣어주세요. 지금은 복사·파일로 대체했어요."
+      : m === "NO_PARENT" ? "노션 상위 페이지 주소를 설정 탭에 넣어주세요. 지금은 복사·파일로 대체했어요."
+      : (e.status === 401 || /token is invalid|unauthor/i.test(m)) ? "노션 시크릿이 올바르지 않아요 (설정 탭에서 다시 확인) — 내용은 복사·파일로 저장했어요."
+      : (e.status === 404 || /could not find|not found/i.test(m)) ? "노션 페이지에 통합 [연결]을 추가해주세요 (페이지 ⋯ → 연결) — 내용은 복사·파일로 저장했어요."
+      : `노션 자동 저장 실패(${m.slice(0, 40)}) — 내용을 복사하고 파일도 내려받았으니 노션에 붙여넣거나 [가져오기]하면 돼요.`, 9000);
+    return { ok: false, fallback: true };
+  }
+}
+
+/* ── 콘텐츠 패키지: 주제 하나 → 기획 / 대본 / 영상 제작 가이드 3개 문서 ── */
+function planDocOffline(topic, idea) {
+  const t = topicWord();
+  return `${acctLine()}
+
+## 1. 이 콘텐츠로 노리는 것
+- 주제: **${idea}**
+- 타깃: ${t}에 관심 있는 초보 (나와 비슷한 상황의 사람)
+- 목표 행동: 저장 → 프로필 방문 → 팔로우
+
+## 2. 핵심 메시지 한 줄
+"${idea}, 이것만 알면 오늘 바로 따라할 수 있어요."
+
+## 3. 콘텐츠 각도 3안
+| 안 | 형식 | 첫 화면(후킹) | 노리는 것 |
+|---|---|---|---|
+| A. 비포/애프터 | 릴스 | 지저분한 전 → 3초 뒤 완성 컷 | 도달·팔로우 |
+| B. 순서 공개 | 릴스+카드 | "${idea} 순서는 딱 3단계" | 저장 |
+| C. 실패담 공감 | 사진+글 | "저만 이거 실패했나요?" | 댓글 |
+
+## 4. 필요한 준비물
+□ 촬영 장소 정리 □ 소품 3개 이내 □ 자연광 시간대 확인 □ 삼각대(없으면 책 쌓기)
+
+## 5. 발행 계획
+- 촬영: D+1 · 편집: D+2 · 발행: D+3 (저녁 7~9시)
+- 발행 후 이틀 뒤 저장수·댓글 기록 → 다음 콘텐츠에 반영
+
+**대표 결정 요청: A/B/C 중 각도 선택 — 선택안으로 대본을 확정합니다.**`;
+}
+
+function scriptDocOffline(topic, idea) {
+  const t = topicWord();
+  return `${acctLine()}
+
+## 대본 — "${idea}" (30초 릴스 기준)
+
+| 시간 | 화면 | 자막 / 내레이션 |
+|---|---|---|
+| 0~3초 | 문제 상황 클로즈업 | **"${idea}, 이렇게 하면 끝이에요"** |
+| 3~8초 | 준비물 펼쳐 보이기 | "준비물은 딱 3개" |
+| 8~18초 | 과정 3컷 (빠른 컷 전환) | "① 비우기 ② 자리 정하기 ③ 라벨 붙이기" |
+| 18~25초 | 완성 컷 (같은 각도로) | "이게 ${t} 살림 난이도 반으로 줄여줘요" |
+| 25~30초 | 정면 보고 한마디 | "저장해두고 오늘 딱 한 칸만 해보세요 🙌" |
+
+## 캡션 (그대로 복사해서 쓰기)
+${idea} 해봤는데 이게 제일 편했어요.
+순서만 바꿨는데 유지가 되더라고요.
+① 비우기 → ② 자리 정하기 → ③ 라벨
+저장해두고 오늘 한 칸만 시작해보세요!
+
+${hashtagSet()}
+
+## 첫 댓글 (발행 직후 내가 달기)
+"제가 쓴 정리템은 프로필 링크에 정리해뒀어요! 궁금한 거 물어보세요 :)"`;
+}
+
+function videoGuideOffline(topic, idea) {
+  return `${acctLine()}
+
+## 🎬 촬영 가이드 — "${idea}"
+
+### 1. 세팅 (5분)
+- 폰: 세로 9:16, 4K 안 쓰고 1080p 60fps (용량·발열 절약)
+- 위치: 창가 옆 45도 (역광 금지 — 창을 등지지 말 것)
+- 고정: 삼각대 없으면 책 3권 + 컵으로 폰 기대기
+- 청소: 프레임 안 배경만 정리 (전체 청소 금지 — 지쳐서 못 찍음)
+
+### 2. 촬영 순서 (컷 리스트)
+1. **완성 컷 먼저** 찍기 (후킹에 쓸 3초 — 제일 예쁠 때 확보)
+2. 문제 상황 컷 (지저분한 전)
+3. 과정 3컷 — 같은 각도, 손만 움직이게
+4. 정면 한마디 컷 (마지막 CTA용)
+- 각 컷은 5초 이상 여유 있게 (편집에서 자르는 게 쉬움)
+
+### 3. 편집 (앱: 캡컷 무료)
+- 순서: 완성 컷(1초) → 문제 상황 → 과정 → 완성 → CTA
+- 자막: 화면 하단 1/3 위로, 굵은 고딕, 1줄 12자 이내
+- 컷 전환: 점프컷만 (화려한 전환 금지 — 촌스러워 보임)
+- 음악: 잔잔한 어쿠스틱 / 유행 사운드는 인스타 내 라이브러리에서 고르기
+- 길이: 25~35초 (넘으면 이탈)
+
+### 4. 업로드 세트
+- 커버: 완성 컷 + 짧은 텍스트 3~5자
+- 캡션: 대본 문서의 캡션 그대로
+- 위치 태그: 지역 (도달 소폭 상승)
+- 발행 시간: 평일 저녁 7~9시
+
+### 5. 발행 후 체크 (이틀 뒤)
+□ 저장수 □ 댓글수 □ 팔로워 증감 □ 시청 유지율 (첫 3초 이탈률)
+→ 저장수가 팔로워의 3% 넘으면 이 포맷 반복, 아니면 후킹만 바꿔 재도전`;
+}
+
+async function buildContentPackage(idea) {
+  const t = topicWord();
+  const useAI = (settings && settings.apiKey || "").trim() || (!freeAiBroken && !freeAiCoolingDown());
+  const docs3 = [
+    { key: "plan", title: `📋 기획 — ${idea}`, md: planDocOffline(t, idea) },
+    { key: "script", title: `🎬 대본 — ${idea}`, md: scriptDocOffline(t, idea) },
+    { key: "guide", title: `🎥 영상 제작 가이드 — ${idea}`, md: videoGuideOffline(t, idea) }
+  ];
+  if (!useAI) return docs3;
+  const asks = [
+    { key: "plan", ask: `주제 "${idea}"로 ${t} SNS 콘텐츠 **기획서**를 써. 포함: 노리는 목표·타깃·핵심 메시지 한 줄·콘텐츠 각도 3안(표)·준비물 체크리스트·발행 계획. 마크다운, 한국어, 초보가 바로 실행 가능하게.` },
+    { key: "script", ask: `주제 "${idea}"로 30초 릴스/쇼츠 **대본**을 써. 포함: 시간대별 표(시간|화면|자막), 첫 3초 후킹, 바로 복사해 쓸 캡션, 해시태그, 첫 댓글 전략. 마크다운, 한국어.` },
+    { key: "guide", ask: `위 대본으로 영상을 만들 **제작 가이드**를 써. 포함: 폰 촬영 세팅(각도·조명·고정), 컷 리스트 순서, 무료 앱(캡컷) 편집 순서·자막·음악·길이, 업로드 세트(커버·캡션·시간), 발행 후 성과 체크 항목. 초보가 처음 찍는다고 가정. 마크다운, 한국어.` }
+  ];
+  for (const a of asks) {
+    try {
+      const res = await aiChat(
+        `너는 SNS 콘텐츠 제작 디렉터야. 계정 주제는 '${t}'. 인사·설명 없이 결과물만 마크다운으로 출력해.`,
+        [{ role: "user", content: a.ask }], () => {});
+      if (res && res.length > 100) {
+        const d = docs3.find(x => x.key === a.key);
+        d.md = `${acctLine()}\n\n${res.trim()}`;
+      }
+    } catch { /* 실패한 문서만 오프라인 버전 유지 */ }
+  }
+  return docs3;
+}
+
+/* 패키지 생성 → 노션에 3개 페이지로 분리 저장 (+ 화면 미리보기) */
+async function runContentPackage(idea) {
+  idea = (idea || "").trim();
+  const status = $("#np-status");
+  const out = $("#np-output");
+  if (!idea) { $("#np-idea")?.focus(); return; }
+  if (status) status.textContent = "✍️ 기획·대본·제작 가이드를 만드는 중...";
+  if (out) out.innerHTML = "";
+  const pack = await buildContentPackage(idea);
+  if (status) status.textContent = "";
+  renderPackageOutput(pack);
+  const auto = (settings && settings.notionToken || "").trim() && notionParentId();
+  if (auto) {
+    let ok = 0;
+    for (const d of pack) {
+      if (status) status.textContent = `📤 노션에 올리는 중... (${ok + 1}/3)`;
+      const r = await sendToNotion(d.title, d.md, null);
+      if (r.ok) ok++;
+    }
+    if (status) status.textContent = ok === 3 ? "✅ 노션에 3개 페이지(기획·대본·제작가이드)로 정리했어요!" : `⚠️ ${ok}/3만 저장됨 — 아래 버튼으로 나머지를 복사·저장할 수 있어요`;
+  } else {
+    if (status) status.textContent = "✅ 완성! 각 문서의 [📤 노션] 버튼을 누르면 노션에 저장돼요 (설정 미완료 시 복사+파일로 대체)";
+  }
+  return pack;
+}
+
+function renderPackageOutput(pack) {
+  const out = $("#np-output");
+  if (!out) return;
+  out.innerHTML = "";
+  pack.forEach(d => {
+    const card = document.createElement("div");
+    card.className = "np-doc";
+    const head = document.createElement("div");
+    head.className = "np-doc-head";
+    const label = document.createElement("b");
+    label.textContent = d.title;
+    const btnWrap = document.createElement("div");
+    btnWrap.className = "np-doc-btns";
+    const st = document.createElement("span");
+    st.className = "saved-note";
+    const nbtn = document.createElement("button");
+    nbtn.className = "btn-small"; nbtn.textContent = "📤 노션";
+    nbtn.addEventListener("click", () => sendToNotion(d.title, d.md, st));
+    const cbtn = document.createElement("button");
+    cbtn.className = "btn-small"; cbtn.textContent = "📋 복사";
+    cbtn.addEventListener("click", () => navigator.clipboard?.writeText(`# ${d.title}\n\n${d.md}`).then(() => toast("📋 복사됐어요! 노션에 붙여넣으면 서식까지 그대로 들어가요")).catch(() => toast("복사 실패 — 아래 내용을 직접 선택해 복사해주세요")));
+    const dbtn = document.createElement("button");
+    dbtn.className = "btn-small"; dbtn.textContent = "⬇️ 파일";
+    dbtn.addEventListener("click", () => { downloadMd(d.title, `# ${d.title}\n\n${d.md}`); toast("⬇️ 파일 저장! 노션에서 [가져오기] → 마크다운으로 올리면 페이지가 돼요", 7000); });
+    const pbtn = document.createElement("button");
+    pbtn.className = "btn-small"; pbtn.textContent = "🖨 PDF";
+    pbtn.addEventListener("click", () => { reportModalTask = { title: d.title, assignee: "planner", result: d.md, status: "done", doneAt: Date.now() }; printReportDoc(); });
+    btnWrap.append(st, nbtn, cbtn, dbtn, pbtn);
+    head.append(label, btnWrap);
+    const body = document.createElement("div");
+    body.className = "np-doc-body";
+    body.innerHTML = renderMarkdown(d.md);
+    card.append(head, body);
+    out.appendChild(card);
+  });
+}
 
 /* ---------- 스레드 글 생성기 ----------
    ① 스레드 바이럴 글을 우회 수집해 패턴·공식 추출(senter:threadPatterns)
@@ -6378,6 +6702,8 @@ function renderSettings() {
   if (thEl) thEl.value = s.theme || "aurora";
   $("#set-workmode").value = s.workMode || "thorough";
   $("#set-freemodel").value = s.freeModel || "";
+  const ntEl = $("#set-notion-token"); if (ntEl) ntEl.value = s.notionToken || "";
+  const npEl = $("#set-notion-parent"); if (npEl) npEl.value = s.notionParent || "";
   $("#set-name").value = s.name || "";
   $("#set-topic").value = s.topic || "";
   $("#set-platforms").value = (s.platforms || []).join(", ");
@@ -6393,6 +6719,8 @@ function saveSettings() {
   settings.workMode = $("#set-workmode").value;
   applyTheme();
   settings.freeModel = $("#set-freemodel").value.trim();
+  settings.notionToken = $("#set-notion-token")?.value.trim() || "";
+  settings.notionParent = $("#set-notion-parent")?.value.trim() || "";
   settings.name = $("#set-name").value.trim() || "크리에이터";
   settings.topic = $("#set-topic").value.trim() || "리빙";
   settings.platforms = $("#set-platforms").value.split(",").map(x => x.trim()).filter(Boolean);
@@ -6432,7 +6760,7 @@ function exportBackup() {
   const data = {
     version: 1,
     exportedAt: new Date().toISOString(),
-    settings: { ...settings, apiKey: "" }, // 보안을 위해 키는 제외
+    settings: { ...settings, apiKey: "", notionToken: "" }, // 보안을 위해 키·토큰은 제외
     docs, chats, roadmapDone, missions, tasks, activity, meetings, customStaff, teamChat,
     todos, events, notes, focusLog, usage, reports, sponsorFeeds, sponsorSaved, sponsorHidden
   };
@@ -6734,6 +7062,28 @@ function bindEvents() {
 
   // 분석실 (경쟁사 분석 + 체험단 레이더)
   $("#ca-run")?.addEventListener("click", () => runCompetitorAnalysis(($("#ca-links").value || "").split(/\n+/)));
+  $("#np-run")?.addEventListener("click", () => runContentPackage($("#np-idea").value));
+  $("#np-example")?.addEventListener("click", () => { $("#np-idea").value = `${topicWord()} 서랍 정리하는 3단계`; $("#np-idea").focus(); });
+  $("#notion-test")?.addEventListener("click", async () => {
+    const out = $("#notion-test-result");
+    const btn = $("#notion-test");
+    settings.notionToken = $("#set-notion-token").value.trim();
+    settings.notionParent = $("#set-notion-parent").value.trim();
+    store.set("settings", settings);
+    btn.disabled = true; out.textContent = "연결 확인 중...";
+    if (!settings.notionToken) { out.textContent = "⚠️ 통합 시크릿을 먼저 넣어주세요"; btn.disabled = false; return; }
+    if (!notionParentId()) { out.textContent = "⚠️ 노션 페이지 주소를 확인해주세요 (페이지 URL 전체를 붙여넣기)"; btn.disabled = false; return; }
+    try {
+      const url = await createNotionPage("🌱 센터 연결 테스트", "센터(Senter)와 노션이 연결됐어요! 이제 기획서·대본·제작 가이드가 여기에 자동으로 정리돼요.");
+      out.textContent = "✅ 연결 성공! 노션에 테스트 페이지를 만들었어요";
+      if (url) window.open(url, "_blank", "noopener");
+    } catch (e) {
+      const m = String(e.message || e);
+      out.textContent = (e.status === 401 || /401|unauthor|token is invalid|invalid token|api key/i.test(m)) ? "⚠️ 시크릿이 올바르지 않아요 (ntn_ 로 시작하는 값을 다시 복사해주세요)"
+        : (e.status === 404 || /404|not found|could not find/i.test(m)) ? "⚠️ 그 페이지에 통합 연결이 안 돼 있어요 — 노션 페이지 ⋯ → [연결] 에서 방금 만든 통합을 추가해주세요"
+        : "⚠️ 연결 실패: " + m.slice(0, 60) + " — 복사·파일 방식은 그대로 쓸 수 있어요";
+    } finally { btn.disabled = false; }
+  });
   $("#sp-run")?.addEventListener("click", () => collectSponsorFeeds());
   $("#sb-add")?.addEventListener("click", addManualLink);
   $("#sb-url")?.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addManualLink(); } });
@@ -7602,5 +7952,6 @@ window.__senter = {
   getSponsorFeeds: () => sponsorFeeds, getSponsorSaved: () => sponsorSaved, saveToLinkbox, renderSponsorBox,
   normSponsorUrl, recruitType, getSponsorHidden: () => sponsorHidden, addManualLink, parseAdLibrary,
   aiChat, freeAiCoolingDown, enterFreeAiCooldown, sweepPuterDialogs,
-  collectThreadViral, generateThreadPost, threadOfflineDraft, getThreadPatterns: () => threadPatterns
+  collectThreadViral, generateThreadPost, threadOfflineDraft, getThreadPatterns: () => threadPatterns,
+  buildContentPackage, runContentPackage, mdToNotionBlocks, createNotionPage, sendToNotion, notionParentId
 };

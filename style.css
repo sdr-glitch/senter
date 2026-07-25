@@ -1126,3 +1126,15 @@ body > iframe[src*="puter.com"], body > iframe[src=""], body > iframe:not([src])
 .th-post-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; background: var(--surface-2); border-bottom: 1px solid var(--line); }
 .th-post-head b { font-size: .85rem; }
 .th-post-body { padding: 14px; font-size: .92rem; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+
+/* ===== 노션 내보내기 (콘텐츠 패키지) ===== */
+#np-idea { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; font: inherit; font-size: .9rem; background: var(--surface); resize: vertical; }
+.np-output { display: flex; flex-direction: column; gap: 14px; margin-top: 14px; }
+.np-doc { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); overflow: hidden; }
+.np-doc-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 11px 14px; background: var(--surface-2); border-bottom: 1px solid var(--line); }
+.np-doc-head b { font-size: .88rem; }
+.np-doc-btns { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.np-doc-body { padding: 14px 16px; font-size: .86rem; line-height: 1.7; max-height: 380px; overflow: auto; }
+.np-doc-body table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: .8rem; }
+.np-doc-body th, .np-doc-body td { border: 1px solid var(--line); padding: 5px 8px; text-align: left; }
+.np-doc-body th { background: var(--surface-2); }
