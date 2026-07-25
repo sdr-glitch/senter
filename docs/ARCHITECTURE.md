@@ -9,7 +9,7 @@
 ## 2. 시스템 구성
 
 ```
-index.html ─ 탭 10개 SPA (사무실 / AI직원 / 멘토챗 / 홈 / 생산성 / 릴스 / 트렌드 / 스튜디오 / 자료실 / 설정)
+index.html ─ 탭 13개 SPA (사무실 / AI직원 / 멘토챗 / 홈 / 생산성 / 릴스 / 트렌드 / 분석실 / 스레드 / 스튜디오 / 강의 / 자료실 / 설정)
 app.js     ─ 모든 로직. 섹션: 저장소 → 멘토 페르소나 → AI직원(지시서+스킬) → 커스텀직원 → 로드맵
              → AI호출(aiChat 체인) → 사무실(렌더/회의/보고서/스터디) → 업무보드(파이프라인)
              → 자율 근무 → 채팅 → 자료실(PDF) → 생산성 → 릴스 대본 → 트렌드 → 설정/백업
@@ -32,6 +32,7 @@ studio.html─ 크리에이터 스튜디오(허브/패턴/이모티콘/템플릿
 | `senter:roadmapDone` `missions` `stageOpen` `currentPersona` `personaBarExpanded` | UI 상태 | - |
 | `senter:autoState` | 자율 근무 상태 (done/studied/preparedEvents/lastReportAt) | - |
 | `senter:trendKeywords` | 트렌드 탭 관심 키워드 | - |
+| `senter:vodLive` | 강의 탭 실시간 추출 기록 {segments:[{t,kind,text}], elapsed, title, shots} — 새로고침·강제종료 복구용, 노트로 정리하면 삭제 | 22만 자 (초과 시 앞부분부터 정리) |
 | `senter:studioInbox` | 센터→스튜디오 핸드오프 큐 (스튜디오 로드 시 소비 후 삭제) | - |
 | `studio_hq_v1` `emoticon_studio_v1` `pattern_studio_v1` `studio_shell_last` | 스튜디오(iframe) 자체 키 | - |
 
@@ -92,6 +93,7 @@ node --check app.js                    # 문법
 - `claude-desk/` — 팀용 Claude Code 웹 데스크 (기존)
 
 ### 완료됨 (기록)
+- ~~VOD 강의 실시간 추출~~ → 🎥 강의 탭: `getDisplayMedia`로 강의 화면을 공유받아 N초마다 프레임을 캡처, **64×36 흑백 지문 비교(`vodDiff`)로 화면이 바뀐 경우에만** `imageToText(durl, VOD_VISION_PROMPT)` 호출(같은 슬라이드 반복에 요금 안 씀, 400장 상한) → 시간표시가 붙은 실시간 기록(`senter:vodLive`, 22만 자 캡, 새로고침 복구) → 종료 시 `vodBuildNote()`가 구간별 정리(≤10콜) + 합치기 1콜로 강의 노트 생성 → **자료실 자동 저장(`fromVod`) → 자율 근무의 "새 자료 → 자동 스터디 회의"로 AI 직원이 학습** → 노션 자동 업로드(설정 시)·복사·파일·PDF·스터디 회의 버튼. 선택 기능으로 크롬 음성인식(ko-KR, 요금 0원) 말소리 받아쓰기 — 조용하면 브라우저가 끊으므로 `onend` 자동 재시작. AI가 없으면 `vodOfflineNote()`(핵심 줄 + 시간대별 원문)로 폴백(철칙 5). **교훈: ① 오디오 트랙을 받아도 브라우저만으로는 전사할 방법이 없어(Web Speech는 스트림 입력 불가) `audio:false`로 공유 창을 단순화하고 마이크 인식을 선택지로 둠 ② 화면 변화 기준을 "직전 프레임"이 아니라 **마지막으로 읽은 프레임**과 비교해야 천천히 바뀌는 슬라이드를 놓치지 않음 ③ 테스트는 크로미움 `--auto-select-desktop-capture-source` 플래그로 사람 클릭 없이 공유 성사 가능, 텍스트 호출은 **SSE 스트리밍**이라 목 응답도 `event: content_block_delta` 형식이어야 함(JSON으로 주면 조용히 오프라인 폴백)**
 - ~~3D AI 오피스~~ → 인플루언서 프롬프트(the-delegation)를 센터 데이터로 이식해 Three.js 사옥(office3d.html)을 만들었으나, **사용자 데스크톱에서 WebGL을 켤 수 없어(하드웨어 가속 꺼짐) 3D가 끝까지 열리지 않아 기능 전체를 제거**. 2D 평면도 대체 뷰 → GPU 켜기 안내 → 최종 제거 순으로 진행됨. **교훈: 브라우저 3D는 사용자 환경(GPU·드라이버·정책)에 의존하므로, 비개발자용 앱의 핵심 경로에 두면 안 된다. 필요하면 코드는 git 히스토리(12e2c3d~7e17dab)에 보존됨.**
 - ~~노션 결과물 정리 자동화~~ → 주제 하나 → **기획서·대본·영상 제작 가이드 3개 문서**(`buildContentPackage`) → **노션 페이지 3개로 분리 저장**. 노션 API는 브라우저 직접 호출을 CORS로 막으므로 3단 안전망: ①토큰+상위페이지 설정 시 `notionApi()`가 직접→corsproxy.io→thingproxy 순 시도 ②실패 시 클립보드 복사 ③`.md` 다운로드(노션 [가져오기]) — 어느 경우든 사용자 손에 결과물이 남음. `mdToNotionBlocks()`로 마크다운→블록 변환(표는 행별 글머리, 95블록 상한). 설정 탭에 통합 시크릿·상위 페이지 입력 + [연결 테스트](실제 페이지 생성으로 검증), 토큰은 백업에서 제외. 보고서함 카드에도 📤 버튼. **교훈: 재시도 루프에서 `throw`를 같은 try의 catch가 삼켜 진짜 오류(401 "API token is invalid")가 프록시 실패 메시지로 덮였음 → 하드 실패는 break+상태코드 보존, 네트워크 오류는 기존 메시지를 덮지 않게**
 - ~~스레드 글 생성기~~ → 🧵 스레드 탭: 반말 톤 스레드(Threads) 글 자동 생성. `collectThreadViral()`가 바이럴 글 우회 수집→한글 문장 발췌+`THREAD_FORMULAS`(고백/리스트/역발상/경험담/질문) 공식 추출(AI 있으면 수집 글에서 실제 공식 도출), `generateThreadPost()`가 주제+공식+계정 맥락으로 반말 3버전 생성(오프라인 `threadOfflineDraft` 폴백), 버전별 복사 버튼. **교훈: fetchSearchText는 500자 미만 응답을 버려서 테스트 목 데이터는 넉넉히 반복해야 함**

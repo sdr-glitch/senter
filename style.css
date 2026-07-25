@@ -63,7 +63,7 @@ body {
 .key-status.ok { background: var(--accent-soft); color: var(--accent-strong); }
 
 .tabs {
-  display: flex; gap: 6px; padding: 6px;
+  display: flex; flex-wrap: wrap; gap: 6px; padding: 6px;
   background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--radius); box-shadow: var(--shadow);
   position: sticky; top: 8px; z-index: 20;
@@ -1138,3 +1138,37 @@ body > iframe[src*="puter.com"], body > iframe[src=""], body > iframe:not([src])
 .np-doc-body table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: .8rem; }
 .np-doc-body th, .np-doc-body td { border: 1px solid var(--line); padding: 5px 8px; text-align: left; }
 .np-doc-body th { background: var(--surface-2); }
+
+/* ===== 🎥 강의 화면 추출 (화면 공유 → 실시간 텍스트) ===== */
+.vod-title-row { margin-top: 12px; }
+.vod-title-row input {
+  width: 100%; padding: 11px 13px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface); font: inherit; font-size: .9rem; color: var(--text);
+}
+.vod-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.vod-opt {
+  display: inline-flex; align-items: center; gap: 6px; font-size: .82rem; font-weight: 600;
+  color: var(--text-soft); background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 999px; padding: 7px 13px; cursor: pointer;
+}
+.vod-opt select { border: none; background: transparent; font: inherit; font-size: .82rem; color: var(--text); cursor: pointer; }
+.vod-opt input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
+.vod-opt input:disabled { cursor: not-allowed; }
+.vod-hint { font-size: .82rem; color: var(--text-soft); margin-top: 8px; line-height: 1.6; }
+.vod-hint:empty { display: none; }
+.vod-stage { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; margin-top: 12px; }
+.vod-video {
+  width: 280px; max-width: 100%; aspect-ratio: 16 / 9; object-fit: contain;
+  background: #16211b; border: 1px solid var(--line); border-radius: 12px;
+}
+.vod-status { flex: 1; min-width: 200px; font-size: .84rem; line-height: 1.8; color: var(--text-soft); }
+.vod-status b { color: var(--text); }
+.vod-live { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow: auto; }
+.vod-seg {
+  display: flex; gap: 10px; padding: 10px 12px; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--surface-2); font-size: .85rem; line-height: 1.65;
+}
+.vod-seg.speech { background: var(--accent-soft); }
+.vod-seg-text { flex: 1; white-space: pre-wrap; word-break: break-word; }
+.vod-time { flex: 0 0 auto; font-weight: 700; font-size: .76rem; color: var(--accent-strong); padding-top: 2px; }
+.vod-empty { color: var(--text-soft); font-size: .86rem; padding: 16px 0; line-height: 1.7; }

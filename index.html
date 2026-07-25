@@ -106,6 +106,7 @@
     <button class="tab" data-tab="archive">📑 분석실</button>
     <button class="tab" data-tab="threads">🧵 스레드</button>
     <button class="tab" data-tab="studio">🎨 스튜디오</button>
+    <button class="tab" data-tab="vod">🎥 강의</button>
     <button class="tab" data-tab="library">📚 자료실</button>
     <button class="tab" data-tab="settings">⚙️ 설정</button>
   </nav>
@@ -554,6 +555,55 @@
     </div>
   </main>
 
+  <!-- ===== 🎥 강의 화면 추출 탭 (화면 공유 → 실시간 강의 내용 텍스트화) ===== -->
+  <main id="tab-vod" class="tab-panel hidden">
+    <section class="card">
+      <h3>🎥 강의 화면 같이 보기 — 실시간 내용 추출</h3>
+      <p class="card-desc">유튜브·VOD 강의를 <b>화면 공유</b>로 보여주면, 센터가 <b>강의를 같이 보면서</b> 화면 속 글자·자막·슬라이드를 계속 읽어 텍스트로 쌓아요. 다 보고 나면 <b>강의 노트로 정리 → 자료실 자동 저장 → 노션 정리</b>까지 한 번에 해줘요. 자료실에 들어간 노트는 <b>AI 직원들이 바로 학습해서 업무에 씁니다.</b></p>
+      <p class="card-desc"><b>쓰는 법</b> ① 강의를 재생해 두고 ② 아래 [🖥️ 강의 화면 공유 시작]을 누르고 ③ 크롬 창이 뜨면 <b>강의가 나오는 탭(또는 창)</b>을 고르면 끝. 그다음엔 평소처럼 강의를 보기만 하면 돼요. (공유한 화면은 <b>내 브라우저 안에서만</b> 쓰이고, 글자를 읽을 때만 AI로 한 장씩 보내요 — 영상 자체는 어디에도 올라가지 않아요.)</p>
+      <div class="vod-title-row">
+        <input type="text" id="vod-title" maxlength="60" placeholder="강의 이름 (선택 — 예: 릴스 알고리즘 마스터 클래스 3강)">
+      </div>
+      <div class="vod-controls">
+        <button class="btn-primary" id="vod-start">🖥️ 강의 화면 공유 시작</button>
+        <button class="btn-ghost hidden" id="vod-shot">🔍 지금 화면 바로 읽기</button>
+        <button class="btn-ghost hidden" id="vod-pause">⏸ 잠시 멈춤</button>
+        <button class="btn-danger hidden" id="vod-stop">⏹ 끝내고 노트 만들기</button>
+        <label class="vod-opt">👀 읽는 간격
+          <select id="vod-interval">
+            <option value="15">15초 (촘촘히)</option>
+            <option value="30" selected>30초 (추천)</option>
+            <option value="60">1분 (아껴 쓰기)</option>
+            <option value="120">2분 (아주 아껴 쓰기)</option>
+          </select>
+        </label>
+        <label class="vod-opt"><input type="checkbox" id="vod-speech"> 🎙 말소리도 받아쓰기</label>
+      </div>
+      <p class="vod-hint" id="vod-hint">💡 <b>팁</b> · 유튜브라면 <b>자막(CC)을 켜두면</b> 말 내용까지 훨씬 정확하게 담겨요 · 화면 선택은 <b>[Chrome 탭]</b>이 가장 선명해요 · 슬라이드가 빨리 넘어가는 강의는 간격을 15초로, 말이 많은 강의는 1분으로 두고 [🎙 말소리도 받아쓰기]를 켜면 좋아요 · 같은 화면이 계속 나오면 알아서 건너뛰니 <b>2시간짜리 강의도 요금 걱정이 적어요</b>.</p>
+      <div class="vod-stage">
+        <video id="vod-video" class="vod-video hidden" muted playsinline></video>
+        <div id="vod-status" class="vod-status"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>📝 실시간으로 받아 적는 내용 <span class="th-badge" id="vod-count"></span></h3>
+      <p class="card-desc">화면이 <b>바뀔 때만</b> 읽어서 요금을 아껴요 (같은 슬라이드가 계속 나오면 건너뜀). 여기 쌓이는 내용은 새로고침해도 안 사라지니, 중간에 잠깐 나갔다 와도 이어서 정리할 수 있어요.</p>
+      <div id="vod-live" class="vod-live"></div>
+      <div class="modal-actions" style="justify-content:flex-start; margin-top:10px">
+        <button class="btn-primary btn-small hidden" id="vod-make">📚 지금까지 내용으로 노트 만들기</button>
+        <button class="btn-ghost btn-small" id="vod-clear">🗑 기록 비우기</button>
+        <span id="vod-live-note" class="saved-note"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>📚 정리된 강의 노트</h3>
+      <p class="card-desc">강의가 끝나면 <b>목차·핵심 정리·실행 체크리스트·내 계정 적용 아이디어</b>까지 붙은 노트로 만들어 <b>자료실에 자동 저장</b>해요. 노션 연결이 돼 있으면 노션 페이지로도 바로 올라가고, 안 돼 있으면 [복사]·[파일]로 받을 수 있어요.</p>
+      <div id="vod-output" class="np-output"></div>
+    </section>
+  </main>
+
   <!-- ===== 자료실 탭 ===== -->
   <main id="tab-library" class="tab-panel hidden">
     <section class="card">
@@ -849,6 +899,7 @@
   <button data-tab="archive">📑 분석실</button>
   <button data-tab="threads">🧵 스레드</button>
   <button data-tab="studio">🎨 스튜디오</button>
+  <button data-tab="vod">🎥 강의추출</button>
   <button data-tab="library">📚 자료실</button>
   <button data-tab="settings">⚙️ 설정</button>
 </div>

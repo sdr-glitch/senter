@@ -5741,13 +5741,13 @@ async function anthropicVision(dataUrl, prompt) {
   return text;
 }
 
-async function imageToText(dataUrl) {
+async function imageToText(dataUrl, prompt = VISION_PROMPT) {
   const small = await shrinkImage(dataUrl);
-  if ((settings && settings.apiKey || "").trim()) return anthropicVision(small, VISION_PROMPT);
+  if ((settings && settings.apiKey || "").trim()) return anthropicVision(small, prompt);
   if (freeAiBroken || freeAiCoolingDown()) throw new Error("NO_AI");
   const puter = await loadPuter().catch(() => { throw new Error("NO_AI"); });
   let resp;
-  try { resp = await puter.ai.chat(VISION_PROMPT, small); } // Puter 비전: (프롬프트, 이미지 dataURL)
+  try { resp = await puter.ai.chat(prompt, small); } // Puter 비전: (프롬프트, 이미지 dataURL)
   catch (e) {
     let raw = ""; try { raw = JSON.stringify(e); } catch {}
     setTimeout(sweepPuterDialogs, 50);
@@ -6058,6 +6058,621 @@ async function addDocsByFiles(files) {
   if (added && !failed.length) toast(`📚 자료 ${added}개가 추가됐어요!`);
   else if (added && failed.length) toast(`📚 ${added}개 추가, ⚠️ 실패: ${failed[0]}`, 6000);
   else toast(`⚠️ 파일을 읽지 못했어요. ${failed[0] || "(.txt / .md / .pdf / 이미지 지원)"}`, 7000);
+}
+
+/* ==================================================
+   🎥 VOD 강의 화면 추출 — 화면을 공유하면 강의를 같이 보며 내용을 받아 적음
+   흐름: 화면 공유(getDisplayMedia) → N초마다 프레임 캡처
+        → 화면이 실제로 바뀐 경우에만 AI 비전으로 글자·자막 추출(요금 절약)
+        → 실시간 누적(새로고침해도 유지) → 끝내면 강의 노트로 정리
+        → 자료실 자동 저장(= AI 직원 학습) → 노션·복사·파일·PDF·스터디 회의
+   철칙 5: AI가 없어도 앱은 안 죽음 — 말소리 받아쓰기(브라우저 기본 기능)와
+           원문 그대로의 노트 조립(오프라인)으로 계속 작동한다.
+   화면·소리는 브라우저 안에서만 처리되고, 글자를 읽을 때만 한 장씩 AI로 보낸다.
+   ================================================== */
+const VOD_MAX_SHOTS = 400;        // 한 강의에서 AI로 읽는 최대 장면 수 (요금 안전장치)
+const VOD_DIFF_MIN = 4.2;         // 화면 변화량(0~255 평균차) — 이보다 작으면 "그대로"로 보고 건너뜀
+const VOD_RAW_CAP = 220000;       // 실시간 기록 보관 상한 (넘으면 오래된 것부터 정리)
+const VOD_SPEECH_FLUSH = 160;     // 말소리 이만큼 모이면 한 줄로 기록
+const VOD_VISION_PROMPT = `이건 온라인 강의 영상의 한 장면이야. 강의 내용을 노트로 옮기는 게 목적이야.
+① 화면 속 글자(슬라이드 제목·본문·표·목록·자막)를 그대로 옮겨 적어줘. 표는 마크다운 표로.
+② 글자가 거의 없으면 화면이 무엇을 보여주는지 한두 줄로 설명해줘.
+③ 마지막 줄에 '[핵심] '으로 시작하는 한 줄 요약을 붙여줘.
+재생바·댓글·광고·브라우저 메뉴 같은 강의와 상관없는 부분은 빼줘. 인사·설명 없이 내용만, 한국어로, 600자 이내.`;
+
+let vod = {
+  stream: null, video: null, canvas: null, small: null,
+  timer: null, clock: null, running: false, paused: false, busy: false, building: false,
+  segments: [],           // {t:경과초, kind:"screen"|"speech", text}
+  shots: 0, skipped: 0, fails: 0,
+  startedAt: 0, elapsed: 0, // elapsed: 이전 세션까지 누적된 초 (이어보기 대응)
+  refGray: null, lastGray: null,
+  rec: null, speechOn: false, speechBuf: "", speechAt: 0,
+  notice: "", trimmed: false, title: ""
+};
+
+function vodFmt(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  const p = (n) => String(n).padStart(2, "0");
+  return h ? `${h}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`;
+}
+
+function vodNow() {
+  return vod.elapsed + (vod.running && vod.startedAt ? (Date.now() - vod.startedAt) / 1000 : 0);
+}
+
+/* 실시간 기록 저장 (새로고침·실수로 닫아도 이어서 정리할 수 있게) */
+function vodSave() {
+  store.set("vodLive", { segments: vod.segments, elapsed: vodNow(), title: vod.title, shots: vod.shots, at: Date.now() });
+}
+
+function vodRestore() {
+  const v = store.get("vodLive", null);
+  if (!v || !Array.isArray(v.segments) || !v.segments.length) return;
+  vod.segments = v.segments;
+  vod.elapsed = Number(v.elapsed) || 0;
+  vod.title = v.title || "";
+  vod.shots = Number(v.shots) || 0;
+}
+
+function vodClearLive() {
+  vod.segments = [];
+  vod.shots = 0; vod.skipped = 0; vod.fails = 0;
+  vod.elapsed = 0; vod.trimmed = false; vod.notice = "";
+  store.remove("vodLive");
+}
+
+function vodPush(kind, text) {
+  text = String(text || "").trim();
+  if (!text) return;
+  vod.segments.push({ t: Math.round(vodNow()), kind, text });
+  // 기록이 너무 커지면 오래된 것부터 정리 (localStorage 보호)
+  let total = vod.segments.reduce((a, s) => a + s.text.length, 0);
+  while (total > VOD_RAW_CAP && vod.segments.length > 20) {
+    total -= vod.segments.shift().text.length;
+    vod.trimmed = true;
+  }
+  vodSave();
+  vodRenderLive();
+}
+
+/* ── 프레임 캡처 & 변화 감지 ── */
+function vodFrameDataUrl() {
+  const v = vod.video;
+  if (!v || !v.videoWidth) return null;
+  const scale = Math.min(1, 1568 / Math.max(v.videoWidth, v.videoHeight));
+  const c = vod.canvas || (vod.canvas = document.createElement("canvas"));
+  c.width = Math.max(2, Math.round(v.videoWidth * scale));
+  c.height = Math.max(2, Math.round(v.videoHeight * scale));
+  c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+  return c.toDataURL("image/jpeg", 0.82);
+}
+
+/* 화면을 64x36 흑백으로 줄여서 지문처럼 사용 (슬라이드가 그대로인지 판단) */
+function vodGray() {
+  const v = vod.video;
+  if (!v || !v.videoWidth) return null;
+  const c = vod.small || (vod.small = document.createElement("canvas"));
+  c.width = 64; c.height = 36;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(v, 0, 0, 64, 36);
+  const px = ctx.getImageData(0, 0, 64, 36).data;
+  const out = new Uint8Array(64 * 36);
+  for (let i = 0, j = 0; j < out.length; i += 4, j++) {
+    out[j] = (px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114) | 0;
+  }
+  return out;
+}
+
+function vodDiff(cur, ref) {
+  if (!cur || !ref) return 999;
+  let sum = 0;
+  for (let i = 0; i < cur.length; i++) sum += Math.abs(cur[i] - ref[i]);
+  return sum / cur.length;
+}
+
+/* 방금 읽은 내용이 직전 것과 사실상 같은지 (자막만 살짝 바뀐 중복 방지) */
+function vodDuplicate(text) {
+  const last = [...vod.segments].reverse().find(s => s.kind === "screen");
+  if (!last) return false;
+  const norm = (s) => s.replace(/\[핵심\][^\n]*/g, "").replace(/[^가-힣a-z0-9]/gi, "").toLowerCase();
+  const a = norm(last.text), b = norm(text);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const short = a.length < b.length ? a : b;
+  const long = a.length < b.length ? b : a;
+  if (short.length < 30) return false;
+  // 짧은 쪽이 긴 쪽에 거의 그대로 들어있으면 중복으로 봄
+  return long.includes(short.slice(0, Math.floor(short.length * 0.9)));
+}
+
+/* ── 말소리 받아쓰기 (브라우저 기본 음성인식 — 요금 0원, 크롬 계열) ── */
+function vodSpeechSupported() {
+  return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+}
+
+function vodFlushSpeech() {
+  const buf = vod.speechBuf.trim();
+  vod.speechBuf = "";
+  if (buf.length > 4) vodPush("speech", buf);
+}
+
+function vodStartSpeech() {
+  if (!vodSpeechSupported()) return false;
+  const R = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let rec;
+  try { rec = new R(); } catch { return false; }
+  rec.lang = "ko-KR";
+  rec.continuous = true;
+  rec.interimResults = false;
+  rec.onresult = (e) => {
+    let add = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) add += e.results[i][0].transcript + " ";
+    }
+    add = add.trim();
+    if (!add) return;
+    vod.speechBuf += (vod.speechBuf ? " " : "") + add;
+    if (vod.speechBuf.length >= VOD_SPEECH_FLUSH) vodFlushSpeech();
+  };
+  rec.onerror = (e) => {
+    const err = String(e && e.error || "");
+    if (/not-allowed|service-not-allowed/.test(err)) {
+      vod.speechOn = false;
+      vod.notice = "🎙 마이크를 쓸 수 없어 받아쓰기는 껐어요 (화면 읽기는 그대로 진행돼요). 주소창 왼쪽 자물쇠 → 마이크 허용으로 켤 수 있어요.";
+      vodStatus();
+    }
+  };
+  rec.onend = () => {
+    // 크롬은 조용하면 스스로 끊어짐 → 강의가 끝날 때까지 자동으로 다시 켜준다
+    if (vod.running && vod.speechOn) { try { rec.start(); } catch {} }
+    else vodFlushSpeech();
+  };
+  try { rec.start(); } catch { return false; }
+  vod.rec = rec;
+  vod.speechOn = true;
+  return true;
+}
+
+function vodStopSpeech() {
+  vod.speechOn = false;
+  try { vod.rec && vod.rec.stop(); } catch {}
+  vod.rec = null;
+  vodFlushSpeech();
+}
+
+/* ── 시작 / 정지 ── */
+function vodInterval() {
+  const v = Number($("#vod-interval")?.value) || 30;
+  return Math.max(5, v) * 1000;
+}
+
+function vodResetTimer() {
+  clearInterval(vod.timer);
+  vod.timer = setInterval(() => vodTick(false), vodInterval());
+}
+
+async function vodStart() {
+  if (vod.running) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+    vod.notice = "⚠️ 이 브라우저는 화면 공유를 지원하지 않아요. 노트북·데스크톱의 <b>크롬</b>에서 열어주세요. (휴대폰이라면 강의 화면을 캡처해서 자료실의 [📄 파일 업로드]로 올리면 같은 방식으로 읽어드려요.)";
+    vodStatus();
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: 5, max: 10 } },
+      audio: false
+    });
+  } catch (e) {
+    const n = String(e && e.name || "");
+    vod.notice = /NotAllowed|Abort/i.test(n)
+      ? "화면 공유를 취소했어요. 다시 [🖥️ 강의 화면 공유 시작]을 누르고 <b>강의가 나오는 탭</b>을 골라주세요."
+      : "⚠️ 화면 공유를 시작하지 못했어요. 크롬에서 다시 시도하거나, 브라우저의 화면 공유 권한을 확인해 주세요.";
+    vodStatus();
+    return;
+  }
+
+  vod.stream = stream;
+  const v = $("#vod-video");
+  vod.video = v;
+  v.srcObject = stream;
+  v.classList.remove("hidden");
+  try { await v.play(); } catch {}
+
+  vod.running = true;
+  vod.paused = false;
+  vod.busy = false;
+  vod.startedAt = Date.now();
+  vod.refGray = null;
+  vod.notice = "";
+  vod.title = ($("#vod-title")?.value || "").trim() || vod.title;
+
+  // 사용자가 브라우저의 [공유 중지]를 누르면 자동으로 마무리
+  stream.getVideoTracks().forEach(t => t.addEventListener("ended", () => { if (vod.running) vodStop(true); }));
+
+  if ($("#vod-speech")?.checked) {
+    if (!vodStartSpeech()) vod.notice = "🎙 이 브라우저는 말소리 받아쓰기를 지원하지 않아요 (크롬 권장). 화면 읽기는 정상 작동해요.";
+  }
+  if (!visionAvailable()) {
+    vod.notice = (vod.notice ? vod.notice + "<br>" : "") +
+      "ℹ️ 지금은 AI가 연결돼 있지 않아 <b>화면 속 글자 읽기는 쉬어요</b>. 설정 탭에서 AI를 연결하면 바로 읽기 시작해요. (말소리 받아쓰기는 AI 없이도 작동해요.)";
+  }
+
+  vodResetTimer();
+  clearInterval(vod.clock);
+  vod.clock = setInterval(vodStatus, 1000);
+  setTimeout(() => vodTick(true), 1500); // 시작하자마자 첫 장면 한 번 읽기
+  vodRenderControls();
+  vodStatus();
+  toast("🎥 강의를 같이 보기 시작했어요! 평소처럼 강의를 재생해 주세요.", 5000);
+  logActivity("🎥 강의 화면 추출 시작");
+}
+
+/* 정지 — auto=true 면 브라우저의 [공유 중지]로 자동 종료된 경우 */
+async function vodStop(auto) {
+  if (!vod.running) return;
+  vod.elapsed = vodNow();
+  vod.running = false;
+  vod.paused = false;
+  clearInterval(vod.timer); vod.timer = null;
+  clearInterval(vod.clock); vod.clock = null;
+  vodStopSpeech();
+  try { vod.stream?.getTracks().forEach(t => t.stop()); } catch {}
+  vod.stream = null;
+  const v = $("#vod-video");
+  if (v) { v.srcObject = null; v.classList.add("hidden"); }
+  vodSave();
+  vodRenderControls();
+  vodStatus();
+  if (auto) toast("🎥 화면 공유가 끝났어요. 지금까지 받아 적은 내용으로 노트를 만들게요!", 5000);
+  if (vod.segments.length) await vodFinish();
+  else {
+    vod.notice = "받아 적은 내용이 없어요. 강의가 재생되는 <b>탭·창</b>을 공유했는지 확인하고 다시 시도해 주세요.";
+    vodStatus();
+  }
+}
+
+function vodPause() {
+  if (!vod.running) return;
+  vod.paused = !vod.paused;
+  vodRenderControls();
+  vodStatus();
+  toast(vod.paused ? "⏸ 잠시 멈췄어요 (화면은 계속 공유 중)" : "▶️ 다시 읽기 시작할게요!");
+}
+
+/* ── 한 장면 읽기 ── */
+async function vodTick(force) {
+  if (!vod.running || vod.busy) return;
+  if (!force && vod.paused) return;
+  if (vod.shots >= VOD_MAX_SHOTS) {
+    vod.notice = `ℹ️ 한 강의에서 읽는 최대 장면 수(${VOD_MAX_SHOTS}장)에 도달했어요. 지금까지 내용으로 노트를 만들 수 있어요 (아래 [📚 지금까지 내용으로 노트 만들기]).`;
+    vodStatus();
+    return;
+  }
+  const cur = vodGray();
+  if (!cur) return;
+  vod.lastGray = cur;
+  const diff = vodDiff(cur, vod.refGray);
+  if (!force && vod.refGray && diff < VOD_DIFF_MIN) { // 슬라이드가 그대로 → AI 호출 안 함 (요금 절약)
+    vod.skipped++;
+    vodStatus();
+    return;
+  }
+  if (!visionAvailable()) { vodStatus(); return; }
+  const durl = vodFrameDataUrl();
+  if (!durl) return;
+
+  vod.busy = true;
+  vodStatus("👀 지금 화면을 읽는 중...");
+  try {
+    const text = (await imageToText(durl, VOD_VISION_PROMPT)).trim();
+    vod.refGray = cur;
+    vod.shots++;
+    if (text && !vodDuplicate(text)) vodPush("screen", text);
+    else vod.skipped++;
+    vod.notice = "";
+  } catch (e) {
+    vod.fails++;
+    if (String(e && e.message) === "NO_AI") {
+      vod.notice = "ℹ️ " + friendlyApiError(e) + " (말소리 받아쓰기와 기록은 계속돼요.)";
+    } else if (vod.fails % 3 === 0) {
+      vod.notice = "⚠️ 화면 읽기가 몇 번 실패했어요 — 인터넷 상태를 확인해 주세요. 그동안 기록은 그대로 보관돼요.";
+    }
+  } finally {
+    vod.busy = false;
+    vodStatus();
+  }
+  // 말소리가 모여 있으면 화면 기록과 시간대를 맞춰 함께 남긴다
+  if (vod.speechBuf.length > 40) vodFlushSpeech();
+}
+
+/* ── 노트 만들기 ── */
+function vodRawText(segments) {
+  return (segments || vod.segments)
+    .map(s => `[${vodFmt(s.t)}]${s.kind === "speech" ? " 🎙 (말)" : ""} ${s.text}`)
+    .join("\n\n");
+}
+
+function vodKeyLines(segments) {
+  const keys = [];
+  for (const s of (segments || vod.segments)) {
+    const m = String(s.text).match(/\[핵심\]\s*(.+)/);
+    if (m && m[1].trim()) keys.push(`- (${vodFmt(s.t)}) ${m[1].trim()}`);
+  }
+  return keys;
+}
+
+/* AI가 없을 때의 노트 (원문 + 핵심 줄 모음) — 앱은 절대 안 죽는다 */
+function vodOfflineNote(raw, segments) {
+  const keys = vodKeyLines(segments).slice(0, 60);
+  return `${acctLine()}
+
+> AI 없이 정리한 **기본 노트**예요. 설정 탭에서 AI를 연결한 뒤 강의 탭의 [📚 지금까지 내용으로 노트 만들기]를 누르면 목차·핵심 정리·실행 체크리스트까지 자동으로 붙어요.
+
+## 📌 화면에서 뽑은 핵심 줄
+${keys.length ? keys.join("\n") : "- (핵심 줄이 아직 없어요 — 아래 시간대별 기록을 참고해 주세요)"}
+
+## ⏱ 시간대별 기록
+${raw}`;
+}
+
+/* 실시간으로 받아 적은 기록 → 강의 노트(마크다운). AI 있으면 구간별 정리 후 하나로 합침 */
+async function vodBuildNote(onProgress) {
+  const segments = vod.segments.slice();
+  const raw = vodRawText(segments);
+  if (!raw.trim()) return null;
+  const say = (m) => { if (onProgress) onProgress(m); };
+  const t = topicWord();
+  const useAI = visionAvailable();
+  let body = vodOfflineNote(raw, segments);
+  let aiNote = "";
+
+  if (useAI) {
+    const system = `너는 온라인 강의를 듣고 실무용 노트를 만드는 정리 전문가야. 노트를 읽을 사람은 '${t}' SNS를 운영하는 초보야. 전문 용어는 쉬운 말로 풀어 쓰고, 없는 내용은 절대 지어내지 마. 인사·설명 없이 결과물만 마크다운으로 출력해.`;
+    const chunkSize = Math.max(7000, Math.ceil(raw.length / 10));
+    const chunks = [];
+    for (let i = 0; i < raw.length; i += chunkSize) chunks.push(raw.slice(i, i + chunkSize));
+    const parts = [];
+    for (let i = 0; i < chunks.length; i++) {
+      say(`✍️ 강의 내용을 정리하는 중... (${i + 1}/${chunks.length}구간)`);
+      try {
+        const res = await aiChat(system, [{ role: "user", content:
+          `아래는 강의 화면·말소리에서 시간 순서대로 받아 적은 원문 기록이야 (${i + 1}/${chunks.length}구간).
+중복된 문장과 오탈자를 정리해서 이 구간의 내용을 **소제목 + 불릿**으로 정리해줘. 소제목 옆에 시간([mm:ss])을 남겨줘.
+원문에 없는 내용은 지어내지 마.
+
+${chunks[i]}` }], () => {});
+        if (res && res.trim().length > 50) parts.push(res.trim());
+      } catch (e) {
+        if (String(e && e.message) === "NO_AI") break; // AI가 죽어도 오프라인 노트로 계속
+      }
+    }
+    if (parts.length) {
+      aiNote = parts.join("\n\n");
+      if (parts.length > 1) {
+        say("🧩 구간별 정리를 하나의 강의 노트로 합치는 중...");
+        try {
+          const merged = await aiChat(system, [{ role: "user", content:
+            `아래는 한 강의를 구간별로 정리한 내용이야. 이걸 하나의 강의 노트로 합쳐줘. 형식은 이렇게:
+
+## 한 줄 요약
+## 목차 (시간대 포함)
+## 핵심 내용 (소제목별 불릿)
+## 강사가 특히 강조한 것
+## 바로 실행할 체크리스트 (□ 로 5개 이내)
+## 어려운 말 쉽게 풀기
+## 내 ${t} 계정에 적용할 아이디어 3가지
+
+원문에 있는 내용만 쓰고, 빠진 구간 없이 담아줘.
+
+${aiNote}` }], () => {});
+          if (merged && merged.trim().length > 100) aiNote = merged.trim();
+        } catch {}
+      }
+      body = `${acctLine()}\n\n${aiNote}\n\n---\n\n## ⏱ 시간대별 원문 기록\n${raw}`;
+    }
+  }
+
+  const typed = ($("#vod-title")?.value || "").trim() || vod.title;
+  // 제목 자동 생성: AI 정리본 > 화면에서 뽑은 첫 [핵심] 줄 > 시간표시를 걷어낸 원문
+  const firstKey = (vodKeyLines(segments)[0] || "").replace(/^-\s*\([\d:]+\)\s*/, "").trim();
+  const cleanRaw = raw.replace(/\[\d{1,2}:\d{2}(?::\d{2})?\]\s*(?:🎙 \(말\))?\s*/g, "");
+  const oneLiner = ((aiNote.match(/##\s*한 줄 요약\s*\n+([^\n#]+)/) || [])[1] || "").replace(/^[-*>\s]+/, "").trim();
+  const auto = aiNote ? (oneLiner || autoDocTitle(aiNote.replace(/^##?\s*한 줄 요약\s*$/m, ""))) : (firstKey || autoDocTitle(cleanRaw));
+  const title = `🎥 강의노트 — ${(typed || auto || "제목 없는 강의").slice(0, 40)}`;
+  const head = `강의 길이 기록: ${vodFmt(vod.elapsed || vodNow())} · 읽은 장면 ${vod.shots}장 · 기록 ${segments.length}줄${vod.trimmed ? " (오래된 앞부분 일부는 용량 때문에 정리됨)" : ""}`;
+  return { title, md: `${head}\n\n${body}`, raw, segments };
+}
+
+/* 노트 만들기 → 자료실 자동 저장 → 노션(설정돼 있으면 자동) + 버튼들 */
+async function vodFinish() {
+  if (vod.building) return;
+  if (!vod.segments.length) { toast("아직 받아 적은 내용이 없어요."); return; }
+  vod.building = true;
+  vodRenderControls();
+  const note = $("#vod-live-note");
+  const say = (m) => { if (note) note.textContent = m; };
+  say("✍️ 강의 노트를 만드는 중이에요...");
+  let built = null;
+  try {
+    built = await vodBuildNote(say);
+  } catch (e) {
+    say("⚠️ 정리 중 문제가 생겼어요 — 받아 적은 원문 그대로 저장할게요.");
+    const raw = vodRawText();
+    built = { title: `🎥 강의노트 — ${(vod.title || autoDocTitle(raw)).slice(0, 40)}`, md: vodOfflineNote(raw), raw };
+  }
+  vod.building = false;
+  if (!built) { say(""); vodRenderControls(); return; }
+
+  // ① 자료실에 저장 = AI 직원들이 바로 학습·활용
+  const doc = {
+    id: Date.now() + "-vod",
+    title: built.title,
+    content: built.md,
+    enabled: true,
+    cat: classifyDoc(built.title, built.md),
+    fromVod: true,
+    at: Date.now()
+  };
+  docs.push(doc);
+  saveDocs();
+  renderLibrary();
+  renderChat();
+  logActivity(`🎥 강의 노트 저장 — ${built.title}`);
+
+  // ② 정리가 끝났으니 실시간 버퍼는 비움 (다음 강의를 깨끗하게 시작)
+  vodClearLive();
+  vodRenderLive();
+  vodRenderControls();
+  vodStatus();
+
+  // ③ 노션 자동 저장 (설정돼 있을 때만) + 화면에 결과 카드
+  vodRenderOutput(doc, built);
+  const autoNotion = (settings && settings.notionToken || "").trim() && notionParentId();
+  if (autoNotion) {
+    say("📤 노션에 올리는 중...");
+    const r = await sendToNotion(built.title, built.md, null);
+    say(r.ok ? "✅ 자료실 저장 + 노션 페이지 생성 완료!" : "✅ 자료실에 저장했어요 (노션은 복사·파일로 대체됐어요)");
+  } else {
+    say("✅ 자료실에 저장했어요! 아래 [📤 노션] 버튼으로 노션에도 올릴 수 있어요.");
+  }
+  toast(`📚 「${built.title.slice(0, 24)}」 노트를 자료실에 저장했어요! 이제 AI 직원들이 이 강의를 참고해서 일해요.`, 8000);
+}
+
+/* ── 화면 그리기 ── */
+function vodRenderControls() {
+  const on = vod.running;
+  $("#vod-start")?.classList.toggle("hidden", on);
+  $("#vod-stop")?.classList.toggle("hidden", !on);
+  $("#vod-pause")?.classList.toggle("hidden", !on);
+  $("#vod-shot")?.classList.toggle("hidden", !on);
+  const p = $("#vod-pause");
+  if (p) p.textContent = vod.paused ? "▶️ 다시 읽기" : "⏸ 잠시 멈춤";
+  const make = $("#vod-make");
+  if (make) {
+    make.classList.toggle("hidden", on || !vod.segments.length);
+    make.disabled = vod.building;
+    make.textContent = vod.building ? "✍️ 노트 만드는 중..." : "📚 지금까지 내용으로 노트 만들기";
+  }
+  const st = $("#vod-start");
+  if (st) st.disabled = vod.building;
+  const speech = $("#vod-speech");
+  if (speech && !vodSpeechSupported()) {
+    speech.disabled = true;
+    speech.parentElement.title = "이 브라우저는 말소리 받아쓰기를 지원하지 않아요 (크롬 권장)";
+  }
+  const cnt = $("#vod-count");
+  if (cnt) cnt.textContent = vod.segments.length ? `${vod.segments.length}줄` : "";
+}
+
+function vodStatus(extra) {
+  const el = $("#vod-status");
+  if (!el) return;
+  const lines = [];
+  if (vod.running) {
+    lines.push(`<b>🔴 강의 보는 중</b> · 경과 ${vodFmt(vodNow())}${vod.paused ? " (멈춤)" : ""}`);
+    lines.push(`읽은 장면 <b>${vod.shots}</b>장 · 화면 그대로라 건너뜀 ${vod.skipped}회 · 받아 적은 줄 ${vod.segments.length}개`);
+    lines.push(vod.speechOn ? "🎙 말소리 받아쓰기 켜짐 (강의 소리를 스피커로 재생해 주세요)" : "🎙 말소리 받아쓰기 꺼짐");
+    if (extra) lines.push(extra);
+  } else if (vod.segments.length) {
+    lines.push(`⏸ 멈춤 · 받아 적어 둔 내용 <b>${vod.segments.length}줄</b> (읽은 장면 ${vod.shots}장)`);
+    lines.push("이어서 보려면 [🖥️ 강의 화면 공유 시작], 지금 정리하려면 아래 [📚 지금까지 내용으로 노트 만들기]를 눌러주세요.");
+  } else {
+    lines.push("아직 시작 전이에요. 강의를 재생해 두고 [🖥️ 강의 화면 공유 시작]을 눌러주세요.");
+    lines.push(visionAvailable()
+      ? "AI 연결됨 ✅ — 화면 속 글자·자막까지 읽어서 정리해요."
+      : "ℹ️ AI가 아직 연결 안 됐어요. 설정 탭에서 연결하면 화면 속 글자를 읽어요 (말소리 받아쓰기는 지금도 돼요).");
+  }
+  if (vod.notice) lines.push(vod.notice);
+  el.innerHTML = lines.join("<br>");
+}
+
+function vodRenderLive() {
+  const box = $("#vod-live");
+  if (!box) return;
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+  box.innerHTML = "";
+  if (!vod.segments.length) {
+    box.innerHTML = `<div class="vod-empty">아직 받아 적은 내용이 없어요. 강의 화면을 공유하면 여기에 실시간으로 쌓여요 📝</div>`;
+    vodRenderControls();
+    return;
+  }
+  for (const s of vod.segments) {
+    const row = document.createElement("div");
+    row.className = "vod-seg" + (s.kind === "speech" ? " speech" : "");
+    const time = document.createElement("span");
+    time.className = "vod-time";
+    time.textContent = vodFmt(s.t);
+    const body = document.createElement("div");
+    body.className = "vod-seg-text";
+    body.textContent = (s.kind === "speech" ? "🎙 " : "") + s.text;
+    row.append(time, body);
+    box.appendChild(row);
+  }
+  if (atBottom) box.scrollTop = box.scrollHeight;
+  vodRenderControls();
+}
+
+function vodRenderOutput(doc, built) {
+  const out = $("#vod-output");
+  if (!out) return;
+  out.innerHTML = "";
+  const card = document.createElement("div");
+  card.className = "np-doc";
+
+  const head = document.createElement("div");
+  head.className = "np-doc-head";
+  const label = document.createElement("b");
+  label.textContent = built.title;
+  const btns = document.createElement("div");
+  btns.className = "np-doc-btns";
+  const st = document.createElement("span");
+  st.className = "saved-note";
+
+  const nbtn = document.createElement("button");
+  nbtn.className = "btn-small"; nbtn.textContent = "📤 노션";
+  nbtn.addEventListener("click", () => sendToNotion(built.title, built.md, st));
+
+  const cbtn = document.createElement("button");
+  cbtn.className = "btn-small"; cbtn.textContent = "📋 복사";
+  cbtn.addEventListener("click", () => copyText(`# ${built.title}\n\n${built.md}`)
+    .then(() => toast("📋 복사됐어요! 노션에 붙여넣으면 서식까지 그대로 들어가요"))
+    .catch(() => toast("복사 실패 — 아래 내용을 직접 선택해 복사해주세요")));
+
+  const dbtn = document.createElement("button");
+  dbtn.className = "btn-small"; dbtn.textContent = "⬇️ 파일";
+  dbtn.addEventListener("click", () => { downloadMd(built.title, `# ${built.title}\n\n${built.md}`); toast("⬇️ 파일 저장! 노션에서 [가져오기] → 마크다운으로 올리면 페이지가 돼요", 7000); });
+
+  const pbtn = document.createElement("button");
+  pbtn.className = "btn-small"; pbtn.textContent = "🖨 PDF";
+  pbtn.addEventListener("click", () => { reportModalTask = { title: built.title, assignee: "planner", result: built.md, status: "done", doneAt: Date.now() }; printReportDoc(); });
+
+  const sbtn = document.createElement("button");
+  sbtn.className = "btn-small"; sbtn.textContent = "📖 직원 스터디 회의";
+  sbtn.title = "이 강의 노트로 AI 직원들이 스터디 회의를 열어 내 계정에 적용할 것을 뽑아요";
+  sbtn.addEventListener("click", () => studyMeeting(doc.id));
+
+  btns.append(st, nbtn, cbtn, dbtn, pbtn, sbtn);
+  head.append(label, btns);
+
+  const body = document.createElement("div");
+  body.className = "np-doc-body";
+  body.innerHTML = renderMarkdown(built.md);
+  card.append(head, body);
+  out.appendChild(card);
+  out.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderVod() {
+  if (!$("#tab-vod")) return;
+  const ti = $("#vod-title");
+  if (ti && !ti.value && vod.title) ti.value = vod.title;
+  vodRenderLive();
+  vodRenderControls();
+  vodStatus();
 }
 
 /* ==================================================
@@ -6845,6 +7460,7 @@ function switchTab(name) {
   if (name === "threads") renderThreadTab();
   if (name === "studio") renderStudio();
   if (name === "chat") renderChat();
+  if (name === "vod") renderVod();
   if (name === "library") renderLibrary();
   if (name === "settings") renderSettings();
   if (name === "home") renderHome();
@@ -6866,6 +7482,7 @@ function renderAll() {
   renderSponsorFeeds();
   renderSponsorBox();
   if ($("#tab-threads")) renderThreadTab();
+  renderVod();
 }
 
 /* ---------- 이벤트 바인딩 ---------- */
@@ -7097,6 +7714,30 @@ function bindEvents() {
   $("#nm-cancel").addEventListener("click", () => $("#notion-modal").classList.add("hidden"));
   $("#nm-fetch").addEventListener("click", () => addLinkedDoc($("#nm-url").value));
   $("#nm-url").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addLinkedDoc($("#nm-url").value); } });
+  // 🎥 강의 화면 추출
+  $("#vod-start")?.addEventListener("click", vodStart);
+  $("#vod-stop")?.addEventListener("click", () => vodStop(false));
+  $("#vod-pause")?.addEventListener("click", vodPause);
+  $("#vod-shot")?.addEventListener("click", () => vodTick(true));
+  $("#vod-make")?.addEventListener("click", vodFinish);
+  $("#vod-interval")?.addEventListener("change", () => { if (vod.running) vodResetTimer(); });
+  $("#vod-title")?.addEventListener("input", e => { vod.title = e.target.value.trim(); if (vod.segments.length) vodSave(); });
+  $("#vod-speech")?.addEventListener("change", e => {
+    if (!vod.running) return;
+    if (e.target.checked) {
+      if (!vodStartSpeech()) { e.target.checked = false; vod.notice = "🎙 이 브라우저는 말소리 받아쓰기를 지원하지 않아요 (크롬 권장)."; }
+    } else vodStopSpeech();
+    vodStatus();
+  });
+  $("#vod-clear")?.addEventListener("click", () => {
+    if (!vod.segments.length) return;
+    if (!confirm("받아 적은 강의 기록을 모두 지울까요? (이미 자료실에 저장한 노트는 그대로 남아요)")) return;
+    vodClearLive();
+    vodRenderLive();
+    vodStatus();
+    toast("🗑 강의 기록을 비웠어요.");
+  });
+
   $("#lib-add-file").addEventListener("click", () => $("#lib-file-input").click());
   $("#lib-file-input").addEventListener("change", e => {
     if (e.target.files.length) addDocsByFiles(e.target.files);
@@ -7900,6 +8541,7 @@ function renderReels() {
 function init() {
   applyTheme();
   setupChipRows();
+  vodRestore(); // 강의 추출 중 새로고침·종료됐어도 받아 적은 내용 복구
   bindEvents();
   if (!settings) {
     $("#onboarding").classList.remove("hidden");
@@ -7953,5 +8595,10 @@ window.__senter = {
   normSponsorUrl, recruitType, getSponsorHidden: () => sponsorHidden, addManualLink, parseAdLibrary,
   aiChat, freeAiCoolingDown, enterFreeAiCooldown, sweepPuterDialogs,
   collectThreadViral, generateThreadPost, threadOfflineDraft, getThreadPatterns: () => threadPatterns,
-  buildContentPackage, runContentPackage, mdToNotionBlocks, createNotionPage, sendToNotion, notionParentId
+  buildContentPackage, runContentPackage, mdToNotionBlocks, createNotionPage, sendToNotion, notionParentId,
+  // 🎥 강의 화면 추출 (화면 공유는 사용자 클릭이 필요해 테스트는 아래 훅으로 기록을 주입)
+  vodStart, vodStop, vodTick, vodPush, vodFinish, vodBuildNote, vodOfflineNote, vodRawText,
+  vodDuplicate, vodClearLive, vodRestore, vodSave, renderVod, vodFmt,
+  getVod: () => vod,
+  setVodSegments: (arr) => { vod.segments = arr; vodSave(); vodRenderLive(); vodStatus(); }
 };
