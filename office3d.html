@@ -48,6 +48,7 @@
   <span class="sub" id="sub">데이터 읽는 중…</span>
   <span class="grow"></span>
   <button id="btn-tour">🎥 둘러보기</button>
+  <button id="btn-flat" title="3D가 느리거나 어지러우면 평면도로 볼 수 있어요">🗺 평면도로 보기</button>
   <button id="btn-labels" class="on">🏷 이름표</button>
   <button id="btn-glass" class="on">🪟 유리</button>
   <button id="btn-reset">↺ 시점 초기화</button>
@@ -191,9 +192,29 @@
     return { w: w, h: h, aspect: w / h }; // 0 나눗셈으로 NaN 되는 사고 방지
   }
 
+  /* WebGL 컨텍스트를 여러 조건으로 시도 — 하드웨어 가속이 약한 PC·모바일도 최대한 살림 */
+  function probeGL(cv) {
+    var opts = [
+      { antialias: true, powerPreference: "high-performance" },
+      { antialias: false },
+      { antialias: false, failIfMajorPerformanceCaveat: false },
+      { antialias: false, alpha: true, depth: true, stencil: false, desynchronized: true }
+    ];
+    var names = ["webgl2", "webgl", "experimental-webgl"];
+    for (var i = 0; i < names.length; i++) {
+      for (var j = 0; j < opts.length; j++) {
+        try { var gl = cv.getContext(names[i], opts[j]); if (gl) return gl; } catch (e) {}
+      }
+    }
+    return null;
+  }
+
   function initThree() {
     var s = safeSize();
-    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+    var gl = probeGL(canvas);
+    if (!gl) return false; // 3D 불가 → 2D 평면도로 전환
+    initMaterials();
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, context: gl, antialias: !!gl.getContextAttributes && gl.getContextAttributes().antialias });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(s.w, s.h, false);
     renderer.shadowMap.enabled = true;
@@ -214,6 +235,12 @@
     sun.shadow.camera.far = 700;
     scene.add(sun);
     scene.add(new THREE.AmbientLight(0xffffff, 0.22));
+    // 컨텍스트가 중간에 끊기면 (드라이버 문제) 2D 평면도로 자동 전환
+    canvas.addEventListener("webglcontextlost", function (e) {
+      e.preventDefault();
+      if (!flat2d.active) { flat2d.render(DATA, "3D 그래픽 연결이 끊겨서 평면도로 전환했어요."); }
+    }, false);
+    return true;
   }
 
   /* ---------- 2. 글자 라벨 (캔버스 폭에 맞춰 폰트 축소 — 잘림 방지) ---------- */
@@ -254,7 +281,10 @@
   }
 
   /* ---------- 3. 부품 만들기 ---------- */
-  var M = {
+  var M = {};                       // 3D 재료는 THREE 확인 후 지연 생성 (없으면 스크립트가 죽어 평면도도 못 그림)
+  function initMaterials() {
+    if (M.slab) return;
+    var Mx = {
     slab:    new THREE.MeshStandardMaterial({ color: 0xe8ece9, roughness: .9 }),
     slabEdge:new THREE.MeshStandardMaterial({ color: 0xcdd6d0, roughness: .85 }),
     mullion: new THREE.MeshStandardMaterial({ color: 0x7e8a84, roughness: .5, metalness: .35 }),
@@ -277,7 +307,9 @@
     plaque:  new THREE.MeshStandardMaterial({ color: 0xb8a06a, roughness: .5, metalness: .6 }),
     stone:   new THREE.MeshStandardMaterial({ color: 0xd3d0c8, roughness: .95 }),
     board:   new THREE.MeshStandardMaterial({ color: 0x24302b, roughness: .8 })
-  };
+    };
+    Object.keys(Mx).forEach(function (k) { M[k] = Mx[k]; });
+  }
   function box(w, h, d, mat) { return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); }
   function cyl(rt, rb, h, mat, seg) { return new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg || 12), mat); }
 
@@ -391,7 +423,7 @@
   /* ---------- 4. 건물 짓기 ---------- */
   var FLOOR_H = 13;            // 층고
   var floorsInfo = [];         // 층별 정보 (투어·통계용)
-  var world = new THREE.Group();
+  var world = null;            // THREE 확인 후 생성 (최상위에서 만들면 라이브러리 없을 때 스크립트가 죽음)
 
   function curtainWall(w, d, y, h, showGlass) {
     var g = new THREE.Group();
@@ -457,6 +489,7 @@
   }
 
   function build(data) {
+    world = new THREE.Group();
     /* 층 구성: 지상층(로비) + 부서별 한 층 + 최상층(경영층: 대표·과장) */
     var deptFloors = (data.teams || []).map(function (t) {
       var members = (t.members || []).slice();
@@ -803,8 +836,9 @@
     });
   }
 
-  var ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  var ray = null, ndc = null;
   function tryPick(e) {
+    if (!ray) { ray = new THREE.Raycaster(); ndc = new THREE.Vector2(); }
     var s = safeSize();
     ndc.x = (e.clientX / s.w) * 2 - 1;
     ndc.y = -(e.clientY / s.h) * 2 + 1;
@@ -895,13 +929,296 @@
       '<span style="color:var(--soft)">숫자는 앱 기록에 남은 것만 셌어요.</span>';
   }
 
+  /* ---------- 7-B. 2D 평면도 대체 뷰 (WebGL 없어도 내 사옥을 볼 수 있게) ----------
+     철칙 6에 따라 CSS 3D 변환은 쓰지 않고, 캔버스 2D로 층별 단면을 위→아래로 그린다. */
+  var flat2d = {
+    active: false,
+    rects: [],   // 클릭 판정용 [{x,y,w,h,info}]
+    scroll: 0,
+    maxScroll: 0,
+    render: function (data, why) {
+      if (!data) { showEmpty(); return; }
+      this.active = true;
+      DATA = data;
+      var self = this;
+      // WebGL로 이미 쓰인 캔버스에서는 2D 컨텍스트를 얻을 수 없음 → 새 캔버스로 교체
+      if (renderer || !canvas.getContext("2d")) {
+        try { if (renderer) { renderer.dispose(); renderer = null; } } catch (e) {}
+        var fresh = document.createElement("canvas");
+        fresh.id = "stage";
+        canvas.parentNode.replaceChild(fresh, canvas);
+        canvas = fresh;
+      }
+      document.getElementById("empty").style.display = "none";
+      document.getElementById("btn-tour").style.display = "none";
+      document.getElementById("btn-glass").style.display = "none";
+      document.getElementById("btn-labels").style.display = "none";
+      document.getElementById("btn-reset").textContent = "↺ 위로";
+      var fb = document.getElementById("btn-flat");
+      if (fb) { fb.textContent = "🏙 3D로 보기"; fb.classList.add("on"); }
+      document.getElementById("btn-reset").onclick = function () { self.scroll = 0; self.draw(); };
+      var lg = document.getElementById("legend");
+      if (lg) { lg.style.bottom = "auto"; lg.style.top = "66px"; lg.style.maxWidth = "230px"; lg.style.opacity = ".96"; }
+      if (lg) lg.innerHTML = "<b>읽는 법 (평면도 모드)</b><br>층 = 부서 · 🙂 = AI 직원 · 🖥 = 자료(워크스테이션)<br>" +
+        "숫자 = 그 직원이 끝낸 업무 건수<br><span style='color:var(--soft)'>" + (why || "") + "</span>";
+      // HUD 수치는 3D와 동일하게 채움
+      try { fillHud(data, { stack: (data.teams || []).concat([1, 1]) }); } catch (e) {}
+      document.getElementById("sub").textContent = "평면도 모드 · " +
+        ((data.teams || []).reduce(function (a, t) { return a + (t.members || []).length; }, 0) + 2) + "명 · 자료 " + (data.docs || []).length + "개";
+      canvas.style.cursor = "pointer";
+      window.addEventListener("resize", function () { self.draw(); });
+      canvas.addEventListener("wheel", function (e) {
+        e.preventDefault();
+        self.scroll = Math.max(0, Math.min(self.maxScroll, self.scroll + e.deltaY));
+        self.draw();
+      }, { passive: false });
+      var dragY = null;
+      canvas.addEventListener("pointerdown", function (e) { dragY = e.clientY; });
+      window.addEventListener("pointerup", function (e) {
+        if (dragY !== null && Math.abs(e.clientY - dragY) < 4) self.hit(e);
+        dragY = null;
+      });
+      window.addEventListener("pointermove", function (e) {
+        if (dragY === null) return;
+        self.scroll = Math.max(0, Math.min(self.maxScroll, self.scroll - (e.clientY - dragY)));
+        dragY = e.clientY;
+        self.draw();
+      });
+      this.draw();
+      tip("💡 평면도 모드 — 스크롤로 층 이동, 항목을 누르면 정보가 떠요");
+    },
+    floors: function (data) {
+      var depts = (data.teams || []).map(function (t) {
+        var members = (t.members || []).slice();
+        (data.hired || []).forEach(function (h) { if ((h.team || "content") === t.id) members.push(h); });
+        return { id: t.id, name: t.name, icon: t.icon, color: DEPT_COLOR[t.id] || DEPT_COLOR.etc,
+          people: members,
+          docs: (data.docs || []).filter(function (d) { return (DOC_CAT_DEPT[d.cat] || "etc") === t.id; }),
+          reports: (data.reports || []).filter(function (r) { return (REPORT_CAT_DEPT[r.cat] || "etc") === t.id; }),
+          board: ["todo", "doing", "review"].reduce(function (acc, k) {
+            acc[k] = (data.board[k] || []).filter(function (x) { return x.dept === t.id; }); return acc; }, {}) };
+      });
+      depts.sort(function (a, b) { return (b.people.length + b.docs.length) - (a.people.length + a.docs.length); });
+      var exec = { id: "exec", name: "경영층 — 대표실 · 과장실", icon: "👑", color: DEPT_COLOR.exec,
+        people: [data.boss, data.manager].filter(Boolean), docs: [], reports: [], board: {} };
+      var ground = { id: "ground", name: "지상층 — 로비 · 링크 게시판", icon: "🏛", color: DEPT_COLOR.etc,
+        people: [], docs: (data.docs || []).filter(function (d) { return (DOC_CAT_DEPT[d.cat] || "etc") === "etc"; }),
+        reports: [], links: data.links || [], board: {} };
+      return [exec].concat(depts).concat([ground]); // 위→아래 (최상층 먼저)
+    },
+    draw: function () {
+      var data = DATA;
+      if (!data) return;
+      var s = safeSize();
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = s.w * dpr; canvas.height = s.h * dpr;
+      var ctx = canvas.getContext("2d");
+      if (!ctx) { showEmpty("이 브라우저에서는 화면을 그릴 수 없어요. 다른 브라우저(크롬·사파리 최신)로 열어주세요."); return; }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, s.w, s.h);
+      // 배경 (하늘 → 잔디)
+      var bg = ctx.createLinearGradient(0, 0, 0, s.h);
+      bg.addColorStop(0, "#dceaf0"); bg.addColorStop(1, "#eef4ee");
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, s.w, s.h);
+
+      this.rects = [];
+      var pad = 18;
+      var legendW = s.w > 980 ? 250 : 0; // 넓은 화면에서만 범례 폭 확보
+      var W = Math.min(880, s.w - pad * 2 - legendW);
+      var X = legendW ? legendW + pad : (s.w - W) / 2;
+      var y = 78 - this.scroll;
+      var floors = this.floors(data);
+      var self = this;
+
+      // 옥상
+      ctx.fillStyle = "#c9d2cb";
+      roundRect(ctx, X + 30, y, W - 60, 16, 6); ctx.fill();
+      ctx.fillStyle = "#5b6a62"; ctx.font = "600 12px -apple-system, sans-serif";
+      ctx.fillText("옥상 · 파라펫 + 기계실", X + 42, y + 12);
+      y += 26;
+
+      floors.forEach(function (f, idx) {
+        var units = f.people.length + f.docs.length + ((f.links || []).length ? 2 : 0);
+        var perRow0 = (W - 40) > 620 ? 6 : (W - 40) > 420 ? 4 : 3;
+        var rows = Math.max(1, Math.ceil(f.people.length / perRow0) + Math.ceil(f.docs.length / perRow0) + ((f.links || []).length ? 1 : 0));
+        var H = 62 + rows * 56;
+        var inset = idx === 0 ? 40 : idx === floors.length - 1 ? 0 : Math.max(0, 26 - idx * 6); // 셋백 느낌
+        var fx = X + inset, fw = W - inset * 2;
+
+        // 층 슬래브 + 유리 벽
+        ctx.fillStyle = "rgba(255,255,255,.92)";
+        roundRect(ctx, fx, y, fw, H, 10); ctx.fill();
+        ctx.strokeStyle = "#c9d6cd"; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.fillStyle = "rgba(191,226,232,.35)";
+        roundRect(ctx, fx + 6, y + 30, fw - 12, H - 38, 8); ctx.fill();
+        // 멀리언 (수직 프레임)
+        ctx.strokeStyle = "rgba(126,138,132,.5)"; ctx.lineWidth = 1;
+        for (var mx = fx + 26; mx < fx + fw - 10; mx += 34) {
+          ctx.beginPath(); ctx.moveTo(mx, y + 30); ctx.lineTo(mx, y + H - 8); ctx.stroke();
+        }
+
+        // 층 이름표
+        var col = "#" + ("000000" + f.color.toString(16)).slice(-6);
+        ctx.fillStyle = col; roundRect(ctx, fx + 12, y + 8, 5, 16, 2); ctx.fill();
+        ctx.fillStyle = "#1b2420"; ctx.font = "700 15px -apple-system, sans-serif";
+        fitText(ctx, f.icon + " " + f.name, fx + 24, y + 21, fw - 180, 15);
+        ctx.fillStyle = "#6b7a72"; ctx.font = "12px -apple-system, sans-serif";
+        var meta = f.people.length ? "직원 " + f.people.length + "명" : "";
+        if (f.docs.length) meta += (meta ? " · " : "") + "자료 " + f.docs.length + "개";
+        if (f.reports.length) meta += (meta ? " · " : "") + "보고서 " + f.reports.length + "건";
+        if ((f.links || []).length) meta += (meta ? " · " : "") + "링크 " + f.links.length + "개";
+        var bd = (f.board && (f.board.doing || []).length) || 0;
+        if (bd) meta += " · 진행 " + bd;
+        ctx.textAlign = "right"; ctx.fillText(meta, fx + fw - 14, y + 21); ctx.textAlign = "left";
+
+        var cx = fx + 20, cy = y + 44;
+        // 사람 (AI 직원)
+        var perRow = fw > 620 ? 6 : fw > 420 ? 4 : 3;
+        f.people.forEach(function (p, i) {
+          if (!p) return;
+          if (i > 0 && i % perRow === 0) { cy += 56; }
+          var px = cx + (i % perRow) * ((fw - 40) / perRow);
+          drawPerson(ctx, px, cy, col, p, self, (fw - 48) / perRow);
+        });
+        if (f.people.length) cy += 56;
+        // 워크스테이션 (자료)
+        f.docs.forEach(function (d, i) {
+          if (i > 0 && i % perRow === 0) { cy += 56; }
+          var px = cx + (i % perRow) * ((fw - 40) / perRow);
+          drawStation(ctx, px, cy, col, d, self, (fw - 48) / perRow);
+        });
+        if (f.docs.length) cy += 56;
+        // 로비 링크 게시판
+        if ((f.links || []).length) {
+          ctx.fillStyle = "#f2efe4"; roundRect(ctx, cx, cy - 14, fw - 40, 30, 6); ctx.fill();
+          ctx.strokeStyle = "#ddd8c6"; ctx.stroke();
+          ctx.fillStyle = "#4a5a52"; ctx.font = "600 12px -apple-system, sans-serif";
+          fitText(ctx, "🔖 체험단 링크 게시판 — " + f.links.slice(0, 3).map(function (l) { return l.title.slice(0, 14); }).join(" / ") + (f.links.length > 3 ? " 외 " + (f.links.length - 3) : ""), cx + 10, cy + 5, fw - 60, 12);
+          self.rects.push({ x: cx, y: cy - 14, w: fw - 40, h: 30, info: { title: "🔖 체험단 링크함 (" + f.links.length + ")",
+            lines: f.links.slice(0, 6).map(function (l) { return "· " + l.title; }) } });
+        }
+        // 보고서함
+        if (f.reports.length) {
+          ctx.fillStyle = "#e6e9e5"; roundRect(ctx, fx + fw - 108, y + H - 34, 96, 24, 5); ctx.fill();
+          ctx.fillStyle = "#4a5a52"; ctx.font = "600 11px -apple-system, sans-serif";
+          ctx.fillText("📑 보고서 " + f.reports.length + "건", fx + fw - 100, y + H - 18);
+          self.rects.push({ x: fx + fw - 108, y: y + H - 34, w: 96, h: 24, info: { title: "📑 " + f.name + " 보고서함",
+            lines: f.reports.slice(0, 6).map(function (r) { return (r.status === "done" ? "✅ " : "🕐 ") + r.title.slice(0, 26); }) } });
+        }
+        y += H + 10;
+      });
+
+      // 지상 대지 (사인 · 조각상)
+      ctx.fillStyle = "#dfe8dd"; roundRect(ctx, X, y + 4, W, 54, 10); ctx.fill();
+      ctx.fillStyle = "#33443c"; roundRect(ctx, X + 16, y + 16, 190, 30, 6); ctx.fill();
+      ctx.fillStyle = "#eaf3ee"; ctx.font = "700 13px -apple-system, sans-serif";
+      fitText(ctx, "🌱 " + (data.studio || "내 센터"), X + 26, y + 35, 170, 13);
+      this.rects.push({ x: X + 16, y: y + 16, w: 190, h: 30, info: { title: data.studio || "내 센터",
+        lines: ["주제: " + (data.topic || "-"), "목표: " + (data.goal || "-"), "이 평면도는 센터 앱의 실제 데이터로 그렸어요."] } });
+      ctx.fillStyle = "#cfc9b4"; roundRect(ctx, X + W - 210, y + 16, 194, 30, 6); ctx.fill();
+      ctx.fillStyle = "#4a4231"; ctx.font = "600 12px -apple-system, sans-serif";
+      fitText(ctx, "🗿 명판 — 완료한 업무 " + (data.board.doneCount || 0) + "건", X + W - 200, y + 35, 176, 12);
+      this.rects.push({ x: X + W - 210, y: y + 16, w: 194, h: 30, info: { title: "🗿 조각상 · 명판",
+        lines: ["완료(승인) 업무 " + (data.board.doneCount || 0) + "건",
+          "회의록 " + ((data.meetings || []).length) + "건 · 활동 " + (data.activityCount || 0) + "줄",
+          "※ 앱에 실제로 남은 기록만 센 값이에요."] } });
+
+      this.maxScroll = Math.max(0, (y + 90) - s.h + this.scroll);
+      // 스크롤 안내
+      if (this.maxScroll > 4) {
+        ctx.fillStyle = "rgba(27,36,32,.5)"; ctx.font = "12px -apple-system, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(this.scroll < this.maxScroll - 4 ? "▼ 스크롤하면 아래 층이 보여요" : "▲ 위로 스크롤", s.w / 2, s.h - 18);
+        ctx.textAlign = "left";
+      }
+    },
+    hit: function (e) {
+      var box = document.getElementById("picked");
+      for (var i = this.rects.length - 1; i >= 0; i--) {
+        var r = this.rects[i];
+        if (e.clientX >= r.x && e.clientX <= r.x + r.w && e.clientY >= r.y && e.clientY <= r.y + r.h) {
+          box.innerHTML = "<h3>" + esc(r.info.title) + "</h3>" +
+            r.info.lines.map(function (l) { return '<div class="meta">' + esc(l) + "</div>"; }).join("");
+          box.style.display = "block";
+          return;
+        }
+      }
+      box.style.display = "none";
+    }
+  };
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+  /* 폭에 맞춰 폰트를 줄여 글자 잘림 방지 (3D 라벨과 같은 규칙) */
+  function fitText(ctx, text, x, y, maxW, size) {
+    var f = size;
+    do {
+      ctx.font = (size >= 14 ? "700 " : "600 ") + f + "px -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif";
+      f -= 1;
+    } while (f > 8 && ctx.measureText(text).width > maxW);
+    ctx.fillText(text, x, y);
+  }
+  function drawPerson(ctx, x, y, col, p, self, cellW) {
+    cellW = cellW || 78;
+    var done = p.done || 0;
+    if (done > 0) { // 발광 = 업무량 (가산 혼합 없이 반투명 원)
+      ctx.fillStyle = col + ""; ctx.globalAlpha = Math.min(.3, .08 + done * .05);
+      ctx.beginPath(); ctx.arc(x + 13, y + 12, 20, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = col;
+    roundRect(ctx, x + 5, y + 6, 16, 18, 5); ctx.fill();       // 몸
+    ctx.fillStyle = "#f0cba8";
+    ctx.beginPath(); ctx.arc(x + 13, y + 2, 7, 0, Math.PI * 2); ctx.fill();  // 머리
+    if (p.tier === "boss" || p.tier === "manager") {
+      ctx.fillStyle = p.tier === "boss" ? "#b8a06a" : "#2b332f";
+      roundRect(ctx, x + 5, y - 6, 16, 4, 2); ctx.fill();
+    }
+    ctx.fillStyle = "#31403a"; ctx.font = "600 11px -apple-system, sans-serif";
+    var nm = (p.tier === "lead" ? "⭐" : "") + (p.name || "");
+    fitText(ctx, nm, x - 4, y + 38, cellW, 11);
+    if (done) {
+      ctx.fillStyle = "#3f8f6a"; ctx.font = "700 10px -apple-system, sans-serif";
+      ctx.fillText(String(done), x + 24, y + 4);
+    }
+    self.rects.push({ x: x - 4, y: y - 8, w: cellW, h: 52, info: {
+      title: (p.emoji || "🙂") + " " + p.name,
+      lines: [(p.role || (p.tier === "boss" ? "대표(사장)" : p.tier === "manager" ? "과장" : p.tier === "lead" ? "팀장" : "팀원")),
+        "완료 " + done + "건 · 진행 중 " + (p.open || 0) + "건",
+        done ? "숫자 = 끝낸 업무 건수" : "부른 기록이 없어요 (안 썼다는 뜻은 아니에요)"] } });
+  }
+  function drawStation(ctx, x, y, col, d, self, cellW) {
+    cellW = cellW || 84;
+    if (d.enabled) {
+      ctx.fillStyle = col; ctx.globalAlpha = .16;
+      roundRect(ctx, x - 3, y - 4, 40, 34, 8); ctx.fill(); ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = "#d8cbb4"; roundRect(ctx, x, y + 16, 34, 5, 2); ctx.fill();   // 책상
+    ctx.fillStyle = d.enabled ? col : "#9aa5a0";
+    roundRect(ctx, x + 6, y + 2, 22, 13, 3); ctx.fill();                          // 화면
+    ctx.fillStyle = "#3c4a44"; roundRect(ctx, x, y + 4, 5, 11, 2); ctx.fill();    // 본체
+    ctx.fillStyle = "#31403a"; ctx.font = "600 10px -apple-system, sans-serif";
+    fitText(ctx, "🖥 " + (d.title || ""), x - 2, y + 34, cellW, 10);
+    self.rects.push({ x: x - 4, y: y - 4, w: cellW, h: 48, info: {
+      title: "🖥 " + d.title,
+      lines: ["자료실 자료 (워크스테이션 = 자료·지시문)",
+        (d.size / 1000).toFixed(1) + "천 자" + (d.linked ? " · 🔗 연동" : ""),
+        d.enabled ? "직원들이 참고 중" : "꺼짐 (참고 안 함)"] } });
+  }
+
   /* ---------- 8. 시작 ---------- */
   function boot() {
-    if (!THREE) { showEmpty("3D 엔진(three.js)을 불러오지 못했어요. vendor/three.min.js 파일이 같은 폴더에 있는지 확인해주세요."); return; }
     loadData().then(function (data) {
       if (!data || (!(data.teams || []).length && !(data.docs || []).length)) { showEmpty(); return; }
+      if (!THREE) { DATA = data; flat2d.render(data, "3D 엔진 파일(vendor/three.min.js)을 못 찾아서 평면도로 보여드려요."); return; }
       DATA = data;
-      initThree();
+      if (!initThree()) { flat2d.render(data, "이 브라우저에서 3D 그래픽(WebGL)을 켤 수 없어서 평면도로 보여드려요."); return; }
       var info = build(data);
       cam.ty = info.topY * .38;
       home = { tx: 0, ty: cam.ty, tz: 0, dist: 250, yaw: Math.PI / 2 - .55, pitch: .3 };
@@ -913,7 +1230,9 @@
       animate();
       setTimeout(function () { tip("💡 끌어서 회전 · 휠로 확대 · 클릭하면 정보가 떠요"); }, 700);
     }).catch(function (e) {
-      showEmpty("데이터를 읽는 중 문제가 생겼어요: " + (e && e.message ? e.message : e));
+      var m = String(e && e.message ? e.message : e);
+      if (/webgl|context|gpu/i.test(m) && DATA) { flat2d.render(DATA, "3D 그래픽을 켤 수 없어서 평면도로 보여드려요."); return; }
+      showEmpty("데이터를 읽는 중 문제가 생겼어요: " + m);
     });
   }
   function showEmpty(msg) {
@@ -925,6 +1244,7 @@
 
   var lastT = 0;
   function animate(t) {
+    if (flat2d.active || !renderer) return; // 평면도 모드에선 3D 루프 정지
     requestAnimationFrame(animate);
     var now = (t || 0) / 1000, dt = Math.min(.05, now - lastT || .016);
     lastT = now;
@@ -934,6 +1254,7 @@
   }
 
   window.addEventListener("resize", function () {
+    if (flat2d.active) { flat2d.draw(); return; }
     if (!renderer) return;
     var s = safeSize();
     renderer.setSize(s.w, s.h, false);
@@ -941,7 +1262,11 @@
     camera.updateProjectionMatrix();
   });
 
-  document.getElementById("btn-tour").addEventListener("click", startTour);
+  document.getElementById("btn-tour").addEventListener("click", function () { if (!flat2d.active) startTour(); });
+  document.getElementById("btn-flat").addEventListener("click", function () {
+    if (flat2d.active) { location.reload(); return; }  // 평면도 → 3D로 되돌리기
+    flat2d.render(DATA, "3D 대신 평면도로 보고 있어요. (버튼을 다시 누르면 3D)");
+  });
   document.getElementById("btn-reset").addEventListener("click", function () {
     if (!home) return;
     tour.active = false;
@@ -949,10 +1274,12 @@
     applyCam();
   });
   document.getElementById("btn-labels").addEventListener("click", function () {
+    if (flat2d.active) return;
     var on = this.classList.toggle("on");
     labels.forEach(function (sp) { sp.visible = on; });
   });
   document.getElementById("btn-glass").addEventListener("click", function () {
+    if (flat2d.active) return;
     var on = this.classList.toggle("on");
     M.glass.opacity = on ? .22 : 0;
     M.glass.visible = on;
@@ -962,6 +1289,9 @@
   // 테스트·검증용 훅 (픽셀 검증에서 사용)
   window.__office3d = {
     get data() { return DATA; },
+    get mode() { return flat2d.active ? "2d" : (renderer ? "3d" : "none"); },
+    get flatRects() { return flat2d.rects; },
+    forceFlat: function () { flat2d.render(DATA, "테스트: 평면도 강제 전환"); },
     get floors() { return floorsInfo; },
     get camera() { return camera; },
     get scene() { return scene; },
