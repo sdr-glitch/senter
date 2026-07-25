@@ -6851,46 +6851,7 @@ function switchTab(name) {
 }
 
 /* ---------- 렌더 전체 ---------- */
-/* 3D 오피스(office3d.html)가 읽을 스냅샷 — 조직·부서·활동량을 데이터에서 그대로 뽑아 저장.
-   별도 페이지는 앱 로직을 복제하지 않고 이 스냅샷만 읽으므로 조직이 바뀌면 자동 반영됨. */
-function saveOfficeSnapshot() {
-  try {
-    const doneOf = (id) => tasks.filter(t => t.assignee === id && t.status === "done").length;
-    const openOf = (id) => tasks.filter(t => t.assignee === id && t.status !== "done").length;
-    const snap = {
-      at: Date.now(),
-      studio: `${(settings && settings.name) || "크리에이터"}의 센터`,
-      topic: topicWord(),
-      goal: (settings && settings.goal) || "",
-      boss: { id: "boss", name: `${(settings && settings.name) || "크리에이터"} 대표`, emoji: "👑", tier: "boss" },
-      manager: { id: "pm", name: "매니저(과장)", emoji: "🧑‍💼", tier: "manager", done: doneOf("pm"), open: openOf("pm") },
-      teams: TEAMS.map(t => ({
-        id: t.id, name: t.name, icon: t.icon, lead: t.lead,
-        members: t.members.filter(id => STAFF.some(s => s.id === id)).map(id => {
-          const st = STAFF.find(s => s.id === id) || {};
-          return { id, name: st.name || id, emoji: st.emoji || "🙂", role: st.role || "",
-            tier: t.lead === id ? "lead" : "staff", done: doneOf(id), open: openOf(id) };
-        })
-      })),
-      hired: customStaff.map(c => ({ id: c.id, name: c.name, emoji: c.emoji, role: c.role, tier: "staff", done: doneOf(c.id), open: openOf(c.id), team: "content" })),
-      docs: docs.map(d => ({ title: d.title, cat: d.cat || "etc", size: d.content.length, enabled: !!d.enabled, linked: !!d.url })),
-      reports: reports.map(r => ({ title: r.title, cat: r.cat, status: r.status, version: r.version || 1 })),
-      links: (typeof sponsorSaved !== "undefined" ? sponsorSaved : []).map(f => ({ title: f.title, cat: f.cat, type: f.type || "", src: f.src || "" })),
-      board: {
-        todo: tasks.filter(t => t.status === "todo").map(t => ({ title: t.title, who: staffName(t.assignee), dept: teamOf(t.assignee).id })),
-        doing: tasks.filter(t => t.status === "doing").map(t => ({ title: t.title, who: staffName(t.assignee), dept: teamOf(t.assignee).id, stage: t.stage || "" })),
-        review: tasks.filter(t => t.status === "review").map(t => ({ title: t.title, who: staffName(t.assignee), dept: teamOf(t.assignee).id })),
-        doneCount: tasks.filter(t => t.status === "done").length
-      },
-      meetings: meetings.slice(0, 12).map(m => ({ study: m.study || "", quick: !!m.quick, lines: (m.minutes || []).length, speakers: [...new Set((m.minutes || []).map(l => l.speaker))] })),
-      activityCount: activity.length
-    };
-    store.set("officeSnapshot", snap);
-  } catch { /* 스냅샷 실패는 앱 동작에 영향 없음 */ }
-}
-
 function renderAll() {
-  saveOfficeSnapshot();
   renderKeyStatus();
   renderOffice();
   renderStaff();
@@ -6939,10 +6900,6 @@ function bindEvents() {
   $("#brief-btn").addEventListener("click", () => holdScrum(true));
   $("#report-btn").addEventListener("click", () => generateReport(false));
   $("#board-search").addEventListener("input", e => { boardQuery = e.target.value; renderBoard(); });
-  $("#office3d-btn")?.addEventListener("click", () => {
-    saveOfficeSnapshot(); // 최신 조직·업무 상태를 먼저 저장한 뒤 3D 페이지 열기
-    window.open("office3d.html", "_blank", "noopener");
-  });
   $("#minutes-btn").addEventListener("click", () => { renderMinutesList(); $("#minutes-modal").classList.remove("hidden"); });
   $("#minutes-close").addEventListener("click", () => $("#minutes-modal").classList.add("hidden"));
   $("#minutes-modal").addEventListener("click", e => { if (e.target === $("#minutes-modal")) $("#minutes-modal").classList.add("hidden"); });
