@@ -4474,6 +4474,201 @@ function renderSponsorFeeds() {
 }
 
 
+/* ---------- 스레드 글 생성기 ----------
+   ① 스레드 바이럴 글을 우회 수집해 패턴·공식 추출(senter:threadPatterns)
+   ② 주제를 던지면 그 공식 + 내 계정 맥락으로 반말 스레드 글 3버전 생성
+   철칙 5: AI 있으면 진짜 생성, 없으면 오프라인 공식 템플릿 (앱 안 죽음) */
+let threadPatterns = store.get("threadPatterns", null); // {formulas:[...], examples:[...], at}
+
+/* 스레드 바이럴 글이 통하는 기본 공식 (수집 실패·오프라인 시 폴백, 실제 스레드 문법 기반) */
+const THREAD_FORMULAS = [
+  { key: "confession", label: "고백형", how: "\"나 사실 ~한다\"로 시작해 약점·솔직함을 던져 공감 유도", hook: "나만 이런 거 아니지?" },
+  { key: "list", label: "리스트형", how: "\"~하는 법 3가지\"처럼 번호로 끊어 저장 부르기", hook: "저장 안 하면 후회함" },
+  { key: "contrarian", label: "반전·역발상형", how: "다들 믿는 걸 뒤집어 \"사실 ~는 필요 없어\"로 시선 끌기", hook: "이거 아직도 이렇게 함?" },
+  { key: "story", label: "경험담형", how: "구체적 상황 한 컷 → 깨달음 한 줄로 마무리", hook: "어제 있었던 일인데" },
+  { key: "question", label: "질문 던지기형", how: "답이 갈리는 질문으로 댓글 유도", hook: "너네는 어떻게 함?" }
+];
+
+function threadAcctBits() {
+  const s = settings || {};
+  return { topic: topicWord(), goal: s.goal || "체험단 → 광고 수익", level: s.level || "초보" };
+}
+
+/* 스레드 바이럴 글 수집 → 패턴 추출 */
+async function collectThreadViral() {
+  const status = $("#th-collect-status");
+  const btn = $("#th-collect");
+  if (btn) btn.disabled = true;
+  const t = topicWord();
+  const queries = [
+    `스레드 바이럴 글 ${t}`, `threads 인기 글 ${t}`,
+    `스레드 팔로워 느는 글`, `threads.net ${t}`
+  ];
+  if (status) status.textContent = "🔍 바이럴 글을 우회 수집 중...";
+  const texts = await Promise.all(queries.map(q => fetchSearchText(q).catch(() => null)));
+  // 수집 텍스트에서 한국어 문장(글감) 추출
+  const examples = [];
+  const seen = new Set();
+  for (const text of texts) {
+    if (!text) continue;
+    const sents = (text.replace(/\s+/g, " ").match(/[가-힣][^.!?\n]{14,80}[.!?]?/g) || []);
+    for (const raw of sents) {
+      const sen = raw.trim();
+      const k = sen.slice(0, 20);
+      if (seen.has(k) || /검색|로그인|구독|Cookie|쿠키|광고 없이/.test(sen)) continue;
+      seen.add(k);
+      examples.push(sen);
+      if (examples.length >= 24) break;
+    }
+    if (examples.length >= 24) break;
+  }
+
+  let formulas = THREAD_FORMULAS.map(f => ({ label: f.label, how: f.how, hook: f.hook }));
+  // AI가 있으면 수집 글에서 진짜 공식을 추출해 보강
+  if (examples.length && ((settings && settings.apiKey || "").trim() || (!freeAiBroken && !freeAiCoolingDown()))) {
+    try {
+      const out = await aiChat(
+        "너는 스레드(Threads) 바이럴 글 분석가야. 아래 실제 스레드 글 발췌에서 '왜 터졌는지' 공식 4~5개를 뽑아. 각 공식은 '이름 — 한 줄 설명 — 첫 문장(후킹) 예시' 형식으로. 반말로, 다른 말 없이 목록만.",
+        [{ role: "user", content: examples.slice(0, 18).join("\n") }], () => {});
+      if (out && out.length > 30) {
+        const lines = out.split("\n").map(l => l.replace(/^[-*\d.\s]+/, "").trim()).filter(l => l.length > 8).slice(0, 6);
+        if (lines.length >= 3) formulas = lines.map(l => {
+          const [label, how, hook] = l.split(/\s*[—–-]\s*/);
+          return { label: (label || "공식").slice(0, 20), how: (how || l).slice(0, 90), hook: (hook || "").slice(0, 50) };
+        });
+      }
+    } catch { /* 실패해도 기본 공식 사용 */ }
+  }
+
+  threadPatterns = { formulas, examples: examples.slice(0, 12), at: Date.now() };
+  store.set("threadPatterns", threadPatterns);
+  if (btn) btn.disabled = false;
+  if (status) status.textContent = examples.length ? `✅ 바이럴 글 ${examples.length}개에서 공식 ${formulas.length}개 추출!` : "기본 공식으로 준비됐어 (수집 경로가 잠깐 막혔어 — 나중에 다시 눌러도 돼)";
+  renderThreadTab();
+  return formulas.length;
+}
+
+/* 반말 스레드 글 생성 (AI → 오프라인 폴백) */
+async function generateThreadPost(idea) {
+  const status = $("#th-gen-status");
+  const out = $("#th-output");
+  idea = (idea || "").trim();
+  if (!idea) { $("#th-idea").focus(); return; }
+  const pats = (threadPatterns && threadPatterns.formulas) || THREAD_FORMULAS.map(f => ({ label: f.label, how: f.how, hook: f.hook }));
+  const { topic, goal } = threadAcctBits();
+  if (status) status.textContent = "✍️ 반말로 스레드 글 쓰는 중...";
+  out.innerHTML = "";
+
+  const useAI = (settings && settings.apiKey || "").trim() || (!freeAiBroken && !freeAiCoolingDown());
+  if (useAI) {
+    try {
+      const sys = `너는 스레드(Threads) 글을 쓰는 카피라이터야. 규칙:
+- 반드시 반말로 써 (친구한테 말하듯, "~함", "~한다", "~더라", "~하자" 톤). 존댓말·번역투 금지.
+- 계정 주제는 '${topic}', 목표는 '${goal}'. 이 주제에 자연스럽게 녹여.
+- 스레드 문법: 첫 줄이 후킹(스크롤 멈추게). 3~6줄 짧게. 이모지 과하지 않게. 마지막 줄은 저장/댓글 부르는 한마디.
+- 아래 바이럴 공식을 각기 다르게 적용해 3버전 만들어. 각 버전은 서로 다른 공식.
+바이럴 공식:
+${pats.map(p => `- ${p.label}: ${p.how}${p.hook ? ` (후킹 예: ${p.hook})` : ""}`).join("\n")}
+${threadPatterns && threadPatterns.examples && threadPatterns.examples.length ? `\n참고한 실제 바이럴 글 톤:\n${threadPatterns.examples.slice(0, 6).map(e => `· ${e}`).join("\n")}` : ""}
+
+출력 형식 (딱 이대로, 다른 말 없이):
+### 1. [공식이름]
+(글 본문)
+### 2. [공식이름]
+(글 본문)
+### 3. [공식이름]
+(글 본문)`;
+      const res = await aiChat(sys, [{ role: "user", content: `주제/아이디어: ${idea}` }], () => {});
+      renderThreadOutput(res, idea);
+      if (status) status.textContent = "✅ 완성! 마음에 드는 글을 복사해서 스레드에 올려봐";
+      return;
+    } catch (e) { /* 오프라인 폴백 */ }
+  }
+  renderThreadOutput(threadOfflineDraft(idea, pats, topic), idea);
+  if (status) status.textContent = "✅ 완성! (오프라인 공식으로 생성 — AI 연결하면 더 자연스러워져)";
+}
+
+/* 오프라인 반말 스레드 글 — 공식 3종을 실제 문장으로 */
+function threadOfflineDraft(idea, pats, topic) {
+  const core = idea.replace(/["']/g, "").slice(0, 40);
+  const tags = hashtagSet().split(" ").slice(0, 3).join(" ");
+  const v1 = `### 1. 고백형
+나 사실 ${core} 이거 진짜 최근에야 깨달음 😅
+남들 다 아는 건데 나만 몰랐던 듯
+근데 이거 알고 나서 ${topic} 생활이 확 편해짐
+너네도 이거 모르면 지금 저장각이다
+${tags}`;
+  const v2 = `### 2. 리스트형
+${core} 할 때 이거 3개만 기억해
+1. 일단 눈에 보이는 것부터 치우기
+2. 자주 쓰는 건 손 닿는 데 두기
+3. 예쁜 것보다 편한 게 오래감
+저장해두고 하나씩 따라해봐 👀
+${tags}`;
+  const v3 = `### 3. 역발상형
+${core}? 솔직히 비싼 거 살 필요 없더라
+난 그냥 있는 걸로 해결함
+돈 쓰는 것보다 순서 바꾸는 게 100배 효과 좋음
+이거 공감하면 댓글로 알려줘
+${tags}`;
+  return [v1, v2, v3].join("\n\n");
+}
+
+function renderThreadOutput(text, idea) {
+  const out = $("#th-output");
+  if (!out) return;
+  // ### 로 나눠 카드 3개 + 각 복사 버튼
+  const blocks = text.split(/(?=^###\s)/m).map(s => s.trim()).filter(Boolean);
+  out.innerHTML = "";
+  if (!blocks.length) { out.innerHTML = renderMarkdown(text); return; }
+  blocks.forEach(b => {
+    const titleLine = (b.match(/^###\s*(.+)$/m) || [])[1] || "스레드 글";
+    const body = b.replace(/^###.*$/m, "").trim();
+    const card = document.createElement("div");
+    card.className = "th-post";
+    const head = document.createElement("div");
+    head.className = "th-post-head";
+    const label = document.createElement("b");
+    label.textContent = "🧵 " + titleLine;
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "btn-small";
+    copyBtn.textContent = "📋 복사";
+    copyBtn.addEventListener("click", () => {
+      navigator.clipboard?.writeText(body).then(() => toast("📋 복사됐어! 스레드에 붙여넣어봐")).catch(() => toast("복사 실패 — 길게 눌러 직접 복사해줘"));
+    });
+    head.append(label, copyBtn);
+    const pre = document.createElement("div");
+    pre.className = "th-post-body";
+    pre.textContent = body;
+    card.append(head, pre);
+    out.appendChild(card);
+  });
+}
+
+let threadsInited = false;
+function renderThreadTab() {
+  const inline = $("#th-topic-inline");
+  if (inline) inline.textContent = topicWord();
+  const patBox = $("#th-patterns");
+  const cnt = $("#th-pat-count");
+  if (cnt) cnt.textContent = threadPatterns ? `공식 ${threadPatterns.formulas.length}개 준비됨` : "";
+  if (patBox) {
+    if (threadPatterns && threadPatterns.formulas.length) {
+      patBox.innerHTML = threadPatterns.formulas.map(f =>
+        `<div class="th-formula"><b>${escapeHtml(f.label)}</b> ${escapeHtml(f.how)}${f.hook ? `<span class="th-hook">💬 ${escapeHtml(f.hook)}</span>` : ""}</div>`
+      ).join("");
+    } else {
+      patBox.innerHTML = `<div class="th-formula" style="opacity:.7">아직 수집 전이야. 위 버튼을 누르면 바이럴 공식이 여기 정리돼 — 안 눌러도 기본 공식으로 글은 만들어져!</div>`;
+    }
+  }
+  if (threadsInited) return;
+  threadsInited = true;
+  $("#th-collect")?.addEventListener("click", collectThreadViral);
+  $("#th-gen")?.addEventListener("click", () => generateThreadPost($("#th-idea").value));
+  $("#th-gen-example")?.addEventListener("click", () => { $("#th-idea").value = `요즘 ${topicWord()} 하다가 깨달은 거`; $("#th-idea").focus(); });
+  $("#th-idea")?.addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); generateThreadPost($("#th-idea").value); } });
+}
+
 let boardQuery = "";
 let boardDept = "all"; // 부서 필터 (all | TEAMS[].id)
 
@@ -6319,6 +6514,7 @@ function switchTab(name) {
   if (name === "tools") renderTools();
   if (name === "reels") renderReels();
   if (name === "trend") renderTrendTab();
+  if (name === "threads") renderThreadTab();
   if (name === "studio") renderStudio();
   if (name === "chat") renderChat();
   if (name === "library") renderLibrary();
@@ -6341,6 +6537,7 @@ function renderAll() {
   renderArchive();
   renderSponsorFeeds();
   renderSponsorBox();
+  if ($("#tab-threads")) renderThreadTab();
 }
 
 /* ---------- 이벤트 바인딩 ---------- */
@@ -7404,5 +7601,6 @@ window.__senter = {
   runCompetitorAnalysis, collectSponsorFeeds, parseSponsorResults, classifySponsor,
   getSponsorFeeds: () => sponsorFeeds, getSponsorSaved: () => sponsorSaved, saveToLinkbox, renderSponsorBox,
   normSponsorUrl, recruitType, getSponsorHidden: () => sponsorHidden, addManualLink, parseAdLibrary,
-  aiChat, freeAiCoolingDown, enterFreeAiCooldown, sweepPuterDialogs
+  aiChat, freeAiCoolingDown, enterFreeAiCooldown, sweepPuterDialogs,
+  collectThreadViral, generateThreadPost, threadOfflineDraft, getThreadPatterns: () => threadPatterns
 };

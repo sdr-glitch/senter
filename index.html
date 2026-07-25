@@ -104,6 +104,7 @@
     <button class="tab" data-tab="reels">🎬 릴스</button>
     <button class="tab" data-tab="trend">📈 트렌드</button>
     <button class="tab" data-tab="archive">📑 분석실</button>
+    <button class="tab" data-tab="threads">🧵 스레드</button>
     <button class="tab" data-tab="studio">🎨 스튜디오</button>
     <button class="tab" data-tab="library">📚 자료실</button>
     <button class="tab" data-tab="settings">⚙️ 설정</button>
@@ -614,6 +615,36 @@
     </section>
   </main>
 
+  <!-- ===== 스레드 글 생성기 탭 ===== -->
+  <main id="tab-threads" class="tab-panel hidden">
+    <section class="card">
+      <h3>🧵 스레드 글 생성기</h3>
+      <p class="card-desc">스레드(Threads)에 올릴 <b>반말 글을 자동으로 만들어</b>줘요. 주제나 아이디어를 던지면, 바이럴 잘된 글의 <b>패턴·공식</b>을 내 <b id="th-topic-inline">리빙</b> 계정에 맞게 적용해서 바로 올릴 수 있는 글 3개를 뽑아줘요.</p>
+    </section>
+
+    <section class="card">
+      <h3>1️⃣ 바이럴 패턴 수집 <span class="th-badge" id="th-pat-count"></span></h3>
+      <p class="card-desc">스레드에서 <b>바이럴 잘된 글들을 긁어와</b> 어떤 공식으로 터졌는지 분석해요. 한 번 해두면 아래 글 생성에 계속 반영돼요. (검색엔진 공개 기록을 우회 수집)</p>
+      <div class="modal-actions" style="justify-content:flex-start">
+        <button class="btn-primary" id="th-collect">🔍 바이럴 글 수집·분석</button>
+        <span id="th-collect-status" class="saved-note"></span>
+      </div>
+      <div id="th-patterns" class="th-patterns"></div>
+    </section>
+
+    <section class="card">
+      <h3>2️⃣ 주제 던지고 글 생성</h3>
+      <p class="card-desc">쓰고 싶은 주제나 떠오른 생각을 아무렇게나 적어줘. 반말 톤으로 스레드 글 3버전을 만들어줄게. (예: "요즘 주방 정리하다 깨달은 거", "자취생 살림템")</p>
+      <textarea id="th-idea" rows="2" placeholder="주제·아이디어를 던져줘 (예: 다이소에서 산 정리템 후기)"></textarea>
+      <div class="modal-actions" style="justify-content:flex-start; margin-top:8px">
+        <button class="btn-primary" id="th-gen">🧵 스레드 글 만들기</button>
+        <button class="btn-ghost" id="th-gen-example">예시로 채우기</button>
+        <span id="th-gen-status" class="saved-note"></span>
+      </div>
+      <div id="th-output" class="th-output"></div>
+    </section>
+  </main>
+
   <!-- ===== 설정 탭 ===== -->
   <main id="tab-settings" class="tab-panel hidden">
     <section class="card">
@@ -784,6 +815,7 @@
   <button data-tab="reels">🎬 릴스</button>
   <button data-tab="trend">📈 트렌드</button>
   <button data-tab="archive">📑 분석실</button>
+  <button data-tab="threads">🧵 스레드</button>
   <button data-tab="studio">🎨 스튜디오</button>
   <button data-tab="library">📚 자료실</button>
   <button data-tab="settings">⚙️ 설정</button>

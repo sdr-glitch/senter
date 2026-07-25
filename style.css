@@ -1112,3 +1112,17 @@ body {
 body > iframe[src*="puter.com"], body > iframe[src=""], body > iframe:not([src]),
 [class*="puter-dialog"], [class*="puter_dialog"], [id*="puter"], [class*="puter"] { display: none !important; }
 #app [class*="puter"], #app [id*="puter"] { display: revert !important; } /* 혹시 우리 요소에 puter가 들어가면 예외 */
+
+/* ===== 스레드 글 생성기 ===== */
+.th-badge { font-size: .72rem; color: var(--accent); font-weight: 600; margin-left: 6px; }
+#th-idea, #th-output { width: 100%; }
+#th-idea { border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; font: inherit; font-size: .9rem; background: var(--surface); resize: vertical; }
+.th-patterns { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.th-formula { font-size: .82rem; line-height: 1.55; padding: 10px 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.th-formula b { color: var(--accent); margin-right: 6px; }
+.th-hook { display: block; margin-top: 3px; font-size: .76rem; color: var(--text-soft); }
+.th-output { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+.th-post { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); overflow: hidden; }
+.th-post-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; background: var(--surface-2); border-bottom: 1px solid var(--line); }
+.th-post-head b { font-size: .85rem; }
+.th-post-body { padding: 14px; font-size: .92rem; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
